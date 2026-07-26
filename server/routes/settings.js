@@ -5,6 +5,7 @@ import {
   credentialsDb,
   notificationPreferencesDb,
   pushSubscriptionsDb,
+  userSettingsDb,
 } from '../modules/database/index.js';
 import { getPublicKey } from '../services/vapid-keys.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '../services/notification-orchestrator.js';
@@ -204,6 +205,35 @@ router.put('/notification-preferences', async (req, res) => {
   } catch (error) {
     console.error('Error saving notification preferences:', error);
     res.status(500).json({ error: 'Failed to save notification preferences' });
+  }
+});
+
+// ===============================
+// User Settings (language, theme, model, effort, editor & UI prefs)
+// Persisted per-user so they survive cache clears, relogin and origin changes
+// and follow the user across devices. Secrets (voice apiKey) are NOT stored here.
+// ===============================
+
+router.get('/user-settings', async (req, res) => {
+  try {
+    const settings = userSettingsDb.getSettings(req.user.id);
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error('Error fetching user settings:', error);
+    res.status(500).json({ error: 'Failed to fetch user settings' });
+  }
+});
+
+router.put('/user-settings', async (req, res) => {
+  try {
+    // Default to a partial merge so a client that only changed one key does not
+    // wipe the rest. Pass `?merge=false` to replace the whole blob.
+    const merge = req.query.merge !== 'false';
+    const settings = userSettingsDb.updateSettings(req.user.id, req.body || {}, merge);
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error('Error saving user settings:', error);
+    res.status(500).json({ error: 'Failed to save user settings' });
   }
 });
 

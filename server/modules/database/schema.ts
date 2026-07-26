@@ -48,6 +48,19 @@ CREATE TABLE IF NOT EXISTS user_notification_preferences (
 );
 `;
 
+// Per-user UI/composer settings (language, theme, selected model & effort,
+// editor prefs, …) persisted server-side so they survive cache clears, relogin
+// and origin/port changes and follow the user across devices. Stored as one
+// JSON blob; secrets (e.g. voice apiKey) live in user_credentials, not here.
+export const USER_SETTINGS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id INTEGER PRIMARY KEY,
+    settings_json TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
 export const VAPID_KEYS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS vapid_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,6 +168,9 @@ CREATE INDEX IF NOT EXISTS idx_user_credentials_active ON user_credentials(is_ac
 
 ${USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_user_notification_preferences_user_id ON user_notification_preferences(user_id);
+
+${USER_SETTINGS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
 
 ${VAPID_KEYS_TABLE_SCHEMA_SQL}
 
