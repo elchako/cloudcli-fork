@@ -12,6 +12,7 @@ import type {
   OnboardingStatusPayload,
 } from '../types';
 import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
+import { loadUserSettingsIntoLocalStorage } from '../../../utils/userSettingsSync';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -105,6 +106,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
+      await loadUserSettingsIntoLocalStorage();
       setUser(userPayload.user);
       await checkOnboardingStatus();
     } catch (caughtError) {
@@ -143,6 +145,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         setSession(payload.user, payload.token);
         setNeedsSetup(false);
+        await loadUserSettingsIntoLocalStorage();
         await checkOnboardingStatus();
         return { success: true };
       } catch (caughtError) {
@@ -169,6 +172,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         setSession(payload.user, payload.token);
         setNeedsSetup(false);
+        await loadUserSettingsIntoLocalStorage();
         await checkOnboardingStatus();
         return { success: true };
       } catch (caughtError) {

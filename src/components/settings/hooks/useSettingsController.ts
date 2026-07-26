@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTheme } from '../../../contexts/ThemeContext';
 import { authenticatedFetch } from '../../../utils/api';
+import { pushLocalSettingsToServer } from '../../../utils/userSettingsSync';
 import { setNotificationSoundEnabled } from '../../../utils/notificationSound';
 import { useProviderAuthStatus } from '../../provider-auth/hooks/useProviderAuthStatus';
 import {
@@ -275,6 +276,11 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
       if (!notificationResponse.ok) {
         throw new Error('Failed to save notification preferences');
       }
+
+      // Mirror the per-user UI/composer settings (language, theme, model,
+      // effort, editor & UI prefs) up to the DB so they survive cache clears,
+      // relogin and origin changes and follow the user across devices.
+      void pushLocalSettingsToServer();
 
       setSaveStatus('success');
     } catch (error) {

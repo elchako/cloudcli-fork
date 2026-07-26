@@ -257,6 +257,15 @@ export const api = {
       }),
   },
 
+  // Per-user settings persisted server-side (language, theme, model, effort,
+  // editor & UI prefs). Survive cache clears / relogin / origin changes.
+  getUserSettings: () => authenticatedFetch('/api/settings/user-settings'),
+  updateUserSettings: (settings, { merge = true } = {}) =>
+    authenticatedFetch(`/api/settings/user-settings${merge ? '' : '?merge=false'}`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+
   // Generic GET method for any endpoint
   get: (endpoint) => authenticatedFetch(`/api${endpoint}`),
 
