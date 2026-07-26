@@ -10,6 +10,7 @@ import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
+import { MarkdownImage } from './MarkdownImage';
 
 type MarkdownProps = {
   children: React.ReactNode;
@@ -159,6 +160,9 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
 
 const markdownComponents = {
   code: CodeBlock,
+  img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => (
+    <MarkdownImage src={src} alt={alt} title={title} />
+  ),
   // CodeBlock renders its own syntax-highlighted <pre>; this passthrough stops
   // react-markdown (and Tailwind Typography) from wrapping it in a second,
   // dark-themed <pre> shell that would frame the block.
