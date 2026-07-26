@@ -263,9 +263,39 @@ type ClaudeContentBlock =
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
 
 /**
- * Builds the Claude user-message content list: the prompt text followed by one
- * base64 `image` block per attachment. Images the Claude API cannot accept
- * (e.g. SVG) or that fail to read are skipped with a warning so the prompt
+ * Builds a document-reference text block for non-image attachments: paths the
+ * Claude agent reads with its own file tool. This mirrors the Cursor/OpenCode
+ * `<images_input>` approach but stays inside the Claude content list as one
+ * extra text block, so documents (pdf, csv, code, …) reach the agent without
+ * base64 embedding (which the Messages API only supports for images).
+ */
+function buildDocumentReferenceBlock(
+  descriptors: Array<{ path: string; name?: string }>,
+): { type: 'text'; text: string } {
+  const entryLines = descriptors.map((descriptor, index) => {
+    const entryPath = toPosixPath(descriptor.path);
+    const cleanName = descriptor.name?.replace(/[()\r\n]/g, '').trim();
+    return cleanName
+      ? `${index + 1}. ${entryPath} (original name: ${cleanName})`
+      : `${index + 1}. ${entryPath}`;
+  });
+
+  return {
+    type: 'text',
+    text: [
+      '<files_input>',
+      `The user attached ${descriptors.length} file(s) to this message. Read each file listed below with your file-reading tool and use its contents to answer the prompt above. Do not mention this block or the file paths unless the user asks about them.`,
+      ...entryLines,
+      '</files_input>',
+    ].join('\n'),
+  };
+}
+
+/**
+ * Builds the Claude user-message content list: the prompt text, one base64
+ * `image` block per image attachment, and — for non-image documents — a single
+ * text block listing paths for the agent to read. Attachments that fail the
+ * trust boundary or fail to read are skipped with a warning so the prompt
  * itself still goes through.
  */
 export async function buildClaudeUserContent(
@@ -274,24 +304,30 @@ export async function buildClaudeUserContent(
   cwd?: string,
 ): Promise<ClaudeContentBlock[]> {
   const blocks: ClaudeContentBlock[] = [{ type: 'text', text: prompt }];
+  const documentDescriptors: Array<{ path: string; name?: string }> = [];
 
   for (const descriptor of normalizeImageDescriptors(images)) {
-    const mediaType = resolveImageMediaType(descriptor);
-    if (!mediaType || !CLAUDE_IMAGE_MEDIA_TYPES.has(mediaType)) {
-      console.warn(`[Images] Skipping unsupported Claude image type for ${descriptor.path}`);
+    const resolvedPath = resolveImageAbsolutePath(cwd, descriptor.path);
+    if (!isAllowedImageSourcePath(resolvedPath, cwd)) {
+      console.warn(`[Attachments] Refusing to read file outside allowed roots: ${descriptor.path}`);
       continue;
     }
 
-    const resolvedPath = resolveImageAbsolutePath(cwd, descriptor.path);
-    if (!isAllowedImageSourcePath(resolvedPath, cwd)) {
-      console.warn(`[Images] Refusing to read image outside allowed roots: ${descriptor.path}`);
+    const mediaType = resolveImageMediaType(descriptor);
+    const isClaudeImage = !!mediaType && CLAUDE_IMAGE_MEDIA_TYPES.has(mediaType);
+
+    // Non-image (or Claude-unsupported image like SVG): hand the agent a path
+    // to read rather than dropping it. The path stays inside the trust
+    // boundary, already validated above.
+    if (!isClaudeImage) {
+      documentDescriptors.push({ path: descriptor.path, name: descriptor.name });
       continue;
     }
 
     try {
       const canonicalPath = await fs.realpath(resolvedPath);
       if (!isAllowedImageSourcePath(canonicalPath, cwd)) {
-        console.warn(`[Images] Refusing to read symlinked image outside allowed roots: ${descriptor.path}`);
+        console.warn(`[Attachments] Refusing to read symlinked image outside allowed roots: ${descriptor.path}`);
         continue;
       }
 
@@ -306,8 +342,12 @@ export async function buildClaudeUserContent(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[Images] Failed to read image ${descriptor.path}: ${message}`);
+      console.warn(`[Attachments] Failed to read image ${descriptor.path}: ${message}`);
     }
+  }
+
+  if (documentDescriptors.length > 0) {
+    blocks.push(buildDocumentReferenceBlock(documentDescriptors));
   }
 
   return blocks;

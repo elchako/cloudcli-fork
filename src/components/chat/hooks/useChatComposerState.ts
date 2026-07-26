@@ -29,6 +29,12 @@ import type {
 } from '../types/types';
 import type { Project, ProjectSession, LLMProvider, ProviderModelsCacheInfo } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
+import {
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
+  dropzoneAccept,
+  isSupportedAttachment,
+} from '../utils/attachmentSupport';
 
 import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
@@ -521,15 +527,21 @@ export function useChatComposerState({
           return false;
         }
 
-        if (!file.type || !file.type.startsWith('image/')) {
-          return false;
-        }
-
-        if (!file.size || file.size > 5 * 1024 * 1024) {
+        if (!isSupportedAttachment(file)) {
           const fileName = file.name || 'Unknown file';
           setImageErrors((previous) => {
             const next = new Map(previous);
-            next.set(fileName, 'File too large (max 5MB)');
+            next.set(fileName, 'Unsupported file type');
+            return next;
+          });
+          return false;
+        }
+
+        if (!file.size || file.size > MAX_ATTACHMENT_BYTES) {
+          const fileName = file.name || 'Unknown file';
+          setImageErrors((previous) => {
+            const next = new Map(previous);
+            next.set(fileName, 'File too large (max 20MB)');
             return next;
           });
           return false;
@@ -543,7 +555,7 @@ export function useChatComposerState({
     });
 
     if (validFiles.length > 0) {
-      setAttachedImages((previous) => [...previous, ...validFiles].slice(0, 5));
+      setAttachedImages((previous) => [...previous, ...validFiles].slice(0, MAX_ATTACHMENTS));
     }
   }, []);
 
@@ -551,6 +563,8 @@ export function useChatComposerState({
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
       const items = Array.from(event.clipboardData.items);
 
+      // Inline image items (pasted screenshots) — attach directly. Non-image
+      // clipboard items are left alone so pasted text still lands in the input.
       items.forEach((item) => {
         if (!item.type.startsWith('image/')) {
           return;
@@ -561,11 +575,12 @@ export function useChatComposerState({
         }
       });
 
+      // Pasted files (from a file manager): accept any supported attachment.
       if (items.length === 0 && event.clipboardData.files.length > 0) {
         const files = Array.from(event.clipboardData.files);
-        const imageFiles = files.filter((file) => file.type.startsWith('image/'));
-        if (imageFiles.length > 0) {
-          handleImageFiles(imageFiles);
+        const supported = files.filter((file) => isSupportedAttachment(file));
+        if (supported.length > 0) {
+          handleImageFiles(supported);
         }
       }
     },
@@ -573,11 +588,9 @@ export function useChatComposerState({
   );
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
-    accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'],
-    },
-    maxSize: 5 * 1024 * 1024,
-    maxFiles: 5,
+    accept: dropzoneAccept(),
+    maxSize: MAX_ATTACHMENT_BYTES,
+    maxFiles: MAX_ATTACHMENTS,
     onDrop: handleImageFiles,
     noClick: true,
     noKeyboard: true,

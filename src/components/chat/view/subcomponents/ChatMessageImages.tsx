@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { X, FileText } from 'lucide-react';
 
 import { authenticatedFetch } from '../../../../utils/api';
 import type { ChatImage } from '../../types/types';
@@ -9,6 +9,20 @@ type ChatMessageImagesProps = {
   images: ChatImage[];
   projectId?: string | null;
 };
+
+// An attachment is an image when its mime type says so, or (fallback) when its
+// name has an image extension. Everything else is treated as a document card.
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+function isImageAttachment(image: ChatImage): boolean {
+  if (image.data && image.data.startsWith('data:image/')) {
+    return true;
+  }
+  if (image.mimeType) {
+    return image.mimeType.startsWith('image/');
+  }
+  const source = image.name || image.path || '';
+  return IMAGE_EXTENSIONS.test(source);
+}
 
 /**
  * Resolves one chat image to a displayable src. Inline data URLs are used
@@ -161,9 +175,55 @@ function ChatMessageImage({ image, projectId }: { image: ChatImage; projectId?: 
 }
 
 /**
- * Image attachments for a user turn, rendered claude.ai-style: standalone
- * rounded square cards shown above the message bubble. Each thumbnail
- * expands to a fullscreen lightbox on click.
+ * Non-image attachment (document, csv, code, …) rendered as a compact card with
+ * a file icon and name. Clicking downloads it via an authenticated blob fetch,
+ * since the serving route forces `Content-Disposition: attachment` for
+ * non-images and a bare link cannot carry the auth header.
+ */
+function ChatMessageDocument({ image }: { image: ChatImage }) {
+  const name = image.name || (image.path ? image.path.split(/[\\/]/).pop() : '') || 'Attachment';
+
+  const handleDownload = async () => {
+    const filename = (image.path || '').split(/[\\/]/).pop() || '';
+    if (!filename) {
+      return;
+    }
+    try {
+      const response = await authenticatedFetch(`/api/assets/images/${encodeURIComponent(filename)}`);
+      if (!response.ok) {
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Ignore download failures; the card stays visible.
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      title={`Download ${name}`}
+      className="flex max-w-56 items-center gap-2 rounded-xl border border-border/50 bg-muted px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/70 focus:outline-none focus:ring-2 focus:ring-primary/60"
+    >
+      <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+      <span className="truncate text-xs text-foreground">{name}</span>
+    </button>
+  );
+}
+
+/**
+ * Attachments for a user turn, rendered claude.ai-style: standalone rounded
+ * cards shown above the message bubble. Images expand to a fullscreen lightbox;
+ * documents download on click.
  */
 export default function ChatMessageImages({ images, projectId }: ChatMessageImagesProps) {
   if (!images || images.length === 0) {
@@ -172,9 +232,13 @@ export default function ChatMessageImages({ images, projectId }: ChatMessageImag
 
   return (
     <div className="flex flex-wrap justify-end gap-2">
-      {images.map((image, index) => (
-        <ChatMessageImage key={image.path || image.name || index} image={image} projectId={projectId} />
-      ))}
+      {images.map((image, index) =>
+        isImageAttachment(image) ? (
+          <ChatMessageImage key={image.path || image.name || index} image={image} projectId={projectId} />
+        ) : (
+          <ChatMessageDocument key={image.path || image.name || index} image={image} />
+        ),
+      )}
     </div>
   );
 }

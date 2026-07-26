@@ -15,6 +15,59 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/svg+xml',
 ]);
 
+/**
+ * Non-image mime types accepted for chat attachment uploads (documents, text,
+ * data, code). These are delivered to the agent as a file path it reads with
+ * its own file-reading tool, not embedded as base64 — so the list is about what
+ * is safe to store and hand over, not what a vision model can decode.
+ * Executables/scripts with an active mime are intentionally excluded; harmless
+ * text-like code files usually arrive as text/plain or an empty mime and pass
+ * via the extension allowlist below.
+ */
+const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/tab-separated-values',
+  'text/html',
+  'text/xml',
+  'application/xml',
+  'application/json',
+  'application/x-ndjson',
+  'application/x-yaml',
+  'text/yaml',
+  'application/rtf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/zip',
+  'application/gzip',
+  'application/x-tar',
+]);
+
+/**
+ * Extensions accepted when the browser sends an empty or generic mime type
+ * (common for source code, logs, config). Delivery is path-based (the agent
+ * reads the file), so these are safe to store.
+ */
+const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
+  '.txt', '.md', '.markdown', '.log', '.csv', '.tsv', '.json', '.ndjson',
+  '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.env', '.xml', '.html',
+  '.htm', '.pdf', '.rtf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.odt', '.ods', '.zip', '.gz', '.tar',
+  // common code/text extensions (read as text by the agent)
+  '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.rb', '.go', '.rs',
+  '.java', '.kt', '.c', '.h', '.cpp', '.hpp', '.cs', '.php', '.sh', '.bash',
+  '.sql', '.css', '.scss', '.less', '.vue', '.svelte', '.astro', '.dart',
+  '.swift', '.lua', '.pl', '.r', '.jl', '.tf', '.dockerfile', '.gitignore',
+]);
+
 // Used only by this service and the assets routes via the barrel file.
 type StoredImageAsset = {
   /** Original upload filename, for display. */
@@ -23,6 +76,8 @@ type StoredImageAsset = {
   path: string;
   size: number;
   mimeType: string;
+  /** 'image' → previewable/vision; 'document' → delivered as a readable path. */
+  kind: 'image' | 'document';
 };
 
 // Shape of one multer-stored file; kept local because only this module reads it.
@@ -36,6 +91,40 @@ type UploadedImageFile = {
 /** Returns whether one uploaded mime type may be stored as a chat image asset. */
 export function isAllowedImageMimeType(mimeType: string): boolean {
   return ALLOWED_IMAGE_MIME_TYPES.has(mimeType);
+}
+
+/**
+ * Returns whether one uploaded file may be stored as a non-image document
+ * attachment. Accepts by mime type, or — when the browser sends no/generic mime
+ * — by a safe file extension. Path-based delivery means the agent reads the
+ * file with its own tool; no base64 embedding.
+ */
+export function isAllowedDocumentUpload(mimeType: string, originalName: string): boolean {
+  if (mimeType && ALLOWED_DOCUMENT_MIME_TYPES.has(mimeType)) {
+    return true;
+  }
+  const ext = path.extname(originalName || '').toLowerCase();
+  if (ext && ALLOWED_DOCUMENT_EXTENSIONS.has(ext)) {
+    return true;
+  }
+  // Generic/empty mime with a text-like family (e.g. "text/x-python").
+  if (mimeType.startsWith('text/')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Returns whether one uploaded file is an acceptable chat attachment of any
+ * kind (image or document).
+ */
+export function isAllowedAttachmentUpload(mimeType: string, originalName: string): boolean {
+  return isAllowedImageMimeType(mimeType) || isAllowedDocumentUpload(mimeType, originalName);
+}
+
+/** Classifies a stored attachment for the UI and provider delivery. */
+export function classifyAttachmentKind(mimeType: string): 'image' | 'document' {
+  return isAllowedImageMimeType(mimeType) ? 'image' : 'document';
 }
 
 /** Creates the global `~/.cloudcli/assets` folder if needed and returns it. */
@@ -57,6 +146,7 @@ export function buildStoredImageRecords(files: UploadedImageFile[]): StoredImage
     path: toPosixPath(path.join(assetsDir, file.filename)),
     size: file.size,
     mimeType: file.mimetype,
+    kind: classifyAttachmentKind(file.mimetype),
   }));
 }
 

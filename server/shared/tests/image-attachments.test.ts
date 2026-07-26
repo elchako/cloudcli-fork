@@ -181,7 +181,7 @@ test('buildClaudeUserContent reads image bytes into base64 blocks', async () => 
   }
 });
 
-test('buildClaudeUserContent skips unsupported types and unreadable files', async () => {
+test('buildClaudeUserContent drops unreadable images and defers non-vision files to a read block', async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'image-attachments-'));
   try {
     await writeFile(path.join(tempDir, 'vector.svg'), '<svg></svg>');
@@ -189,13 +189,61 @@ test('buildClaudeUserContent skips unsupported types and unreadable files', asyn
     const content = await buildClaudeUserContent(
       'prompt',
       [
+        // SVG is not a Claude vision type, but it lives in the trust boundary,
+        // so it becomes a path the agent reads (files_input block).
         { path: 'vector.svg', mimeType: 'image/svg+xml' },
+        // A declared PNG that does not exist fails the base64 read and is dropped.
         { path: 'missing.png', mimeType: 'image/png' },
       ],
       tempDir,
     );
 
-    // Only the text block survives; the prompt still goes through.
+    assert.equal(content.length, 2);
+    assert.deepEqual(content[0], { type: 'text', text: 'prompt' });
+    assert.equal(content[1].type, 'text');
+    const docBlock = content[1] as Extract<(typeof content)[number], { type: 'text' }>;
+    assert.ok(docBlock.text.includes('<files_input>'));
+    assert.ok(docBlock.text.includes('vector.svg'));
+    assert.ok(!docBlock.text.includes('missing.png'));
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('buildClaudeUserContent delivers a document attachment as a files_input block', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'image-attachments-'));
+  try {
+    await writeFile(path.join(tempDir, 'notes.md'), '# hello');
+
+    const content = await buildClaudeUserContent(
+      'summarize this',
+      [{ path: 'notes.md', name: 'notes.md', mimeType: 'text/markdown' }],
+      tempDir,
+    );
+
+    assert.equal(content.length, 2);
+    assert.deepEqual(content[0], { type: 'text', text: 'summarize this' });
+    assert.equal(content[1].type, 'text');
+    const docBlock = content[1] as Extract<(typeof content)[number], { type: 'text' }>;
+    assert.ok(docBlock.text.includes('<files_input>'));
+    assert.ok(docBlock.text.includes('notes.md'));
+    assert.ok(docBlock.text.includes('original name: notes.md'));
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('buildClaudeUserContent refuses a document outside allowed roots', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'image-attachments-'));
+  try {
+    // Absolute path pointing outside the trust boundary must be refused, so no
+    // files_input block is produced — only the prompt text survives.
+    const content = await buildClaudeUserContent(
+      'prompt',
+      [{ path: '/etc/passwd', mimeType: 'text/plain' }],
+      tempDir,
+    );
+
     assert.deepEqual(content, [{ type: 'text', text: 'prompt' }]);
   } finally {
     await rm(tempDir, { recursive: true, force: true });

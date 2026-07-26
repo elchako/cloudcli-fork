@@ -7,6 +7,7 @@ import multer from 'multer';
 import {
   buildStoredImageRecords,
   ensureImageAssetsDir,
+  isAllowedAttachmentUpload,
   isAllowedImageMimeType,
   resolveImageAssetFile,
 } from '@/modules/assets/services/image-assets.service.js';
@@ -31,14 +32,14 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    if (isAllowedImageMimeType(file.mimetype)) {
+    if (isAllowedAttachmentUpload(file.mimetype, file.originalname)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
+      cb(new Error('Unsupported file type. Attach an image or a document (pdf, text, csv, json, code, office, archive).'));
     }
   },
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB
+    fileSize: 20 * 1024 * 1024, // 20MB — documents/pdf are larger than images
     files: 5,
   },
 });
@@ -56,7 +57,7 @@ router.post('/images', (req, res) => {
 
     const files = Array.isArray(req.files) ? req.files : [];
     if (files.length === 0) {
-      return res.status(400).json({ error: 'No image files provided' });
+      return res.status(400).json({ error: 'No files provided' });
     }
 
     res.json({ images: buildStoredImageRecords(files) });
@@ -87,7 +88,10 @@ router.get('/images/:filename', async (req, res) => {
   // fetches assets as blobs and shows them through <img>, where SVG scripts
   // never execute.
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  if (contentType === 'image/svg+xml') {
+  // SVG and any non-image document are forced to download rather than render
+  // inline: SVGs can carry scripts, and documents (html/pdf/office) must never
+  // execute in the app origin. Real images still render inline via <img>.
+  if (contentType === 'image/svg+xml' || !isAllowedImageMimeType(contentType)) {
     res.setHeader('Content-Disposition', 'attachment');
   }
   const fileStream = fsSync.createReadStream(resolved);
