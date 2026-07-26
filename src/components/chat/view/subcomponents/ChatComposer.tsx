@@ -509,6 +509,12 @@ export default function ChatComposer({
                       transform: 'translateY(-100%)',
                     }}
                     role="menu"
+                    // The menu is portalled to document.body, so on touch the
+                    // global `pointerdown` outside-close listener can fire on the
+                    // same tap that selects an option and unmount the button
+                    // before its onClick runs. Stop pointerdown from bubbling out
+                    // of the menu so the outside-close never triggers on it.
+                    onPointerDown={(event) => event.stopPropagation()}
                   >
                     {effortOptions.map((option) => {
                       const isSelected = option.value === effort;
@@ -519,11 +525,18 @@ export default function ChatComposer({
                           type="button"
                           role="menuitemradio"
                           aria-checked={isSelected}
-                          onClick={() => {
+                          onMouseDown={(event) => {
+                            // Mirror the file dropdown: keep focus off the button
+                            // and stop the press from reaching outside-close.
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
                             onSelectEffort(option.value);
                             setIsEffortDropdownOpen(false);
                           }}
-                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs capitalize transition-colors ${
+                          className={`flex w-full touch-manipulation items-center gap-2 rounded px-2 py-1.5 text-left text-xs capitalize transition-colors ${
                             isSelected
                               ? 'bg-accent text-foreground'
                               : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
