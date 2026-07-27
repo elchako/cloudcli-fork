@@ -86,3 +86,26 @@ test('updateUserSettings rejects non-object payloads to an empty blob', async ()
   assert.deepEqual(userSettingsDb.updateSettings(1, 'nope', false), {});
   assert.deepEqual(userSettingsDb.updateSettings(1, [1, 2, 3], false), {});
 });
+
+test('oversized blob evicts only the largest key, not everything', async () => {
+  const { userSettingsDb } = await import('@/modules/database/repositories/user-settings.js');
+  const huge = 'x'.repeat(70 * 1024); // > 64KB cap on its own
+  const stored = userSettingsDb.updateSettings(1, {
+    userLanguage: 'ru',
+    theme: 'dark',
+    bloated: huge,
+  }, false);
+  // The bloated key is dropped; the small, valid settings survive.
+  assert.equal(stored.bloated, undefined);
+  assert.equal(stored.userLanguage, 'ru');
+  assert.equal(stored.theme, 'dark');
+});
+
+test('merge preserves existing keys not present in the update (atomic RMW)', async () => {
+  const { userSettingsDb } = await import('@/modules/database/repositories/user-settings.js');
+  userSettingsDb.updateSettings(1, { a: '1', b: '2', c: '3' }, false);
+  const merged = userSettingsDb.updateSettings(1, { b: 'updated' }, true);
+  assert.equal(merged.a, '1');
+  assert.equal(merged.b, 'updated');
+  assert.equal(merged.c, '3');
+});

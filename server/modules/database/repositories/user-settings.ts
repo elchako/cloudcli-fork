@@ -29,9 +29,17 @@ const FORBIDDEN_KEYS = new Set(['voiceApiKey', 'apiKey']);
 /**
  * Accepts an arbitrary client-supplied settings object and returns a safe,
  * JSON-serializable plain object. Non-objects become empty; forbidden secret
- * keys are stripped; values are kept only when JSON-serializable; the whole
- * blob is dropped to empty if it exceeds the size cap.
+ * keys are stripped; values are kept only when JSON-serializable. If the blob
+ * exceeds the size cap, the largest keys are dropped one at a time until it
+ * fits — a single oversized value must not wipe every other setting.
  */
+function byteLength(str: string): number {
+  // Size cap is about bytes on disk (UTF-8), not UTF-16 code units.
+  return typeof TextEncoder !== 'undefined'
+    ? new TextEncoder().encode(str).length
+    : Buffer.byteLength(str, 'utf8');
+}
+
 function normalizeUserSettings(value: unknown): UserSettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { ...EMPTY_SETTINGS };
@@ -55,9 +63,21 @@ function normalizeUserSettings(value: unknown): UserSettings {
     }
   }
 
-  const serializedAll = JSON.stringify(result);
-  if (serializedAll.length > MAX_SETTINGS_BYTES) {
-    return { ...EMPTY_SETTINGS };
+  // Enforce the size cap by evicting the largest keys, not by nuking the blob.
+  while (byteLength(JSON.stringify(result)) > MAX_SETTINGS_BYTES) {
+    let largestKey: string | null = null;
+    let largestSize = -1;
+    for (const [key, entry] of Object.entries(result)) {
+      const size = byteLength(JSON.stringify(entry) ?? '');
+      if (size > largestSize) {
+        largestSize = size;
+        largestKey = key;
+      }
+    }
+    if (largestKey === null) {
+      break; // empty object still over cap (impossible) — give up
+    }
+    delete result[largestKey];
   }
 
   return result;
@@ -91,21 +111,41 @@ export const userSettingsDb = {
    */
   updateUserSettings(userId: number, settings: unknown, merge = true): UserSettings {
     const db = getConnection();
-
     const incoming = normalizeUserSettings(settings);
-    const next = merge
-      ? normalizeUserSettings({ ...userSettingsDb.getUserSettings(userId), ...incoming })
-      : incoming;
 
-    db.prepare(
-      `INSERT INTO user_settings (user_id, settings_json, updated_at)
-       VALUES (?, ?, CURRENT_TIMESTAMP)
-       ON CONFLICT(user_id) DO UPDATE SET
-         settings_json = excluded.settings_json,
-         updated_at = CURRENT_TIMESTAMP`
-    ).run(userId, JSON.stringify(next));
+    // Read-modify-write for a merge must be atomic, or two concurrent PUTs can
+    // read the same base and the second write silently drops the first's keys.
+    // better-sqlite3 runs the transaction body synchronously with no await, so
+    // nothing else touches the row between the SELECT and the upsert.
+    const apply = db.transaction((): UserSettings => {
+      let next = incoming;
+      if (merge) {
+        const existing = db
+          .prepare('SELECT settings_json FROM user_settings WHERE user_id = ?')
+          .get(userId) as { settings_json: string } | undefined;
+        let base: UserSettings = {};
+        if (existing) {
+          try {
+            base = normalizeUserSettings(JSON.parse(existing.settings_json));
+          } catch {
+            base = {};
+          }
+        }
+        next = normalizeUserSettings({ ...base, ...incoming });
+      }
 
-    return next;
+      db.prepare(
+        `INSERT INTO user_settings (user_id, settings_json, updated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id) DO UPDATE SET
+           settings_json = excluded.settings_json,
+           updated_at = CURRENT_TIMESTAMP`
+      ).run(userId, JSON.stringify(next));
+
+      return next;
+    });
+
+    return apply();
   },
 
   // Convenience aliases matching the route naming.

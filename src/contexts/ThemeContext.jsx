@@ -60,6 +60,24 @@ export const ThemeProvider = ({ children }) => {
     }
   }, [isDarkMode]);
 
+  // Adopt a theme pulled from the server (per-user settings sync). The sync
+  // layer writes `theme` to localStorage and dispatches this event; without
+  // syncing React state here, a later re-render's effect above would overwrite
+  // the DOM class from the stale `isDarkMode` and revert the server value.
+  useEffect(() => {
+    const handleServerTheme = () => {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme === 'dark' || savedTheme === 'light') {
+        setIsDarkMode((prev) => {
+          const next = savedTheme === 'dark';
+          return prev === next ? prev : next;
+        });
+      }
+    };
+    window.addEventListener('cloudcli:settings-applied', handleServerTheme);
+    return () => window.removeEventListener('cloudcli:settings-applied', handleServerTheme);
+  }, []);
+
   // Listen for system theme changes
   useEffect(() => {
     if (!window.matchMedia) return;

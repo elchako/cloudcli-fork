@@ -51,6 +51,13 @@ const PREFIX_SYNCED_KEYS = ['permissionMode-'];
 
 const MIGRATION_DONE_KEY = 'user-settings-migrated';
 
+// Keys that app code writes to localStorage automatically on first load (i18n
+// language detector, ThemeContext system-preference fallback) even without an
+// explicit user choice. They are excluded from the one-time migration so a
+// default doesn't get fossilized as a cross-device preference; an explicit
+// later change is still captured by pushLocalSettingsToServer.
+const AUTO_DEFAULT_KEYS = ['userLanguage', 'theme'];
+
 function isSyncedKey(key) {
   if (SYNCED_SETTINGS_KEYS.includes(key)) {
     return true;
@@ -100,26 +107,18 @@ function applyToLocalStorage(settings) {
 
 /**
  * Applies live effects for settings that are read synchronously at app start
- * (theme class on <html>, i18n language) so pulling them from the DB on a
- * reload does not require a full page refresh or leave a visible mismatch.
+ * (theme, i18n language) so pulling them from the DB on a reload does not
+ * require a full page refresh or leave a visible mismatch.
+ *
+ * Theme is NOT applied by touching the DOM class directly — ThemeContext owns
+ * `isDarkMode` in React state, and a direct classList change would be reverted
+ * by its next render. Instead we dispatch `cloudcli:settings-applied`, which
+ * ThemeContext listens for and adopts into its state (the source of truth).
+ * i18n is its own source of truth, so `changeLanguage` is called directly.
  */
 async function applyLiveEffects(settings) {
   if (!settings || typeof settings !== 'object') {
     return;
-  }
-
-  // Theme: toggle the `dark` class the same way ThemeContext does.
-  if (typeof settings.theme === 'string') {
-    try {
-      const root = document.documentElement;
-      if (settings.theme === 'dark') {
-        root.classList.add('dark');
-      } else if (settings.theme === 'light') {
-        root.classList.remove('dark');
-      }
-    } catch {
-      // Non-DOM environment — ignore.
-    }
   }
 
   // Language: switch i18n if it differs from the current one.
@@ -131,6 +130,14 @@ async function applyLiveEffects(settings) {
     } catch {
       // i18n not available — ignore.
     }
+  }
+
+  // Theme (and any other React-owned setting): notify context providers to
+  // re-read localStorage and sync their state.
+  try {
+    window.dispatchEvent(new Event('cloudcli:settings-applied'));
+  } catch {
+    // Non-DOM environment — ignore.
   }
 }
 
@@ -156,8 +163,21 @@ export async function loadUserSettingsIntoLocalStorage() {
       return;
     }
 
-    // Empty server blob: one-time migration of existing local settings up.
+    // Empty server blob. Migrate existing local settings up exactly once: the
+    // migration flag guards against re-running (e.g. if the blob is later
+    // cleared), which would otherwise re-seed auto-written defaults.
+    if (hasMigrated()) {
+      return;
+    }
+
+    // Exclude auto-written defaults from the one-time migration: i18n writes
+    // `userLanguage` and ThemeContext writes `theme` on first load even when the
+    // user never chose them, so migrating them would fossilize a default as an
+    // explicit cross-device choice. A later explicit change is captured by push.
     const local = readLocalSettings();
+    for (const key of AUTO_DEFAULT_KEYS) {
+      delete local[key];
+    }
     if (Object.keys(local).length > 0) {
       await api.updateUserSettings(local, { merge: false });
     }
@@ -194,4 +214,10 @@ function markMigrated() {
   }
 }
 
-export { isSyncedKey };
+function hasMigrated() {
+  try {
+    return localStorage.getItem(MIGRATION_DONE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
