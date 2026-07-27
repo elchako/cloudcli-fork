@@ -65,7 +65,16 @@ const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
   '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.rb', '.go', '.rs',
   '.java', '.kt', '.c', '.h', '.cpp', '.hpp', '.cs', '.php', '.sh', '.bash',
   '.sql', '.css', '.scss', '.less', '.vue', '.svelte', '.astro', '.dart',
-  '.swift', '.lua', '.pl', '.r', '.jl', '.tf', '.dockerfile', '.gitignore',
+  '.swift', '.lua', '.pl', '.r', '.jl', '.tf',
+]);
+
+/**
+ * Extension-less or dotfile names matched by full basename (path.extname
+ * returns '' for these, so an extension allowlist never catches them).
+ */
+const ALLOWED_DOCUMENT_FILENAMES = new Set([
+  'dockerfile', '.gitignore', '.dockerignore', '.env', 'makefile', '.npmrc',
+  '.editorconfig', '.prettierrc', '.eslintrc',
 ]);
 
 // Used only by this service and the assets routes via the barrel file.
@@ -103,8 +112,14 @@ export function isAllowedDocumentUpload(mimeType: string, originalName: string):
   if (mimeType && ALLOWED_DOCUMENT_MIME_TYPES.has(mimeType)) {
     return true;
   }
-  const ext = path.extname(originalName || '').toLowerCase();
+  const name = (originalName || '').toLowerCase();
+  const ext = path.extname(name);
   if (ext && ALLOWED_DOCUMENT_EXTENSIONS.has(ext)) {
+    return true;
+  }
+  // Extension-less or dotfile config/text files (path.extname returns '' for
+  // "Dockerfile" and ".gitignore"): match the whole basename.
+  if (ALLOWED_DOCUMENT_FILENAMES.has(path.basename(name))) {
     return true;
   }
   // Generic/empty mime with a text-like family (e.g. "text/x-python").

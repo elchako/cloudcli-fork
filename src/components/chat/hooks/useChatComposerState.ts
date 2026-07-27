@@ -555,7 +555,22 @@ export function useChatComposerState({
     });
 
     if (validFiles.length > 0) {
-      setAttachedImages((previous) => [...previous, ...validFiles].slice(0, MAX_ATTACHMENTS));
+      setAttachedImages((previous) => {
+        const combined = [...previous, ...validFiles];
+        if (combined.length > MAX_ATTACHMENTS) {
+          // Don't silently drop attachments over the limit — tell the user.
+          const dropped = combined.length - MAX_ATTACHMENTS;
+          setImageErrors((prevErrors) => {
+            const next = new Map(prevErrors);
+            next.set(
+              '__limit__',
+              `Only ${MAX_ATTACHMENTS} attachments allowed — ${dropped} not added`,
+            );
+            return next;
+          });
+        }
+        return combined.slice(0, MAX_ATTACHMENTS);
+      });
     }
   }, []);
 

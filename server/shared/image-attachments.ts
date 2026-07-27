@@ -358,24 +358,38 @@ type CodexInputItem =
   | { type: 'local_image'; path: string };
 
 /**
- * Builds the Codex `runStreamed` input list: prompt text plus one
- * `local_image` item per attachment, resolved to absolute paths so the Codex
- * runtime can read them regardless of its own working directory handling.
+ * Builds the Codex `runStreamed` input list: prompt text, one `local_image`
+ * item per image attachment, and — for non-image documents — a single
+ * `<files_input>` text block listing paths for the agent to read. Sending a
+ * document as `local_image` would make the Codex runtime try to decode a PDF or
+ * CSV as an image and fail, so documents are delivered as readable paths (the
+ * same approach used for Claude and Cursor/OpenCode).
  */
 export function buildCodexInputItems(prompt: string, images: unknown, cwd?: string): CodexInputItem[] {
   const items: CodexInputItem[] = [{ type: 'text', text: prompt }];
+  const documentDescriptors: Array<{ path: string; name?: string }> = [];
+
   for (const descriptor of normalizeImageDescriptors(images)) {
     const resolvedPath = resolveImageAbsolutePath(cwd, descriptor.path);
     if (!isAllowedImageSourcePath(resolvedPath, cwd)) {
       // Same trust boundary as buildClaudeUserContent — the Codex runtime
       // reads this file, so it must stay within the allowed roots.
-      console.warn(`[Images] Refusing to attach image outside allowed roots: ${descriptor.path}`);
+      console.warn(`[Attachments] Refusing to attach file outside allowed roots: ${descriptor.path}`);
       continue;
     }
-    items.push({
-      type: 'local_image',
-      path: resolvedPath,
-    });
+
+    const mediaType = resolveImageMediaType(descriptor);
+    const isImage = !!mediaType && mediaType.startsWith('image/');
+    if (isImage) {
+      items.push({ type: 'local_image', path: resolvedPath });
+    } else {
+      documentDescriptors.push({ path: descriptor.path, name: descriptor.name });
+    }
   }
+
+  if (documentDescriptors.length > 0) {
+    items.push(buildDocumentReferenceBlock(documentDescriptors));
+  }
+
   return items;
 }

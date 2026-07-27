@@ -252,6 +252,12 @@ export default function ChatComposer({
       }
     };
 
+    // MUST stay bubble-phase (no { capture: true }). The effort menu is
+    // portalled to document.body; its items call event.stopPropagation() on
+    // pointerdown, which stops native bubbling before it reaches this listener.
+    // Switching to capture would make this fire first (document → menu) and
+    // close the menu before the item's onClick runs — reintroducing the mobile
+    // "effort won't select" bug that this outside-close was retuned around.
     document.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('resize', updateEffortDropdownPosition);
     window.addEventListener('scroll', updateEffortDropdownPosition, true);

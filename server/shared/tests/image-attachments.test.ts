@@ -317,6 +317,22 @@ test('buildCodexInputItems emits text plus absolute local_image paths', () => {
   assert.equal(imageItem.path, path.resolve(cwd, '.cloudcli/assets/pic.jpg'));
 });
 
+test('buildCodexInputItems delivers a document as a files_input block, not local_image', () => {
+  const cwd = path.join(os.tmpdir(), 'codex-project');
+  const items = buildCodexInputItems('Summarize:', [
+    { path: '.cloudcli/assets/pic.jpg' },
+    { path: '.cloudcli/assets/notes.md', name: 'notes.md', mimeType: 'text/markdown' },
+  ], cwd);
+
+  // Image → local_image; document → a trailing text block, never local_image.
+  const localImages = items.filter((i) => i.type === 'local_image');
+  assert.equal(localImages.length, 1);
+  const last = items[items.length - 1] as Extract<(typeof items)[number], { type: 'text' }>;
+  assert.equal(last.type, 'text');
+  assert.ok(last.text.includes('<files_input>'));
+  assert.ok(last.text.includes('notes.md'));
+});
+
 test('isAllowedImageSourcePath only accepts the upload store and the run cwd', () => {
   const cwd = path.join(os.tmpdir(), 'some-project');
   const uploadStore = path.join(os.homedir(), '.cloudcli', 'assets');
