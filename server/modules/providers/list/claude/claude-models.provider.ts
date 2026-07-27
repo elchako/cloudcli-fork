@@ -74,8 +74,38 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
       },
     },
     {
+      value: 'claude-opus-5',
+      label: 'Opus 5',
+      description: 'Opus 5 · Most capable Opus for complex agentic & coding work · $5/$25 per Mtok',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
+      value: 'claude-opus-5[1m]',
+      label: 'Opus 5 (1M context)',
+      description: 'Opus 5 with 1M context · For long agentic sessions · $5/$25 per Mtok',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
       value: 'opus',
-      label: 'Opus',
+      label: 'Opus 4.8',
       description: 'Opus 4.8 · Best for everyday, complex tasks · ~2× usage vs Sonnet',
       effort: {
         default: 'high',
