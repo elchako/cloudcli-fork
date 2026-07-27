@@ -107,7 +107,9 @@ temp/
 .cline/
 .windsurf/
 .serena/
-CLAUDE.md
+# GOLDJAXE fork: CLAUDE.md — проектные правила для ИИ, отслеживается в репо
+# (в апстриме он в .gitignore как личный артефакт ассистента).
+!CLAUDE.md
 .mcp.json
 .gemini/
 
