@@ -143,6 +143,37 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
   `src/components/chat/view/ChatInterface.tsx`. i18n-ключи `input.hintText.*`
   в `src/i18n/locales/*/chat.json` оставлены (не мешают).
 
+### 4.4 Микрофон скрыт вне защищённого контекста (HTTPS/localhost)
+- **Слой:** frontend · **Столкновение:** 🟢 · **PR:** кандидат (баг апстрима).
+- **Симптом:** на телефоне по `http://100.64.0.27:3302` тап по микрофону падал с
+  `Cannot read properties of undefined (reading 'getUserMedia')`.
+- **Причина:** `navigator.mediaDevices` браузер отдаёт только в **secure context**
+  (HTTPS либо localhost). Plain HTTP на Tailscale/LAN-IP таковым не является, и
+  `navigator.mediaDevices` там `undefined`. Замер headless-Chrome по CDP на самом
+  origin: `{origin:"http://100.64.0.27:3301", secure:false, md:"undefined",
+  gum:"undefined"}`.
+- **Апстрим болен тем же.** Проверено сравнением: `useVoiceInput.ts`,
+  `useVoiceAvailable.ts`, `VoiceInputButton.tsx` и гейт в `ChatComposer.tsx`
+  (строки 202/392) на момент v1.37.0 (`264e094`) **идентичны** нашим — гейт
+  `useVoiceAvailable` апстримовский, не наш. Кнопка показывается по `voiceEnabled`
+  + доступности бэкенда, **без** проверки самого API захвата.
+- **Грабли диагностики:** «на 3301 микрофон есть, значит дело в форке» — ложный
+  вывод. На 3301 крутится npm-пакет `@cloudcli-ai/cloudcli` **той же версии
+  1.37.0** с той же строкой `mediaDevices.getUserMedia({audio:{echoCancellation:!0,
+  noiseSuppression:!0}})`. Кнопка там видна, но нерабочая — по тапу та же ошибка.
+  **Наличие иконки ≠ работающий микрофон.** Сравнивать инстансы нужно замером
+  `isSecureContext`/`mediaDevices` на origin, а не наличием кнопки в UI.
+- **Фикс:** (1) `useVoiceAvailable` дополнительно гейтит показ на `canCaptureMic()`
+  (`typeof navigator.mediaDevices?.getUserMedia === 'function'`) — нет API захвата →
+  кнопки нет (не ложное обещание). (2) `useVoiceInput.start` — fail-fast с понятным
+  текстом «Microphone needs a secure connection (HTTPS or localhost).», если запись
+  всё же запустят иным путём (напр. главной Send-кнопкой).
+- **Файлы:** `src/components/chat/hooks/useVoiceAvailable.ts`,
+  `src/components/chat/hooks/useVoiceInput.ts`.
+- **Как включить голос на телефоне:** см. `deploy.md` → «Голосовой ввод с телефона».
+  Рабочее решение холдинга — Chrome-флаг *Insecure origins treated as secure*
+  (Tailscale Serve **не подходит**: у нас Headscale, сертификаты не выдаёт).
+
 ---
 
 ## 5. Инфраструктура и деплой

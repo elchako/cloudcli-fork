@@ -35,11 +35,26 @@ function readVoiceEnabled(): boolean {
   }
 }
 
+// The mic API (navigator.mediaDevices.getUserMedia) is only exposed in a secure
+// context — HTTPS or localhost. Over plain HTTP to a LAN/Tailscale IP on a phone
+// `navigator.mediaDevices` is undefined, so recording would throw on tap. Gate the
+// button on it: no capture API → no button (instead of a button that always errors).
+function canCaptureMic(): boolean {
+  return (
+    typeof navigator !== 'undefined' &&
+    typeof navigator.mediaDevices?.getUserMedia === 'function'
+  );
+}
+
 export function useVoiceAvailable(): boolean {
   const [enabled, setEnabled] = useState<boolean>(() =>
     typeof window === 'undefined' ? false : readVoiceEnabled(),
   );
   const [available, setAvailable] = useState(false);
+  // Capture support is a static property of the browser context; read it once.
+  const [micSupported] = useState<boolean>(() =>
+    typeof window === 'undefined' ? false : canCaptureMic(),
+  );
 
   useEffect(() => {
     const update = () => setEnabled(readVoiceEnabled());
@@ -81,5 +96,5 @@ export function useVoiceAvailable(): boolean {
     };
   }, [enabled]);
 
-  return enabled && available;
+  return enabled && available && micSupported;
 }

@@ -61,6 +61,13 @@ export function useVoiceInput(
 
   const start = useCallback(async () => {
     if (startingRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
+    // The mic API is absent outside a secure context (HTTPS/localhost). Over plain HTTP
+    // to a LAN/Tailscale IP `navigator.mediaDevices` is undefined — fail with a clear
+    // message instead of a raw "reading 'getUserMedia' of undefined" crash.
+    if (typeof navigator === 'undefined' || typeof navigator.mediaDevices?.getUserMedia !== 'function') {
+      onError?.('Microphone needs a secure connection (HTTPS or localhost).');
+      return;
+    }
     startingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({

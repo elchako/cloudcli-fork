@@ -67,9 +67,56 @@ systemctl --user daemon-reload
 systemctl --user restart cloudcli-fork
 ```
 
+## Голосовой ввод с телефона (микрофон)
+
+Кнопка микрофона в чате появляется только когда браузер отдаёт
+`navigator.mediaDevices.getUserMedia`, а он доступен **исключительно в secure
+context** — HTTPS либо localhost. Заход по `http://100.64.0.27:3302` (Tailscale-IP)
+защищённым не считается, поэтому по умолчанию на телефоне микрофона нет
+(см. `fork-changes.md` §4.4 — форк скрывает кнопку вместо падения по тапу).
+
+**Рабочее решение холдинга — Chrome-флаг на телефоне.** Один раз, ~1 минута:
+
+1. `chrome://flags`
+2. Найти **Insecure origins treated as secure**
+3. В поле вписать ровно `http://100.64.0.27:3302`
+4. Перевести флаг в **Enabled**
+5. Нажать **Relaunch**
+
+После перезапуска origin считается доверенным, `mediaDevices` появляется,
+кнопка микрофона включается сама — правок кода не требуется.
+
+> **Tailscale Serve не подходит.** У холдинга **Headscale** (контроллер
+> `head.vegasoft.org`, tailnet `h.org`), а он не выдаёт TLS-сертификаты:
+> `tailscale cert` → *HTTPS cert support is not enabled/configured for your
+> tailnet*, `CertDomains: null`. Домен `h.org` вымышленный, Let's Encrypt его не
+> подтвердит. Инструкции из документации Tailscale SaaS («включите HTTPS
+> Certificates в админке») к нам неприменимы — такой галочки в Headplane нет.
+
+Альтернатива на будущее, если понадобится доступ с любого устройства без
+настройки браузера: поддомен на edge-nginx холдинга (валидный сертификат) с
+`proxy_pass` на `100.64.0.27:3302` через Tailscale — как сделано для
+`g.amilin.vip`, `rust.amilin.vip`.
+
 ## Проверка после рестарта/перезагрузки
 
 ```bash
 ss -tlnp | grep :3302                       # порт слушается
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3302/   # ожидаем 200
 ```
+
+### Проверка secure context (когда «микрофона нет»)
+
+Наличие кнопки в UI **ничего не доказывает** — она может быть видна и нерабочей.
+Проверять надо сам origin в браузере. В консоли DevTools на нужной вкладке:
+
+```js
+JSON.stringify({
+  origin: location.origin,
+  secure: window.isSecureContext,
+  gum: typeof (navigator.mediaDevices || {}).getUserMedia,
+})
+```
+
+`secure: false` / `gum: "undefined"` → микрофон физически недоступен на этом
+origin, дело не в коде приложения. Лечится только secure context (см. выше).
