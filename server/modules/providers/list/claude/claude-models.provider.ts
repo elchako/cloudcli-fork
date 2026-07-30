@@ -17,6 +17,20 @@ import {
 export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
+      value: 'kimi-k3[1m]',
+      label: 'Kimi K3 (1M context)',
+      description: 'Kimi K3 (Moonshot) · 1M context · Requires ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
       value: 'default',
       label: 'Default (recommended)',
       description: 'Use the Claude Code default model (currently Sonnet 4.6)',

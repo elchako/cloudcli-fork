@@ -166,6 +166,13 @@ function mapCliOptionsToSDK(options = {}) {
   // Since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
   sdkOptions.env = { ...process.env };
 
+  // Kimi (Moonshot) models ride the same Claude CLI through the Anthropic-compatible
+  // endpoint: with a token configured but no base URL, default it to Moonshot so the
+  // UI option works without server-level env. Non-Kimi models are untouched.
+  if (options.model?.startsWith('kimi-') && !sdkOptions.env.ANTHROPIC_BASE_URL && sdkOptions.env.ANTHROPIC_AUTH_TOKEN) {
+    sdkOptions.env.ANTHROPIC_BASE_URL = 'https://api.moonshot.ai/anthropic';
+  }
+
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
   sdkOptions.pathToClaudeCodeExecutable = resolveClaudeCodeExecutablePath(process.env.CLAUDE_CLI_PATH);
