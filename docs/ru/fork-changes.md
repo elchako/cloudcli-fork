@@ -131,6 +131,18 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
   разделителем и отступом справа.
 - **Файлы:** `src/components/main-content/view/subcomponents/MainContentHeader.tsx`.
 
+### 4.3 Убрана справочная подсказка в футере композера
+- **Слой:** UI · **Столкновение:** 🟡 · **PR:** нет (наше решение).
+- **Что:** справочный текст в правой части футера чата (`submitHint`:
+  «Ctrl/Shift+Enter • Tab для смены режима • / для команд») наезжал на левые
+  иконки (скрепка, микрофон, индикатор токенов, команды) при недостатке ширины.
+  Подсказка удалена — сочетания клавиш продолжают работать без неё. Убран также
+  ставший ненужным проп `sendByCtrlEnter` у `ChatComposer` (логика отправки
+  осталась в `useChatComposerState`, куда проп идёт отдельно).
+- **Файлы:** `src/components/chat/view/subcomponents/ChatComposer.tsx`,
+  `src/components/chat/view/ChatInterface.tsx`. i18n-ключи `input.hintText.*`
+  в `src/i18n/locales/*/chat.json` оставлены (не мешают).
+
 ---
 
 ## 5. Инфраструктура и деплой
