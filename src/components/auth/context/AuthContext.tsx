@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+
 import { IS_PLATFORM } from '../../../constants/config';
 import {
   api,
@@ -19,7 +20,7 @@ import type {
   OnboardingStatusPayload,
 } from '../types';
 import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
-import { loadUserSettingsIntoLocalStorage } from '../../../utils/userSettingsSync';
+import { loadUserSettingsIntoLocalStorage, startUserSettingsAutoSync } from '../../../utils/userSettingsSync';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -166,6 +167,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setIsLoading(false);
     }
   }, [checkOnboardingStatus, clearSession, token]);
+
+  // Mirror every allowlisted settings change to the DB (not just the ones saved
+  // through the big Settings modal), so quick-panel toggles and single-key
+  // writers (model/effort/provider) survive reload, relogin and follow the user.
+  useEffect(() => startUserSettingsAutoSync(), []);
 
   useEffect(() => {
     if (IS_PLATFORM) {

@@ -16,6 +16,7 @@
  */
 
 import i18n from '../i18n/config';
+
 import { api } from './api';
 
 // localStorage keys that are safe, non-secret UI/composer preferences.
@@ -34,7 +35,7 @@ export const SYNCED_SETTINGS_KEYS = [
   'theme',
   'uiPreferences',
   'codeEditorWordWrap',
-  'codeEditorMinimap',
+  'codeEditorShowMinimap',
   'codeEditorLineNumbers',
   'codeEditorFontSize',
   'claude-settings',
@@ -44,6 +45,7 @@ export const SYNCED_SETTINGS_KEYS = [
   'activeTab',
   'tasks-enabled',
   'notificationSoundEnabled',
+  'starredProjects',
 ];
 
 // permissionMode-* keys are per-project; they are matched by prefix.
@@ -88,11 +90,16 @@ export function readLocalSettings() {
   return out;
 }
 
+// Set while applying server-pulled settings to localStorage so the auto-sync
+// patch below does not echo those writes straight back to the server.
+let applyingServerSettings = false;
+
 /** Writes a settings object (string values) into localStorage. */
 function applyToLocalStorage(settings) {
   if (!settings || typeof settings !== 'object') {
     return;
   }
+  applyingServerSettings = true;
   try {
     for (const [key, value] of Object.entries(settings)) {
       if (!isSyncedKey(key) || typeof value !== 'string') {
@@ -102,6 +109,11 @@ function applyToLocalStorage(settings) {
     }
   } catch {
     // Ignore write failures.
+  } finally {
+    // Reset after the current task so React effects that react to these writes
+    // (e.g. useUiPreferences re-emitting `ui-preferences:sync`) still see the
+    // guard and don't echo the server values back as a fresh push.
+    setTimeout(() => { applyingServerSettings = false; }, 0);
   }
 }
 
@@ -204,6 +216,87 @@ export async function pushLocalSettingsToServer() {
   } catch {
     // Ignore — a later push will retry.
   }
+}
+
+// UI-preferences hook (useUiPreferences) fires this on every toggle change; the
+// quick-settings panel (raw params, thinking, Ctrl+Enter, voice) writes only
+// through that hook, so without listening here its changes never reach the DB.
+const UI_PREFERENCES_SYNC_EVENT = 'ui-preferences:sync';
+const AUTOSYNC_DEBOUNCE_MS = 800;
+
+let autoSyncInstalled = false;
+let pushTimer = null;
+
+function schedulePush() {
+  // Don't bounce server-pulled settings back to the server.
+  if (applyingServerSettings) {
+    return;
+  }
+  if (pushTimer) {
+    clearTimeout(pushTimer);
+  }
+  pushTimer = setTimeout(() => {
+    pushTimer = null;
+    void pushLocalSettingsToServer();
+  }, AUTOSYNC_DEBOUNCE_MS);
+}
+
+/**
+ * Installs listeners that mirror every allowlisted settings change up to the DB,
+ * not just the ones made through the big Settings modal's Save button. Debounced
+ * so a burst of toggles collapses into one write. Idempotent — safe to call on
+ * each login. Returns a teardown function.
+ *
+ * Covers three change sources:
+ *   - `ui-preferences:sync` — the quick-settings panel and any useUiPreferences
+ *     consumer (same-tab, since they don't emit a native `storage` event);
+ *   - native `storage` — settings changed in another tab of the same origin;
+ *   - direct localStorage writes are patched below so single-key writers
+ *     (model/effort/provider selectors) also trigger a push without each having
+ *     to import this module.
+ */
+export function startUserSettingsAutoSync() {
+  if (autoSyncInstalled || typeof window === 'undefined') {
+    return () => {};
+  }
+  autoSyncInstalled = true;
+
+  const handleUiPrefsSync = () => schedulePush();
+  const handleStorage = (event) => {
+    if (event.key && isSyncedKey(event.key)) {
+      schedulePush();
+    }
+  };
+
+  window.addEventListener(UI_PREFERENCES_SYNC_EVENT, handleUiPrefsSync);
+  window.addEventListener('storage', handleStorage);
+
+  // Same-tab localStorage.setItem does not emit a `storage` event, so patch it
+  // to schedule a push whenever an allowlisted key changes. This catches the
+  // single-key writers (selected-provider, *-model, *-effort, editor prefs,
+  // file-tree mode, …) that write localStorage directly without a custom event.
+  const originalSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = (key, value) => {
+    originalSetItem(key, value);
+    try {
+      if (isSyncedKey(key)) {
+        schedulePush();
+      }
+    } catch {
+      // Never let sync bookkeeping break a real write.
+    }
+  };
+
+  return () => {
+    window.removeEventListener(UI_PREFERENCES_SYNC_EVENT, handleUiPrefsSync);
+    window.removeEventListener('storage', handleStorage);
+    localStorage.setItem = originalSetItem;
+    if (pushTimer) {
+      clearTimeout(pushTimer);
+      pushTimer = null;
+    }
+    autoSyncInstalled = false;
+  };
 }
 
 function markMigrated() {
