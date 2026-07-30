@@ -53,7 +53,7 @@ function useChatImageSrc(image: ChatImage, projectId?: string | null): { src: st
     const candidateUrls = [
       `/api/assets/images/${encodeURIComponent(filename)}`,
       ...(projectId
-        ? [`/api/projects/${projectId}/files/content?path=${encodeURIComponent(imagePath)}`]
+        ? [`/api/file-tree/projects/${projectId}/files/content?path=${encodeURIComponent(imagePath)}`]
         : []),
     ];
 
@@ -99,7 +99,7 @@ function useChatImageSrc(image: ChatImage, projectId?: string | null): { src: st
  * Fullscreen image overlay in the claude.ai style: dark backdrop, centered
  * image, closes on backdrop click, close button, or Escape.
  */
-function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
