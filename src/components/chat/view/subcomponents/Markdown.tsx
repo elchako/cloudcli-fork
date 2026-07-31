@@ -12,6 +12,9 @@ import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
+import { getPreviewKind } from '../../../code-editor/utils/previewableFile';
+
+import FilePathLightbox from './FilePathLightbox';
 import { MarkdownImage } from './MarkdownImage';
 
 type MarkdownProps = {
@@ -208,6 +211,7 @@ export function Markdown({ children, className, breaks = false }: MarkdownProps)
   );
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
   const { openFileInEditor } = usePaletteOps();
+  const [lightboxPath, setLightboxPath] = useState<string | null>(null);
 
   const components = useMemo(
     () => ({
@@ -219,13 +223,23 @@ export function Markdown({ children, className, breaks = false }: MarkdownProps)
         const fileRef = looksLikeFilePath(href) ? href : looksLikeFilePath(linkText) ? linkText : undefined;
 
         if (fileRef && !isExternalHref(href)) {
+          const filePath = stripLineSuffix(fileRef);
+          // An image opens in the lightbox rather than the editor panel: the
+          // editor is built for text, and a picture reads better full-bleed —
+          // especially on a phone, where the panel eats the whole screen.
+          const isImage = getPreviewKind(filePath) === 'image';
+
           return (
             <a
               href={href || fileRef}
               className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400"
               onClick={(event) => {
                 event.preventDefault();
-                openFileInEditor(stripLineSuffix(fileRef));
+                if (isImage) {
+                  setLightboxPath(filePath);
+                } else {
+                  openFileInEditor(filePath);
+                }
               }}
             >
               {linkChildren}
@@ -253,6 +267,9 @@ export function Markdown({ children, className, breaks = false }: MarkdownProps)
       <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components as any}>
         {content}
       </ReactMarkdown>
+      {lightboxPath && (
+        <FilePathLightbox path={lightboxPath} onClose={() => setLightboxPath(null)} />
+      )}
     </div>
   );
 }

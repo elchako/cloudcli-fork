@@ -54,7 +54,21 @@ export default function CodeEditorMediaPreview({
   const sourceKey = `${projectId ?? ''}:${file.path}:${kind}`;
 
   useEffect(() => {
-    if (!projectId) {
+    let objectUrl: string | null = null;
+    const controller = new AbortController();
+
+    // The project endpoint refuses paths above the project root, which is where
+    // agent-generated media usually lives (screenshots in /tmp, downloads). Fall
+    // back to the local-media endpoint, which serves allowlisted directories.
+    const isAbsolutePath = file.path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(file.path);
+    const candidateUrls = [
+      projectId
+        ? `/api/file-tree/projects/${projectId}/files/content?path=${encodeURIComponent(file.path)}`
+        : null,
+      isAbsolutePath ? `/api/assets/local-media?path=${encodeURIComponent(file.path)}` : null,
+    ].filter((candidate): candidate is string => candidate !== null);
+
+    if (candidateUrls.length === 0) {
       setUrl(null);
       setLoadedKey(null);
       setError(labels.error);
@@ -62,23 +76,26 @@ export default function CodeEditorMediaPreview({
       return;
     }
 
-    let objectUrl: string | null = null;
-    const controller = new AbortController();
-
     const loadMedia = async () => {
       try {
         setLoading(true);
         setError(null);
         setUrl(null);
 
-        // The content endpoint requires the auth header, so we fetch the bytes
+        // The content endpoints require the auth header, so we fetch the bytes
         // ourselves and hand the media element a blob URL instead of a bare src.
         // Fetching a blob (rather than streaming) also lets <video>/<audio> seek.
-        const contentUrl = `/api/file-tree/projects/${projectId}/files/content?path=${encodeURIComponent(file.path)}`;
-        const response = await authenticatedFetch(contentUrl, { signal: controller.signal });
+        let response: Response | null = null;
+        for (const candidateUrl of candidateUrls) {
+          const attempt = await authenticatedFetch(candidateUrl, { signal: controller.signal });
+          if (attempt.ok) {
+            response = attempt;
+            break;
+          }
+        }
 
-        if (!response.ok) {
-          throw new Error(`Request failed with status ${response.status}`);
+        if (!response) {
+          throw new Error('No endpoint could serve this file');
         }
 
         const blob = await response.blob();

@@ -9,6 +9,7 @@ import {
   isAllowedImageMimeType,
   openStoredAttachmentAsset,
 } from '@/modules/assets/services/image-assets.service.js';
+import { openLocalMedia } from '@/modules/assets/services/local-media.service.js';
 
 const router = express.Router();
 
@@ -147,6 +148,48 @@ router.get('/files/:filename', async (req, res) => {
     console.error('Error streaming attachment asset:', error);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Error reading asset' });
+    }
+  });
+});
+
+/**
+ * Streams a media file (image/pdf/audio/video) by absolute path from an
+ * allowlisted directory — agent-produced screenshots in /tmp and the like, which
+ * live outside every project root and are therefore unreachable through the
+ * project file endpoints. See `local-media.service.ts` for the boundary rules.
+ */
+router.get('/local-media', async (req, res) => {
+  const requestedPath = typeof req.query.path === 'string' ? req.query.path : '';
+  const media = await openLocalMedia(requestedPath);
+
+  if (media.status === 'invalid') {
+    return res.status(400).json({ error: 'Invalid file path' });
+  }
+  if (media.status === 'forbidden') {
+    // Same response for "not an allowed directory" and "not a media type" so the
+    // endpoint can't be used to probe which paths exist on disk.
+    return res.status(403).json({ error: 'File is not available for preview' });
+  }
+  if (media.status === 'missing') {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  res.setHeader('Content-Type', media.contentType);
+  res.setHeader('Content-Length', String(media.size));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Mirrors the stored-asset rules: SVG can carry scripts and PDFs render as
+  // documents, so neither may be loaded as a top-level document in the app
+  // origin. The UI fetches this as a blob and renders it in <img>/<iframe>,
+  // which is unaffected by the download hint.
+  if (media.contentType === 'image/svg+xml') {
+    res.setHeader('Content-Disposition', 'attachment');
+  }
+
+  media.stream.pipe(res);
+  media.stream.on('error', (error) => {
+    console.error('Error streaming local media:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Error reading file' });
     }
   });
 });

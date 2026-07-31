@@ -174,6 +174,45 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
   Рабочее решение холдинга — Chrome-флаг *Insecure origins treated as secure*
   (Tailscale Serve **не подходит**: у нас Headscale, сертификаты не выдаёт).
 
+### 4.5 Картинки из чата открываются как картинки, а не в текстовом редакторе
+- **Слой:** frontend + server · **Столкновение:** 🟡 · **PR:** кандидат.
+- **Симптом:** клик по ссылке на `.png` в рассуждениях агента открывал панель
+  редактора с плашкой «Unable to display this file.» и путём под ней. Текстовые
+  файлы при этом открывались нормально.
+- **Причина (не та, что кажется):** ветка «файл — изображение → `<img>`» в
+  апстриме **уже есть** (`CodeEditor.tsx:198`, `getPreviewKind`), и `.png`
+  распознаётся верно. Ломалась **доставка байтов**: превью грузит файл только
+  через `/api/file-tree/projects/:id/files/content`, а тот зовёт
+  `resolvePathInsideProject` (`file-tree.service.ts:72-83`) → всё вне корня
+  проекта отбивается **403 PATH_OUTSIDE_PROJECT**. Скриншоты агента лежат в
+  `/tmp/...`, то есть вне любого проекта.
+- **Почему «текст работал»:** открывавшиеся текстовые файлы были **внутри**
+  проекта. Ограничение общее — `readTextFile` (:353) и `openFile` (:367) зовут
+  одну и ту же проверку. Текст из `/tmp` упал бы так же. Дело не в типе файла.
+- **Фикс (сервер):** новый роут `GET /api/assets/local-media?path=<abs>` +
+  сервис `local-media.service.ts`. Отдаёт файл по абсолютному пути **только**
+  если: (1) путь внутри allowlist-каталогов, (2) расширение — медиа, которое
+  браузер рендерит сам. Проверено: `/etc/passwd`, обход через `..`, `~/.ssh/*`
+  и симлинк из `/tmp` наружу → `forbidden`; `realpath` до проверки границы
+  закрывает побег по симлинку. Заголовки как у stored-assets: `nosniff`,
+  форс-download для SVG.
+- **Allowlist:** по умолчанию `os.tmpdir()`, `~/Downloads`, `~/.cloudcli`.
+  Переопределяется `CLOUDCLI_MEDIA_DIRS` (разделитель — как в `PATH`).
+- **Фикс (клиент):** (1) `CodeEditorMediaPreview` пробует цепочку источников —
+  проектный роут, затем `local-media` для абсолютных путей. (2) Клик по ссылке
+  на картинку в чате открывает **lightbox поверх ленты**
+  (`FilePathLightbox` → переиспользует апстримовский `ImageLightbox`), а не
+  панель редактора: редактор рассчитан на текст и на телефоне занимает весь
+  экран. Не-картинки открываются в редакторе как раньше.
+- **Файлы:** `server/modules/assets/services/local-media.service.ts` (новый),
+  `server/modules/assets/assets.routes.ts`,
+  `src/components/chat/view/subcomponents/FilePathLightbox.tsx` (новый),
+  `src/components/chat/view/subcomponents/Markdown.tsx`,
+  `src/components/code-editor/view/subcomponents/CodeEditorMediaPreview.tsx`.
+- **Мерж-заметка:** роут добавлен в конец `assets.routes.ts` (монтируется под
+  `authenticateToken`, `server/index.ts:159`) — при обновлении upstream следить
+  за этим файлом и за сигнатурой `getPreviewKind`.
+
 ---
 
 ## 5. Инфраструктура и деплой
