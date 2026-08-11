@@ -21,10 +21,12 @@ type SidebarProjectSessionsProps = {
   currentTime: Date;
   editingSession: string | null;
   editingSessionName: string;
+  regeneratingTitleSessionIds: ReadonlySet<string>;
   onEditingSessionNameChange: (value: string) => void;
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
+  onRegenerateSessionTitle: (sessionId: string) => void;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   onDeleteSession: (
@@ -69,10 +71,12 @@ export default function SidebarProjectSessions({
   currentTime,
   editingSession,
   editingSessionName,
+  regeneratingTitleSessionIds,
   onEditingSessionNameChange,
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
+  onRegenerateSessionTitle,
   onProjectSelect,
   onSessionSelect,
   onDeleteSession,
@@ -130,10 +134,12 @@ export default function SidebarProjectSessions({
               currentTime={currentTime}
               editingSession={editingSession}
               editingSessionName={editingSessionName}
+              isRegeneratingTitle={regeneratingTitleSessionIds.has(session.id)}
               onEditingSessionNameChange={onEditingSessionNameChange}
               onStartEditingSession={onStartEditingSession}
               onCancelEditingSession={onCancelEditingSession}
               onSaveEditingSession={onSaveEditingSession}
+              onRegenerateSessionTitle={onRegenerateSessionTitle}
               onProjectSelect={onProjectSelect}
               onSessionSelect={onSessionSelect}
               onDeleteSession={onDeleteSession}

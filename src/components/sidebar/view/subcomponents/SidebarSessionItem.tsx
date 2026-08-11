@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, Loader2, Trash2, X } from 'lucide-react';
+import { Check, Edit2, Loader2, Sparkles, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Tooltip, buttonVariants } from '../../../../shared/view/ui';
@@ -18,10 +18,12 @@ type SidebarSessionItemProps = {
   currentTime: Date;
   editingSession: string | null;
   editingSessionName: string;
+  isRegeneratingTitle: boolean;
   onEditingSessionNameChange: (value: string) => void;
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
+  onRegenerateSessionTitle: (sessionId: string) => void;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   onDeleteSession: (
@@ -70,16 +72,24 @@ export default function SidebarSessionItem({
   currentTime,
   editingSession,
   editingSessionName,
+  isRegeneratingTitle,
   onEditingSessionNameChange,
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
+  onRegenerateSessionTitle,
   onProjectSelect,
   onSessionSelect,
   onDeleteSession,
   t,
 }: SidebarSessionItemProps) {
   const sessionView = createSessionViewModel(session, currentTime, t);
+  // Rows are truncated by design, so hovering must reveal the untruncated
+  // title. `fullTitle` carries the original prompt when an AI title replaced it.
+  const rawFullTitle = typeof session.fullTitle === 'string' ? session.fullTitle.trim() : '';
+  const sessionFullTitle = rawFullTitle && rawFullTitle !== sessionView.sessionName
+    ? `${sessionView.sessionName}\n\n${rawFullTitle}`
+    : sessionView.sessionName;
   const isSelected = selectedSession?.id === session.id;
   const isEditing = editingSession === session.id;
   const compactSessionAge = formatCompactSessionAge(sessionView.sessionTime, currentTime);
@@ -147,12 +157,16 @@ export default function SidebarSessionItem({
 
       <div className="md:hidden">
         <div
+          aria-current={isSelected ? 'true' : undefined}
           className={cn(
-            'p-2 mx-3 my-0.5 rounded-md bg-card border active:scale-[0.98] transition-all duration-150 relative',
-            isSelected ? 'bg-primary/5 border-primary/20' : '',
-            !isSelected && isProcessing
+            'p-2 mx-3 my-0.5 rounded-md bg-card border active:scale-[0.98] transition-all duration-150 relative overflow-hidden',
+            // The open session must be unmistakable at a glance: accent bar,
+            // filled background and a ring that survives the dark theme.
+            isSelected
+              ? 'border-primary bg-primary/15 ring-1 ring-primary/40 pl-3 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-[""]'
+              : isProcessing
               ? 'border-border/60 bg-muted/20'
-              : !isSelected && sessionView.isActive
+              : sessionView.isActive
               ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
               : 'border-border/30',
           )}
@@ -170,7 +184,15 @@ export default function SidebarSessionItem({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>
+                <div
+                  title={sessionFullTitle}
+                  className={cn(
+                    'min-w-0 flex-1 truncate text-sm text-foreground',
+                    isSelected ? 'font-semibold' : 'font-normal',
+                  )}
+                >
+                  {sessionView.sessionName}
+                </div>
                 {isProcessing ? (
                   <span className="ml-auto flex-shrink-0">
                     <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
@@ -193,15 +215,32 @@ export default function SidebarSessionItem({
             </div>
 
             {!isProcessing && (
-              <button
-                className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-red-50 opacity-70 transition-transform active:scale-95 dark:bg-red-900/20"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  requestDeleteSession();
-                }}
-              >
-                <Trash2 className="h-2.5 w-2.5 text-red-600 dark:text-red-400" />
-              </button>
+              <>
+                <button
+                  className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-muted/60 opacity-70 transition-transform active:scale-95 disabled:opacity-40"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRegenerateSessionTitle(session.id);
+                  }}
+                  disabled={isRegeneratingTitle}
+                  aria-label={t('tooltips.regenerateSessionTitle', 'Перегенерировать название по первому запросу')}
+                >
+                  {isRegeneratingTitle ? (
+                    <Loader2 className="h-2.5 w-2.5 animate-spin text-muted-foreground" />
+                  ) : (
+                    <Sparkles className="h-2.5 w-2.5 text-muted-foreground" />
+                  )}
+                </button>
+                <button
+                  className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-red-50 opacity-70 transition-transform active:scale-95 dark:bg-red-900/20"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    requestDeleteSession();
+                  }}
+                >
+                  <Trash2 className="h-2.5 w-2.5 text-red-600 dark:text-red-400" />
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -210,15 +249,19 @@ export default function SidebarSessionItem({
       <div className="hidden md:block">
         <a
           href={`/session/${session.id}`}
+          aria-current={isSelected ? 'page' : undefined}
           className={cn(
             buttonVariants({ variant: 'ghost' }),
-            'h-auto w-full justify-start rounded-md border bg-card p-2 text-left font-normal transition-all duration-150',
-            isSelected ? 'border-primary/20 bg-primary/5' : 'border-border/30',
-            !isSelected && isProcessing
-              ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
-              : !isSelected && sessionView.isActive
-                ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
-                : 'hover:bg-accent/50',
+            'relative h-auto w-full justify-start overflow-hidden rounded-md border bg-card p-2 text-left font-normal transition-all duration-150',
+            // The open session must be unmistakable at a glance: accent bar,
+            // filled background and a ring that survives the dark theme.
+            isSelected
+              ? 'border-primary bg-primary/15 pl-3 ring-1 ring-primary/40 hover:bg-primary/20 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-[""]'
+              : isProcessing
+                ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
+                : sessionView.isActive
+                  ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
+                  : 'border-border/30 hover:bg-accent/50',
           )}
           // Left-click keeps in-app navigation; Ctrl/Cmd/middle-click and the
           // native right-click menu use the href to open a new tab/window.
@@ -239,7 +282,15 @@ export default function SidebarSessionItem({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>
+                <div
+                  title={sessionFullTitle}
+                  className={cn(
+                    'min-w-0 flex-1 truncate text-sm text-foreground',
+                    isSelected ? 'font-semibold' : 'font-normal',
+                  )}
+                >
+                  {sessionView.sessionName}
+                </div>
                 {isProcessing ? (
                   <span
                     className={cn(
@@ -319,6 +370,21 @@ export default function SidebarSessionItem({
               </>
             ) : (
               <>
+                <button
+                  className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 disabled:opacity-60 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRegenerateSessionTitle(session.id);
+                  }}
+                  disabled={isRegeneratingTitle}
+                  title={t('tooltips.regenerateSessionTitle', 'Перегенерировать название по первому запросу')}
+                >
+                  {isRegeneratingTitle ? (
+                    <Loader2 className="h-3 w-3 animate-spin text-gray-600 dark:text-gray-400" />
+                  ) : (
+                    <Sparkles className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                  )}
+                </button>
                 <button
                   className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
                   onClick={(event) => {

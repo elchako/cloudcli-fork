@@ -22,6 +22,7 @@ export type SidebarProjectListProps = {
   currentTime: Date;
   editingSession: string | null;
   editingSessionName: string;
+  regeneratingTitleSessionIds: ReadonlySet<string>;
   deletingProjects: Set<string>;
   tasksEnabled: boolean;
   mcpServerStatus: MCPServerStatus;
@@ -52,6 +53,7 @@ export type SidebarProjectListProps = {
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
+  onRegenerateSessionTitle: (sessionId: string) => void;
   t: TFunction;
 };
 
@@ -69,6 +71,7 @@ export default function SidebarProjectList({
   currentTime,
   editingSession,
   editingSessionName,
+  regeneratingTitleSessionIds,
   deletingProjects,
   tasksEnabled,
   mcpServerStatus,
@@ -94,6 +97,7 @@ export default function SidebarProjectList({
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
+  onRegenerateSessionTitle,
   t,
 }: SidebarProjectListProps) {
   const state = (
@@ -140,6 +144,7 @@ export default function SidebarProjectList({
               currentTime={currentTime}
               editingSession={editingSession}
               editingSessionName={editingSessionName}
+              regeneratingTitleSessionIds={regeneratingTitleSessionIds}
               tasksEnabled={tasksEnabled}
               mcpServerStatus={mcpServerStatus}
               onEditingNameChange={onEditingNameChange}
@@ -160,6 +165,7 @@ export default function SidebarProjectList({
               onStartEditingSession={onStartEditingSession}
               onCancelEditingSession={onCancelEditingSession}
               onSaveEditingSession={onSaveEditingSession}
+              onRegenerateSessionTitle={onRegenerateSessionTitle}
               t={t}
             />
           ))}

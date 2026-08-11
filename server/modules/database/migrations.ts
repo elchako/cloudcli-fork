@@ -417,6 +417,21 @@ const addSessionModelColumn = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'model', 'TEXT');
 };
 
+/**
+ * Adds the `full_title` column holding the untruncated original prompt.
+ *
+ * Sidebar rows show a short AI-generated title, so the text it replaced has to
+ * survive somewhere for the hover tooltip. Left NULL for pre-existing rows:
+ * their `custom_name` still is the original prompt, and the readers fall back
+ * to it, so backfilling would only duplicate the same string.
+ */
+const addSessionFullTitleColumn = (db: Database): void => {
+  const sessionsTableInfo = getTableInfo(db, 'sessions');
+  const columnNames = sessionsTableInfo.map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'full_title', 'TEXT');
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -469,6 +484,7 @@ export const runMigrations = (db: Database) => {
     migrateLegacySessionNames(db);
     addProviderSessionIdMapping(db);
     addSessionModelColumn(db);
+    addSessionFullTitleColumn(db);
     ensureProjectsForSessionPaths(db);
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');

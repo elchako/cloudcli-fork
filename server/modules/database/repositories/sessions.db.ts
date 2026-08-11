@@ -9,6 +9,11 @@ type SessionRow = {
   project_path: string | null;
   jsonl_path: string | null;
   custom_name: string | null;
+  /**
+   * Untruncated original prompt behind a shortened `custom_name`; NULL when the
+   * displayed name already is the full text.
+   */
+  full_title: string | null;
   /** Model this session runs with; NULL until the app records one for it. */
   model: string | null;
   isArchived: number;
@@ -17,7 +22,7 @@ type SessionRow = {
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, full_title, model, isArchived, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -236,6 +241,26 @@ export const sessionsDb = {
        SET custom_name = ?
        WHERE session_id = ?`
     ).run(customName, sessionId);
+  },
+
+  /**
+   * Stores a shortened display title together with the text it replaced.
+   *
+   * Written as one statement so the sidebar can never read a short name whose
+   * tooltip source is still the previous prompt.
+   */
+  updateSessionTitleWithFullText(
+    sessionId: string,
+    customName: string,
+    fullTitle: string | null
+  ): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET custom_name = ?,
+           full_title = ?
+       WHERE session_id = ?`
+    ).run(customName, fullTitle, sessionId);
   },
 
   getSessionById(sessionId: string): SessionRow | null {

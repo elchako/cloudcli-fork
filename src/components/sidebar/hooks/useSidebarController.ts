@@ -127,6 +127,11 @@ export function useSidebarController({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editingSessionName, setEditingSessionName] = useState('');
+  // Title regeneration is a per-row network call, so several rows can be busy
+  // at once and each spinner has to track its own session.
+  const [regeneratingTitleSessionIds, setRegeneratingTitleSessionIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
   const [searchFilter, setSearchFilter] = useState('');
   const [deletingProjects, setDeletingProjects] = useState<Set<string>>(new Set());
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteProjectConfirmation | null>(null);
@@ -918,6 +923,37 @@ export function useSidebarController({
     [onRefresh, t],
   );
 
+  /**
+   * Rebuilds one session's short title from its original prompt.
+   *
+   * Indexing never rewrites an existing title, so this is how sessions created
+   * before AI titling — or ones the model failed on — get a readable name.
+   */
+  const regenerateSessionTitle = useCallback(
+    async (sessionId: string) => {
+      setRegeneratingTitleSessionIds((current) => new Set(current).add(sessionId));
+      try {
+        const response = await api.regenerateSessionTitle(sessionId);
+        if (response.ok) {
+          await onRefresh();
+        } else {
+          console.error('[Sidebar] Failed to regenerate session title:', response.status);
+          alert(t('messages.regenerateTitleFailed', 'Не удалось перегенерировать название сеанса.'));
+        }
+      } catch (error) {
+        console.error('[Sidebar] Error regenerating session title:', error);
+        alert(t('messages.regenerateTitleError', 'Ошибка при перегенерации названия сеанса.'));
+      } finally {
+        setRegeneratingTitleSessionIds((current) => {
+          const next = new Set(current);
+          next.delete(sessionId);
+          return next;
+        });
+      }
+    },
+    [onRefresh, t],
+  );
+
   const collapseSidebar = useCallback(() => {
     setSidebarVisible(false);
   }, [setSidebarVisible]);
@@ -938,6 +974,7 @@ export function useSidebarController({
     isRefreshing,
     editingSession,
     editingSessionName,
+    regeneratingTitleSessionIds,
     searchFilter,
     deletingProjects,
     loadingMoreProjects,
@@ -969,6 +1006,7 @@ export function useSidebarController({
     restoreArchivedSession,
     refreshProjects,
     updateSessionSummary,
+    regenerateSessionTitle,
     collapseSidebar,
     expandSidebar,
     setShowNewProject,

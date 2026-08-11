@@ -11,6 +11,8 @@ type SessionSummary = {
   id: string;
   provider: string;
   summary: string;
+  /** Original prompt behind a shortened `summary`; empty when they match. */
+  fullTitle: string;
   messageCount: number;
   lastActivity: string;
 };
@@ -19,6 +21,7 @@ type SessionRepositoryRow = {
   provider: string;
   session_id: string;
   custom_name?: string | null;
+  full_title?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
 };
@@ -122,6 +125,8 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     id: row.session_id,
     provider: row.provider,
     summary: row.custom_name || '',
+    // Sidebar rows truncate; the tooltip reveals what the short title replaced.
+    fullTitle: row.full_title || '',
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
   };

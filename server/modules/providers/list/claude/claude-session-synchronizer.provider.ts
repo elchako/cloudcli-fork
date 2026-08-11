@@ -11,11 +11,14 @@ import {
   readFileTimestamps,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
+import { generateSessionTitle } from '@/modules/providers/services/session-title.service.js';
 
 type ParsedSession = {
   sessionId: string;
   projectPath: string;
   sessionName?: string;
+  /** Raw first prompt this session's title should be built from. */
+  rawPrompt?: string | null;
 };
 
 /**
@@ -65,7 +68,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       }
 
       const timestamps = await readFileTimestamps(filePath);
-      sessionsDb.createSession(
+      const storedSessionId = sessionsDb.createSession(
         parsed.sessionId,
         this.provider,
         parsed.projectPath,
@@ -74,6 +77,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         timestamps.updatedAt,
         filePath
       );
+      this.scheduleTitle(storedSessionId, parsed);
       processed += 1;
     }
 
@@ -98,7 +102,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     }
 
     const timestamps = await readFileTimestamps(filePath);
-    return sessionsDb.createSession(
+    const storedSessionId = sessionsDb.createSession(
       parsed.sessionId,
       this.provider,
       parsed.projectPath,
@@ -107,6 +111,51 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       timestamps.updatedAt,
       filePath
     );
+    this.scheduleTitle(storedSessionId, parsed);
+
+    return storedSessionId;
+  }
+
+  /**
+   * Shortens a stored session title in the background.
+   *
+   * Deliberately not awaited: `/api/projects` waits for a full synchronize, and
+   * a first run indexes every transcript on disk. Awaiting one network call per
+   * session there stalls the whole project list behind the title model. The row
+   * is already stored with the raw prompt, so a failure here just leaves the
+   * previous behaviour in place.
+   */
+  private scheduleTitle(storedSessionId: string | null, parsed: ParsedSession): void {
+    const prompt = parsed.rawPrompt?.trim();
+    if (!storedSessionId || !prompt) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        const generated = await generateSessionTitle(prompt);
+        // Nothing to store when the fallback returned the same raw prompt.
+        if (!generated?.generated) {
+          return;
+        }
+
+        // The user may have renamed the session while the model was answering;
+        // only overwrite the untouched raw prompt this run started from.
+        const current = sessionsDb.getSessionById(storedSessionId);
+        if (current?.custom_name?.trim() !== normalizeSessionName(prompt, 'Untitled Claude Session')) {
+          return;
+        }
+
+        sessionsDb.updateSessionTitleWithFullText(
+          storedSessionId,
+          generated.title,
+          generated.fullTitle,
+        );
+      } catch (error) {
+        // A missing short title must never break session indexing.
+        console.warn('Failed to generate a session title:', error);
+      }
+    })();
   }
 
   /**
@@ -155,6 +204,9 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     return {
       ...parsed,
       sessionName: normalizeSessionName(sessionName, 'Untitled Claude Session'),
+      // The raw prompt is the title source; shortening it happens after the row
+      // is stored so indexing never waits on the network. See `scheduleTitle`.
+      rawPrompt: sessionName ?? null,
     };
   }
 

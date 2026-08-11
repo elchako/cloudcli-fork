@@ -27,6 +27,7 @@ type SidebarProjectItemProps = {
   currentTime: Date;
   editingSession: string | null;
   editingSessionName: string;
+  regeneratingTitleSessionIds: ReadonlySet<string>;
   tasksEnabled: boolean;
   mcpServerStatus: MCPServerStatus;
   onEditingNameChange: (name: string) => void;
@@ -52,6 +53,7 @@ type SidebarProjectItemProps = {
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
+  onRegenerateSessionTitle: (sessionId: string) => void;
   t: TFunction;
 };
 
@@ -75,6 +77,7 @@ export default function SidebarProjectItem({
   currentTime,
   editingSession,
   editingSessionName,
+  regeneratingTitleSessionIds,
   tasksEnabled,
   mcpServerStatus,
   onEditingNameChange,
@@ -95,6 +98,7 @@ export default function SidebarProjectItem({
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
+  onRegenerateSessionTitle,
   t,
 }: SidebarProjectItemProps) {
   // Project identity is tracked by the DB-assigned `projectId` everywhere
@@ -430,10 +434,12 @@ export default function SidebarProjectItem({
         currentTime={currentTime}
         editingSession={editingSession}
         editingSessionName={editingSessionName}
+        regeneratingTitleSessionIds={regeneratingTitleSessionIds}
         onEditingSessionNameChange={onEditingSessionNameChange}
         onStartEditingSession={onStartEditingSession}
         onCancelEditingSession={onCancelEditingSession}
         onSaveEditingSession={onSaveEditingSession}
+        onRegenerateSessionTitle={onRegenerateSessionTitle}
         onProjectSelect={onProjectSelect}
         onSessionSelect={onSessionSelect}
         onDeleteSession={onDeleteSession}

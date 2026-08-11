@@ -120,6 +120,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- id mid-run, or equals \`session_id\` for sessions discovered on disk.
     provider_session_id TEXT,
     custom_name TEXT,
+    -- Untruncated original prompt kept next to the short AI-generated
+    -- \`custom_name\`, so the sidebar tooltip can reveal what the row was
+    -- shortened from. NULL when the displayed name already is the full text.
+    full_title TEXT,
     project_path TEXT,
     jsonl_path TEXT,
     -- Model this session runs with. Written when the user picks a model for the

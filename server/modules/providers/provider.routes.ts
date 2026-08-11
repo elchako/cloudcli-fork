@@ -626,6 +626,15 @@ router.put(
   }),
 );
 
+router.post(
+  '/sessions/:sessionId/regenerate-title',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const result = await sessionsService.regenerateSessionTitleById(sessionId);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
 router.get(
   '/sessions/:sessionId/messages',
   asyncHandler(async (req: Request, res: Response) => {

@@ -65,6 +65,7 @@ function Sidebar({
     isRefreshing,
     editingSession,
     editingSessionName,
+    regeneratingTitleSessionIds,
     searchFilter,
     searchMode,
     setSearchMode,
@@ -102,6 +103,7 @@ function Sidebar({
     restoreArchivedSession,
     refreshProjects,
     updateSessionSummary,
+    regenerateSessionTitle,
     collapseSidebar: handleCollapseSidebar,
     expandSidebar: handleExpandSidebar,
     setShowNewProject,
@@ -158,6 +160,7 @@ function Sidebar({
     currentTime,
     editingSession,
     editingSessionName,
+    regeneratingTitleSessionIds,
     deletingProjects,
     tasksEnabled,
     mcpServerStatus,
@@ -192,6 +195,9 @@ function Sidebar({
     },
     onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => {
       void updateSessionSummary(projectName, sessionId, summary, provider);
+    },
+    onRegenerateSessionTitle: (sessionId: string) => {
+      void regenerateSessionTitle(sessionId);
     },
     t,
   };

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
+import { generateSessionTitle } from '@/modules/providers/services/session-title.service.js';
 import type {
   FetchHistoryOptions,
   FetchHistoryResult,
@@ -371,6 +372,9 @@ export const sessionsService = {
 
   /**
    * Renames one session by id without requiring the caller to pass provider.
+   *
+   * Clears `full_title` as well: a hand-written name is the whole truth, so a
+   * leftover tooltip would keep showing a prompt the user just renamed away.
    */
   renameSessionById(sessionId: string, summary: string): { sessionId: string; summary: string } {
     const session = sessionsDb.getSessionById(sessionId);
@@ -381,7 +385,58 @@ export const sessionsService = {
       });
     }
 
-    sessionsDb.updateSessionCustomName(sessionId, summary);
+    sessionsDb.updateSessionTitleWithFullText(sessionId, summary, null);
     return { sessionId, summary };
+  },
+
+  /**
+   * Regenerates one session's sidebar title from its first user prompt.
+   *
+   * Backs the manual "regenerate" action, which is the only way sessions that
+   * were indexed before AI titling existed get a short name — indexing itself
+   * never rewrites an existing title.
+   */
+  async regenerateSessionTitleById(
+    sessionId: string,
+  ): Promise<{ sessionId: string; summary: string; fullTitle: string; generated: boolean }> {
+    const session =
+      sessionsDb.getSessionById(sessionId) ?? sessionsDb.getSessionByProviderSessionId(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    // The stored full title is the untouched prompt; when it is absent the
+    // displayed name still is that prompt (pre-AI-titling rows).
+    const sourcePrompt = session.full_title?.trim() || session.custom_name?.trim() || '';
+    if (!sourcePrompt) {
+      throw new AppError(`Session "${sessionId}" has no prompt to build a title from.`, {
+        code: 'SESSION_TITLE_SOURCE_MISSING',
+        statusCode: 422,
+      });
+    }
+
+    const generated = await generateSessionTitle(sourcePrompt);
+    if (!generated) {
+      throw new AppError(`Session "${sessionId}" has no prompt to build a title from.`, {
+        code: 'SESSION_TITLE_SOURCE_MISSING',
+        statusCode: 422,
+      });
+    }
+
+    sessionsDb.updateSessionTitleWithFullText(
+      session.session_id,
+      generated.title,
+      generated.fullTitle,
+    );
+
+    return {
+      sessionId: session.session_id,
+      summary: generated.title,
+      fullTitle: generated.fullTitle ?? '',
+      generated: generated.generated,
+    };
   },
 };

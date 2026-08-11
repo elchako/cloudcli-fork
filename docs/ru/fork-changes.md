@@ -213,6 +213,61 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
   `authenticateToken`, `server/index.ts:159`) — при обновлении upstream следить
   за этим файлом и за сигнатурой `getPreviewKind`.
 
+### 4.6 Активный сеанс выделен явно + короткие ИИ-названия сеансов
+- **Слой:** frontend + backend + БД · **Столкновение:** 🔴 · **PR:** кандидат
+  (выделение — баг апстрима; ИИ-названия — наша фича, отдельным PR).
+- **Симптом:** (1) выбранный сеанс отличался только `bg-primary/5` +
+  `border-primary/20` — в тёмной теме неразличимо, непонятно какой сеанс открыт;
+  (2) названием сеанса служил сырой первый запрос (`display` из
+  `~/.claude/history.jsonl`), обрезанный по ширине строки, поэтому десяток
+  сеансов подряд читался одинаково («Review this change for security…»).
+- **Что сделано:**
+  - **Выделение:** акцентная полоса 4px (`::before`), фон `bg-primary/15`,
+    сплошная рамка + `ring-primary/40`, `font-semibold` у заголовка,
+    `aria-current`. Обе ветки — десктопная и мобильная.
+  - **Названия:** новый сервис `session-title.service.ts` сокращает первый
+    запрос до «\<предмет\> — \<действие\>» (≤48 симв., первые два слова —
+    проект/домен/файл/номер задачи, язык запроса сохраняется). Модель берётся из
+    `ANTHROPIC_DEFAULT_HAIKU_MODEL`, доступ — по тем же `ANTHROPIC_BASE_URL` /
+    `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`, что и Claude Code.
+  - **Подсказка:** полный исходный запрос хранится в новой колонке
+    `sessions.full_title` и показывается в `title` при наведении.
+  - **Перегенерация вручную:** кнопка-искра в строке сеанса (десктоп + мобила) →
+    `POST /api/providers/sessions/:id/regenerate-title`. Индексация никогда не
+    переписывает уже существующее имя, поэтому старые сеансы обновляются только
+    этой кнопкой.
+- **Отказоустойчивость (важно):** ни один сбой не оставляет сеанс без имени —
+  при отсутствии ключей, ошибке шлюза, таймауте или ответе не в формате
+  возвращается прежнее поведение (обрезанный сырой запрос). Отключается
+  `CLOUDCLI_SESSION_TITLES=off`, модель переопределяется
+  `CLOUDCLI_SESSION_TITLE_MODEL`.
+- **Грабли, пойманные на живом стенде:**
+  1. Шлюз холдинга (CLIProxyAPI) отвечает `400 clear_thinking_20251015 strategy
+     requires thinking to be enabled` на обычный запрос → сервис делает один
+     повтор с `thinking: {type:'enabled'}` (`max_tokens` > `budget_tokens`,
+     `temperature` при этом слать нельзя).
+  2. Первая индексация шлёт запрос на сеанс — при 121 сеансе шлюз рвал
+     соединения (`fetch failed`) → запросы поставлены в последовательную очередь.
+  3. Генерация не должна быть внутри синхронизации: `/api/projects` ждёт
+     `synchronizeSessions()`, и ожидание сети там вешало список проектов
+     (>2 мин). Теперь строка пишется с сырым именем сразу, а заголовок
+     дописывается фоном (`scheduleTitle`) с проверкой, что имя не изменилось.
+- **Файлы:** `server/modules/providers/services/session-title.service.ts` (новый),
+  `server/modules/providers/tests/session-title.service.test.ts` (новый, 14 тестов),
+  `server/modules/providers/list/claude/claude-session-synchronizer.provider.ts`,
+  `server/modules/providers/services/sessions.service.ts`,
+  `server/modules/providers/provider.routes.ts`,
+  `server/modules/database/{schema,migrations}.ts`,
+  `server/modules/database/repositories/sessions.db.ts`,
+  `server/modules/projects/services/projects-with-sessions-fetch.service.ts`,
+  `src/components/sidebar/**` (5 файлов: строка сеанса, список, проект, панель,
+  контроллер), `src/utils/api.js`, `src/i18n/locales/{ru,en}/sidebar.json`.
+- **Мерж-заметка:** колонка `full_title` добавляется миграцией
+  `addSessionFullTitleColumn` (по образцу `addSessionModelColumn`) — при
+  обновлении upstream следить за `migrations.ts` и за `SESSION_ROW_COLUMNS`.
+  Переименование вручную (`renameSessionById`) теперь чистит `full_title`, иначе
+  подсказка показывала бы устаревший текст.
+
 ---
 
 ## 5. Инфраструктура и деплой
