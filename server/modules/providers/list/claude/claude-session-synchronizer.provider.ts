@@ -29,6 +29,15 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
   private readonly claudeHome = path.join(os.homedir(), '.claude');
 
   /**
+   * Sessions whose title is being generated right now.
+   *
+   * An active session is re-indexed on every transcript write, which happens far
+   * faster than the title model answers. Without this guard each write would
+   * queue another request for the same session.
+   */
+  private readonly titlesInFlight = new Set<string>();
+
+  /**
    * Returns true when a JSONL file is a subagent transcript or tool result
    * rather than a top-level session.
    *
@@ -124,13 +133,18 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
    * session there stalls the whole project list behind the title model. The row
    * is already stored with the raw prompt, so a failure here just leaves the
    * previous behaviour in place.
+   *
+   * A live session is re-indexed on every transcript write — far more often
+   * than the model answers — so `titlesInFlight` keeps one request per session
+   * instead of one per keystroke.
    */
   private scheduleTitle(storedSessionId: string | null, parsed: ParsedSession): void {
     const prompt = parsed.rawPrompt?.trim();
-    if (!storedSessionId || !prompt) {
+    if (!storedSessionId || !prompt || this.titlesInFlight.has(storedSessionId)) {
       return;
     }
 
+    this.titlesInFlight.add(storedSessionId);
     void (async () => {
       try {
         const generated = await generateSessionTitle(prompt);
@@ -139,10 +153,15 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
           return;
         }
 
-        // The user may have renamed the session while the model was answering;
-        // only overwrite the untouched raw prompt this run started from.
+        // The model answers in seconds, during which the user may have renamed
+        // the session by hand. A hand-typed name is never the raw prompt, so
+        // re-read the row and only replace a name that is still untitled — a
+        // set `full_title` or a name that no longer matches the prompt means
+        // someone else won, and this result is dropped.
         const current = sessionsDb.getSessionById(storedSessionId);
-        if (current?.custom_name?.trim() !== normalizeSessionName(prompt, 'Untitled Claude Session')) {
+        const stillUntitled = !current?.full_title?.trim()
+          && current?.custom_name?.trim() === normalizeSessionName(prompt, 'Untitled Claude Session');
+        if (!stillUntitled) {
           return;
         }
 
@@ -154,6 +173,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       } catch (error) {
         // A missing short title must never break session indexing.
         console.warn('Failed to generate a session title:', error);
+      } finally {
+        this.titlesInFlight.delete(storedSessionId);
       }
     })();
   }
@@ -190,9 +211,23 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       ?? sessionsDb.getSessionById(parsed.sessionId);
     const existingSessionName = existingSession?.custom_name;
     if (existingSessionName && existingSessionName !== 'Untitled Claude Session') {
+      // A live session is re-indexed on every transcript write. `full_title` is
+      // only set once a short title was actually produced, so while it is empty
+      // the stored name is still the raw prompt and titling has to be retried —
+      // otherwise a session whose first pass lost the race to the next write
+      // keeps its untruncated prompt forever.
+      //
+      // A hand-typed rename also leaves `full_title` empty, so it is retried
+      // too, but `scheduleTitle` compares the stored name against the prompt it
+      // started from and bails out on a mismatch — a manual title survives.
+      const alreadyTitled = Boolean(existingSession?.full_title?.trim());
+      // `custom_name` is capped at 120 chars, so prefer the untruncated prompt.
+      const titleSource = nameMap.get(parsed.sessionId) ?? existingSessionName;
+
       return {
         ...parsed,
         sessionName: normalizeSessionName(existingSessionName, 'Untitled Claude Session'),
+        rawPrompt: alreadyTitled ? null : titleSource,
       };
     }
 
