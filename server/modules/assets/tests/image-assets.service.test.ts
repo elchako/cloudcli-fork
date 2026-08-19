@@ -47,6 +47,9 @@ test('buildStoredAttachmentRecords preserves metadata for non-image files', () =
     path: `${ASSETS_DIR.replace(/\\/g, '/')}/123-456-requirements.pdf`,
     size: 2048,
     mimeType: 'application/pdf',
+    // Non-image uploads are classified as documents so the composer renders a
+    // file chip and the provider receives a readable path instead of base64.
+    kind: 'document',
   });
 });
 

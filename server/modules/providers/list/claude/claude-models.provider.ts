@@ -9,7 +9,7 @@ import type {
 } from '@/shared/types.js';
 import { buildDefaultProviderCurrentActiveModel } from '@/shared/utils.js';
 
-export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
+export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
       value: 'kimi-k3[1m]',
@@ -28,7 +28,7 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     {
       value: 'default',
       label: 'Default (recommended)',
-      description: 'Use the Claude Code default model (currently Sonnet 4.6)',
+      description: 'Use the recommended model for your Claude account and deployment.',
       effort: {
         default: 'high',
         values: [
@@ -40,9 +40,9 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
       },
     },
     {
-      value: 'fable',
-      label: 'Fable',
-      description: 'Fable 5 · Most capable for your hardest and longest-running tasks · Uses your limits ~2× faster than Opus',
+      value: 'best',
+      label: 'Best available',
+      description: 'Use Fable 5 when available, otherwise the latest Opus model.',
       effort: {
         default: 'high',
         values: [
@@ -55,15 +55,31 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
       },
     },
     {
-      value: "sonnet",
-      label: "Sonnet",
-      description: "Sonnet 4.6 · Best for everyday tasks · $3/$15 per Mtok",
+      value: 'fable',
+      label: 'Fable 5',
+      description: 'Most capable Claude model for the hardest, longest-running tasks.',
       effort: {
         default: 'high',
         values: [
           { value: 'low' },
           { value: 'medium' },
           { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
+      value: 'sonnet',
+      label: 'Sonnet',
+      description: 'Latest Sonnet model for everyday coding tasks.',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
           { value: 'max' },
         ],
       },
@@ -71,13 +87,14 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     {
       value: 'sonnet[1m]',
       label: 'Sonnet (1M context)',
-      description: 'Sonnet 4.6 for long sessions · $3/$15 per Mtok',
+      description: 'Latest Sonnet model with a 1M context window.',
       effort: {
         default: 'high',
         values: [
           { value: 'low' },
           { value: 'medium' },
           { value: 'high' },
+          { value: 'xhigh' },
           { value: 'max' },
         ],
       },
@@ -129,8 +146,8 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'opus[1m]',
-      label: 'Opus 4.8 (1M context)',
-      description: 'Opus 4.8 with 1M context · Most capable for complex work · $5/$25 per Mtok',
+      label: 'Opus (1M context)',
+      description: 'Latest Opus model with a 1M context window.',
       effort: {
         default: 'high',
         values: [
@@ -145,7 +162,22 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     {
       value: 'haiku',
       label: 'Haiku',
-      description: 'Haiku 4.5 · Fastest for quick answers · $1/$5 per Mtok',
+      description: 'Fast and efficient Claude model for simple tasks.',
+    },
+    {
+      value: 'opusplan',
+      label: 'Opus Plan',
+      description: 'Use Opus while planning, then switch to Sonnet for execution.',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
     },
   ],
   DEFAULT: 'default',
@@ -157,7 +189,7 @@ export const findClaudeModelOption = (model: string | undefined | null): Provide
     return null;
   }
 
-  return CLAUDE_FALLBACK_MODELS.OPTIONS.find((option) => option.value === normalizedModel) ?? null;
+  return CLAUDE_PREDEFINED_MODELS.OPTIONS.find((option) => option.value === normalizedModel) ?? null;
 };
 type ClaudeInitEvent = {
   sessionId?: string;
@@ -281,7 +313,7 @@ export class ClaudeProviderModels implements IProviderModels {
     // const supportedModels = await queryInstance.supportedModels();
     // queryInstance.close();
     // return buildClaudeModelsDefinition(supportedModels);
-    return CLAUDE_FALLBACK_MODELS;
+    return CLAUDE_PREDEFINED_MODELS;
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {

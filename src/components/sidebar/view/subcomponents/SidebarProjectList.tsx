@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 
 import type { LoadingProgress, Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionActivityMap } from '../../../../hooks/useSessionProtection';
+import { getPageTitle } from '../../../../utils/pageTitle';
 import type { MCPServerStatus, SessionWithProvider } from '../../types/types';
 
 import SidebarProjectItem from './SidebarProjectItem';
@@ -100,6 +101,7 @@ export default function SidebarProjectList({
   onRegenerateSessionTitle,
   t,
 }: SidebarProjectListProps) {
+  const pageTitle = getPageTitle(selectedProject, selectedSession);
   const state = (
     <SidebarProjectsState
       isLoading={isLoading}
@@ -111,13 +113,8 @@ export default function SidebarProjectList({
   );
 
   useEffect(() => {
-    let baseTitle = 'CloudCLI UI';
-    const displayName = selectedProject?.displayName?.trim();
-    if (displayName) {
-      baseTitle = `${displayName} - ${baseTitle}`;
-    }
-    document.title = baseTitle;
-  }, [selectedProject]);
+    document.title = pageTitle;
+  }, [pageTitle]);
 
   const showProjects = !isLoading && projects.length > 0 && filteredProjects.length > 0;
 
