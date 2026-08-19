@@ -5,10 +5,24 @@ import express from 'express';
 import type { VoiceRequestOverrides, VoiceService, VoiceServiceResult } from '@/shared/types.js';
 import { asyncHandler } from '@/shared/utils.js';
 
+/** Per-user voice settings persisted server-side; absent in route unit tests. */
+type StoredVoiceSettings = {
+  getSettings(userId: number): {
+    sttModel: string;
+    ttsModel: string;
+    ttsVoice: string;
+    ttsFormat: string;
+  };
+  getApiKey(userId: number): string | null;
+};
+
 type VoiceRouterDependencies = {
   voiceService: VoiceService;
   parseAudioUpload: express.RequestHandler;
+  storedVoiceSettings?: StoredVoiceSettings;
 };
+
+type AuthenticatedRequest = express.Request & { user?: { id?: number | string } };
 
 function readHeaderValue(value: string | string[] | undefined): string | undefined {
   const normalizedValue = Array.isArray(value) ? value[0] : value;
@@ -16,14 +30,45 @@ function readHeaderValue(value: string | string[] | undefined): string | undefin
   return trimmedValue || undefined;
 }
 
-function parseVoiceOverrides(request: express.Request): VoiceRequestOverrides {
-  return {
+/**
+ * Builds the per-request overrides.
+ *
+ * Request headers win, and whatever they omit is filled from the user's stored
+ * settings. That ordering matters: the apiKey is deliberately never sent to the
+ * browser, so on a fresh device the header is absent and the stored key is the
+ * only way the request can authenticate. A client that still holds a local key
+ * (or is mid-edit in the settings panel) keeps overriding it as before.
+ */
+function parseVoiceOverrides(
+  request: express.Request,
+  storedVoiceSettings?: StoredVoiceSettings,
+): VoiceRequestOverrides {
+  const fromHeaders: VoiceRequestOverrides = {
     apiKey: readHeaderValue(request.headers['x-voice-api-key']),
     sttModel: readHeaderValue(request.headers['x-voice-stt-model']),
     ttsModel: readHeaderValue(request.headers['x-voice-tts-model']),
     ttsVoice: readHeaderValue(request.headers['x-voice-tts-voice']),
     ttsFormat: readHeaderValue(request.headers['x-voice-tts-format']),
   };
+
+  const userId = Number((request as AuthenticatedRequest).user?.id);
+  if (!storedVoiceSettings || !Number.isInteger(userId) || userId <= 0) {
+    return fromHeaders;
+  }
+
+  try {
+    const stored = storedVoiceSettings.getSettings(userId);
+    return {
+      apiKey: fromHeaders.apiKey ?? storedVoiceSettings.getApiKey(userId) ?? undefined,
+      sttModel: fromHeaders.sttModel ?? (stored.sttModel || undefined),
+      ttsModel: fromHeaders.ttsModel ?? (stored.ttsModel || undefined),
+      ttsVoice: fromHeaders.ttsVoice ?? (stored.ttsVoice || undefined),
+      ttsFormat: fromHeaders.ttsFormat ?? (stored.ttsFormat || undefined),
+    };
+  } catch {
+    // A storage failure must not take voice down: fall back to env defaults.
+    return fromHeaders;
+  }
 }
 
 function sendFailure<TValue>(
@@ -72,7 +117,7 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
             mimeType: request.file.mimetype || 'audio/webm',
             fileName: request.file.originalname || 'recording.webm',
           },
-          overrides: parseVoiceOverrides(request),
+          overrides: parseVoiceOverrides(request, dependencies.storedVoiceSettings),
         });
 
         if (sendFailure(response, result)) {
@@ -93,7 +138,7 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
 
     const result = await dependencies.voiceService.synthesizeSpeech({
       text,
-      overrides: parseVoiceOverrides(request),
+      overrides: parseVoiceOverrides(request, dependencies.storedVoiceSettings),
     });
     if (sendFailure(response, result)) {
       return;

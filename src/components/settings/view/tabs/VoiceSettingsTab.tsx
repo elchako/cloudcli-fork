@@ -20,8 +20,12 @@ function Field({ label, ...props }: { label: string } & InputHTMLAttributes<HTML
 export default function VoiceSettingsTab() {
   const { t } = useTranslation('settings');
   const { preferences, setPreference } = useUiPreferences();
-  const { config, update } = useVoiceConfig();
+  const { config, update, hasApiKey } = useVoiceConfig();
   const voiceEnabled = preferences.voiceEnabled;
+  // The stored key is never sent back to the browser, so an empty field with a
+  // key on file must not read as "no key configured". Show a placeholder that
+  // says it is saved; typing replaces it, clearing the field removes it.
+  const apiKeyIsStoredButHidden = hasApiKey && !config.apiKey;
 
   return (
     <div className="space-y-8">
@@ -52,7 +56,9 @@ export default function VoiceSettingsTab() {
               label={t('voiceSettings.apiKey')}
               type="password"
               autoComplete="off"
-              placeholder="sk-…"
+              placeholder={apiKeyIsStoredButHidden
+                ? t('voiceSettings.apiKeySaved', 'Ключ сохранён — введите новый, чтобы заменить')
+                : 'sk-…'}
               value={config.apiKey}
               onChange={(e) => update({ apiKey: e.target.value })}
             />

@@ -20,6 +20,7 @@ import type {
   OnboardingStatusPayload,
 } from '../types';
 import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
+import { resetVoiceConfigCache } from '../../../hooks/useVoiceConfig';
 import { loadUserSettingsIntoLocalStorage, startUserSettingsAutoSync } from '../../../utils/userSettingsSync';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -61,6 +62,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null);
     setToken(null);
     clearStoredToken();
+    // Voice settings are cached in memory (including a revealed apiKey), so the
+    // next user to log in on this device must not inherit them.
+    resetVoiceConfigCache();
   }, []);
 
   const checkOnboardingStatus = useCallback(async () => {

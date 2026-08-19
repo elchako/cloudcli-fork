@@ -4,6 +4,7 @@ import {
   notificationPreferencesDb,
   pushSubscriptionsDb,
   userSettingsDb,
+  voiceSettingsDb,
 } from '@/modules/database/index.js';
 import {
   createNotificationEvent,
@@ -47,6 +48,11 @@ const settingsService = createSettingsService({
   userSettings: {
     get: (userId) => userSettingsDb.getSettings(userId),
     update: (userId, settings, merge) => userSettingsDb.updateSettings(userId, settings, merge),
+  },
+  voiceSettings: {
+    get: (userId) => voiceSettingsDb.getVoiceSettings(userId),
+    getApiKey: (userId) => voiceSettingsDb.getVoiceApiKey(userId),
+    update: (userId, input) => voiceSettingsDb.updateVoiceSettings(userId, input),
   },
   getVapidPublicKey: getPublicKey,
 });

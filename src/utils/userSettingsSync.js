@@ -10,11 +10,16 @@
  *     pick up the user's real values;
  *   - on change: push the current allowlisted keys back to the DB (debounced).
  *
- * Secrets are never synced. `voiceConfig` holds an apiKey in plaintext and the
- * server store has no at-rest encryption, so the whole key is intentionally
- * excluded from the allowlist and stays device-local.
+ * This blob stays secret-free: it is plain JSON in SQLite, and the repository
+ * strips key-like fields on the way in. Voice settings therefore do NOT live
+ * here even though they are user preferences — they carry an apiKey, so they
+ * get their own table with the key sealed by AES-256-GCM (see
+ * `hooks/useVoiceConfig` and `server/modules/database/repositories/voice-settings.ts`).
+ * `hydrateVoiceConfig` is kicked off alongside the pull below so both stores
+ * are ready at the same moment.
  */
 
+import { hydrateVoiceConfig, resetVoiceConfigCache } from '../hooks/useVoiceConfig';
 import i18n from '../i18n/config';
 
 import { api } from './api';
@@ -46,6 +51,11 @@ export const SYNCED_SETTINGS_KEYS = [
   'tasks-enabled',
   'notificationSoundEnabled',
   'starredProjects',
+  // Where the user dragged the floating quick-settings handle.
+  'quickSettingsHandlePosition',
+  // "I dismissed the GitHub star badge" — an explicit choice, so it should not
+  // come back on every new device or after a cache clear.
+  'CLOUDCLI_HIDE_GITHUB_STAR',
 ];
 
 // permissionMode-* keys are per-project; they are matched by prefix.
@@ -160,6 +170,12 @@ async function applyLiveEffects(settings) {
  * before the settings-reading UI mounts.
  */
 export async function loadUserSettingsIntoLocalStorage() {
+  // Voice config lives in its own table (it carries an encrypted secret), but it
+  // must be ready at the same moment as the rest of the settings — the mic
+  // button and read-aloud read it synchronously. Fetched in parallel; a failure
+  // here must not block the main settings pull.
+  void hydrateVoiceConfig();
+
   try {
     const response = await api.getUserSettings();
     if (!response.ok) {

@@ -370,6 +370,20 @@ export const api = {
       body: JSON.stringify(settings),
     }),
 
+  // Per-user voice (STT/TTS) config. Kept out of the settings blob above because
+  // it carries a secret: the apiKey is stored encrypted server-side and never
+  // returned, so responses expose only `hasApiKey`.
+  // `revealApiKey` returns the raw key too. It is needed only when the browser
+  // calls a custom voice backend directly (the proxy attaches the stored key
+  // itself), so callers must opt in rather than get the secret by default.
+  getVoiceSettings: ({ revealApiKey = false } = {}) =>
+    authenticatedFetch(`/api/settings/voice-settings${revealApiKey ? '?revealApiKey=true' : ''}`),
+  updateVoiceSettings: (voice) =>
+    authenticatedFetch('/api/settings/voice-settings', {
+      method: 'PUT',
+      body: JSON.stringify(voice),
+    }),
+
   // Generic GET method for any endpoint
   get: (endpoint) => authenticatedFetch(`/api${endpoint}`),
 

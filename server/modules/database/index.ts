@@ -16,3 +16,5 @@ export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 export { userSettingsDb } from '@/modules/database/repositories/user-settings.js';
 export { vapidKeysDb } from '@/modules/database/repositories/vapid-keys.js';
+// voiceSettingsDb: per-user STT/TTS config; the apiKey is stored encrypted.
+export { voiceSettingsDb } from '@/modules/database/repositories/voice-settings.js';

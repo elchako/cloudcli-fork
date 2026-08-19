@@ -59,6 +59,7 @@
     "backendDescription": "Point at OpenAI, Groq, or a local server (LocalAI, Speaches, Kokoro-FastAPI). Leave blank to use the server default.",
     "baseUrl": "Base URL",
     "apiKey": "API key",
+    "apiKeySaved": "Key saved — type a new one to replace it",
     "sttModel": "Speech-to-text model",
     "ttsModel": "Text-to-speech model",
     "voice": "Voice",

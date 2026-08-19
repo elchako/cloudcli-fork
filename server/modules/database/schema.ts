@@ -51,11 +51,30 @@ CREATE TABLE IF NOT EXISTS user_notification_preferences (
 // Per-user UI/composer settings (language, theme, selected model & effort,
 // editor prefs, …) persisted server-side so they survive cache clears, relogin
 // and origin/port changes and follow the user across devices. Stored as one
-// JSON blob; secrets (e.g. voice apiKey) live in user_credentials, not here.
+// JSON blob. This blob stays secret-free by design (`user-settings.ts` strips
+// key-like fields); the voice apiKey lives encrypted in `voice_settings`.
 export const USER_SETTINGS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS user_settings (
     user_id INTEGER PRIMARY KEY,
     settings_json TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
+// Per-user voice (STT/TTS) configuration. Kept in its own table rather than in
+// the settings blob because it carries a secret: `api_key_encrypted` holds an
+// AES-256-GCM envelope (see `server/shared/secret-box.ts`) and is never sent to
+// the client — the browser only learns whether a key is set.
+export const VOICE_SETTINGS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS voice_settings (
+    user_id INTEGER PRIMARY KEY,
+    base_url TEXT,
+    stt_model TEXT,
+    tts_model TEXT,
+    tts_voice TEXT,
+    tts_format TEXT,
+    api_key_encrypted TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -200,6 +219,8 @@ ${USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_user_notification_preferences_user_id ON user_notification_preferences(user_id);
 
 ${USER_SETTINGS_TABLE_SCHEMA_SQL}
+
+${VOICE_SETTINGS_TABLE_SCHEMA_SQL}
 
 ${VAPID_KEYS_TABLE_SCHEMA_SQL}
 

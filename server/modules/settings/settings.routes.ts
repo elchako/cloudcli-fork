@@ -46,6 +46,12 @@ export function createSettingsRouter(
   router.put('/user-settings', respond((req) => service.updateUserSettings(
     userId(req), req.body ?? {}, req.query.merge !== 'false',
   )));
+  router.get('/voice-settings', respond((req) => service.getVoiceSettings(
+    userId(req), req.query.revealApiKey === 'true',
+  )));
+  router.put('/voice-settings', respond((req) => service.updateVoiceSettings(
+    userId(req), req.body ?? {},
+  )));
   router.get('/push/vapid-public-key', respond(() => service.getVapidPublicKey()));
   router.post('/push/subscribe', respond((req) => service.subscribeToPush(userId(req), req.body ?? {})));
   router.post('/push/unsubscribe', respond((req) => service.unsubscribeFromPush(

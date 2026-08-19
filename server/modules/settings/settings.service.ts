@@ -38,6 +38,11 @@ type SettingsDependencies = {
     get(userId: number): unknown;
     update(userId: number, settings: unknown, merge: boolean): unknown;
   };
+  voiceSettings: {
+    get(userId: number): unknown;
+    getApiKey(userId: number): string | null;
+    update(userId: number, input: Record<string, unknown>): unknown;
+  };
   getVapidPublicKey(): string | null;
 };
 
@@ -158,6 +163,27 @@ export function createSettingsService(dependencies: SettingsDependencies) {
       // Partial merge by default so a client that changed one key does not wipe
       // the rest; the caller passes merge=false to replace the whole blob.
       return { success: true, settings: dependencies.userSettings.update(userId, settings ?? {}, merge) };
+    },
+    getVoiceSettings(userId: number, revealApiKey = false) {
+      // Default response carries the non-secret fields plus `hasApiKey`. The
+      // raw key is returned only on explicit request, because a custom backend
+      // configured in the UI is called by the BROWSER directly (the proxy
+      // ignores client-supplied URLs to avoid becoming an SSRF hop), and those
+      // calls cannot authenticate without it.
+      const voice = dependencies.voiceSettings.get(userId) as Record<string, unknown>;
+      if (!revealApiKey) {
+        return { success: true, voice };
+      }
+      return {
+        success: true,
+        voice: { ...voice, apiKey: dependencies.voiceSettings.getApiKey(userId) ?? '' },
+      };
+    },
+    updateVoiceSettings(userId: number, input: unknown) {
+      const payload = typeof input === 'object' && input !== null && !Array.isArray(input)
+        ? input as Record<string, unknown>
+        : {};
+      return { success: true, voice: dependencies.voiceSettings.update(userId, payload) };
     },
     getVapidPublicKey() {
       return { publicKey: dependencies.getVapidPublicKey() };

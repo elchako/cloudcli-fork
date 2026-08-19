@@ -1,5 +1,7 @@
 import multer from 'multer';
 
+import { voiceSettingsDb } from '@/modules/database/index.js';
+
 import { createVoiceRouter } from './voice.routes.js';
 import { createVoiceService } from './voice.service.js';
 
@@ -44,4 +46,10 @@ const audioUpload = multer({
 export const voiceRoutes = createVoiceRouter({
   voiceService,
   parseAudioUpload: audioUpload.single('audio'),
+  // Lets a request authenticate with the user's stored (encrypted) key when the
+  // browser has none — the case right after a cache clear or on a new device.
+  storedVoiceSettings: {
+    getSettings: (userId) => voiceSettingsDb.getVoiceSettings(userId),
+    getApiKey: (userId) => voiceSettingsDb.getVoiceApiKey(userId),
+  },
 });
