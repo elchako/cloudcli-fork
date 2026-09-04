@@ -84,6 +84,34 @@ describe('session title service', () => {
     assert.equal(apiKeyHeaders['x-api-key'], 'test-key');
   });
 
+  it('titles a dictated prompt that names no project or issue key', async () => {
+    // Regression: the prompt used to require the first two words to name a
+    // project, domain or issue key. A dictated prompt like this one has none,
+    // so the model answered with an explanation and every such session kept
+    // its truncated raw text. The instructions must let a topic stand in as
+    // the subject and must still ask the model for exactly one short line.
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    const dictated =
+      'после последнего релиза есть проблема, при каждом обновлении страницы просят '
+      + 'ввести логин и пароль, надо исправить это, пускай сессия живёт очень долго';
+    const calls = stubFetch(() => textBlockResponse('Вход в систему — вечная сессия'));
+
+    const result = await generateSessionTitle(dictated);
+
+    assert.equal(result?.title, 'Вход в систему — вечная сессия');
+    assert.equal(result?.generated, true);
+
+    const body = JSON.parse(String(calls[0]?.init.body)) as {
+      system: string;
+      messages: { content: string }[];
+    };
+    assert.equal(body.messages[0]?.content, dictated);
+    assert.match(body.system, /Заголовок обязателен всегда/);
+    assert.match(body.system, /главная тема запроса/);
+    // The subject rule must stay a preference, not a hard requirement.
+    assert.doesNotMatch(body.system, /обязаны называть предмет/);
+  });
+
   it('sends an auth token as a bearer when no api key is configured', async () => {
     process.env.ANTHROPIC_AUTH_TOKEN = 'gateway-token';
     process.env.ANTHROPIC_BASE_URL = 'https://gateway.example/';

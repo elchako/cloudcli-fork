@@ -219,3 +219,35 @@ test('a hand-typed rename survives a background title that lands afterwards', as
     },
   );
 });
+
+test('stores the title when the display name differs from the prompt source', async () => {
+  // Regression: the guard against clobbering a manual rename compared the
+  // stored name against the *prompt*. Once the prompt started coming from the
+  // transcript's first message while the name still came from `history.jsonl`
+  // (or a truncated slice), the two stopped matching and virtually every
+  // generated title was discarded — measured at 39 of 40 live sessions.
+  await withHarness(
+    async () => SHORT_TITLE,
+    async ({ synchronizer, transcriptPath, sessionId }) => {
+      const displayName = 'Короткое имя из history.jsonl';
+      await writeFile(
+        transcriptPath,
+        [
+          JSON.stringify({ sessionId, cwd: path.dirname(transcriptPath), type: 'user' }),
+          JSON.stringify({
+            type: 'user',
+            message: { role: 'user', content: RAW_PROMPT },
+          }),
+          JSON.stringify({ type: 'custom-title', sessionId, customTitle: displayName }),
+        ].join('\n'),
+        'utf8',
+      );
+
+      await synchronizer.synchronizeFile(transcriptPath);
+      await waitFor(() => storedFullTitle(sessionId) !== '');
+
+      assert.equal(storedName(sessionId), SHORT_TITLE);
+      assert.equal(storedFullTitle(sessionId), RAW_PROMPT);
+    },
+  );
+});

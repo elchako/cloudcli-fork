@@ -139,7 +139,9 @@ const uploadFormDataWithProgress = (
       if (refreshedToken) {
         storeAuthToken(refreshedToken);
       }
-      if (xhr.getResponseHeader('X-Auth-Error')) {
+      // Same rule as `authenticatedFetch`: only a rejected token we actually
+      // sent ends the session, never a header on some other failure.
+      if (token && xhr.status === 401 && xhr.getResponseHeader('X-Auth-Error')) {
         expireAuthSession();
       }
 

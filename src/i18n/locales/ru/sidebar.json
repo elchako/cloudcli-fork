@@ -44,7 +44,7 @@
     "addToFavorites": "Добавить в избранное",
     "removeFromFavorites": "Удалить из избранного",
     "editSessionName": "Вручную редактировать имя сеанса",
-    "regenerateSessionTitle": "Перегенерировать название по первому запросу",
+    "regenerateSessionTitle": "Перегенерировать название",
     "deleteSession": "Удалить этот сеанс навсегда",
     "activeSessionIndicator": "Недавно активный сеанс (последние 10 минут)",
     "save": "Сохранить",

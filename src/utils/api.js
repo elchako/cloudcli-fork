@@ -117,7 +117,11 @@ export const authenticatedFetch = (url, options = {}) => {
     if (refreshedToken) {
       storeAuthToken(refreshedToken);
     }
-    if (response.headers.get('X-Auth-Error')) {
+    // Drop the stored token only when the server actually rejected one we sent.
+    // The server also sets X-Auth-Error on requests that carried no token at
+    // all, so reacting to the header alone let an unauthenticated call made
+    // during startup wipe a perfectly valid session.
+    if (token && response.status === 401 && response.headers.get('X-Auth-Error')) {
       expireAuthSession();
     }
     return response;

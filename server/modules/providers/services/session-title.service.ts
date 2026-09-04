@@ -55,15 +55,35 @@ function enqueueTitleRequest<T>(task: () => Promise<T>): Promise<T> {
 const DEFAULT_TITLE_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_API_BASE_URL = 'https://api.anthropic.com';
 
+/**
+ * The prompt must produce a title for ANY first message, not just well-formed
+ * task requests.
+ *
+ * The original version demanded that the first two words name a project,
+ * domain, service or issue key. Dictated or exploratory prompts often contain
+ * none of those, and facing an impossible requirement the model would answer
+ * with an explanation instead of a title — which `sanitizeModelTitle` then
+ * rejects, silently falling back to the truncated raw prompt. That is why
+ * titling worked "sometimes". The subject rule is now a preference order with
+ * a topic-based fallback, plus an explicit "always answer" instruction.
+ */
 const TITLE_SYSTEM_PROMPT = [
   'Ты формируешь короткий заголовок рабочего сеанса для боковой панели.',
   '',
   'Правила:',
   '- Отвечай ТОЛЬКО заголовком, без кавычек, пояснений и точки в конце.',
   `- Не длиннее ${MAX_TITLE_LENGTH} символов.`,
-  '- Формат: «<предмет> — <действие>», например «goldjaxe-wiki — правки боковой панели».',
-  '- Первые два слова обязаны называть предмет: проект, домен, сервис, номер задачи или файл.',
+  '- Заголовок обязателен всегда. Любой запрос можно озаглавить по его теме.',
+  '  Никогда не отказывайся и не проси уточнений.',
+  '- Предмет заголовка выбирай по первому подходящему пункту:',
+  '  1) проект, домен, сервис, репозиторий, файл или номер задачи, если он назван;',
+  '  2) иначе — главная тема запроса (что обсуждают или что надо сделать).',
+  '- Формат «<предмет> — <действие>» предпочтителен, например',
+  '  «goldjaxe-wiki — правки боковой панели». Если действие не выражено,',
+  '  достаточно назвать тему без тире.',
   '- Сохраняй имена собственные как есть (домены, GOL-123, имена репозиториев, названия команд).',
+  '- Запрос может быть надиктован голосом: игнорируй оговорки, повторы и',
+  '  самоперебивания, бери суть.',
   '- Пиши на языке запроса.',
   '- Никаких вводных вроде «Запрос», «Задача», «Пользователь просит».',
 ].join('\n');

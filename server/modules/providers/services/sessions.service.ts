@@ -6,6 +6,7 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { generateSessionTitle } from '@/modules/providers/services/session-title.service.js';
+import { extractFirstUserPrompt } from '@/modules/providers/services/first-user-prompt.service.js';
 import type {
   FetchHistoryOptions,
   FetchHistoryResult,
@@ -493,8 +494,17 @@ export const sessionsService = {
     }
 
     // The stored full title is the untouched prompt; when it is absent the
-    // displayed name still is that prompt (pre-AI-titling rows).
-    const sourcePrompt = session.full_title?.trim() || session.custom_name?.trim() || '';
+    // displayed name still is that prompt (pre-AI-titling rows) — but only a
+    // truncated slice of it. Sessions started in the web UI have no
+    // `history.jsonl` entry, so that slice can be shorter than the threshold
+    // below which titling is skipped as pointless, and the button would appear
+    // to do nothing. Re-read the transcript first: it always holds the full
+    // first message.
+    const transcriptPrompt = session.jsonl_path
+      ? await extractFirstUserPrompt(session.jsonl_path)
+      : undefined;
+    const sourcePrompt =
+      transcriptPrompt?.trim() || session.full_title?.trim() || session.custom_name?.trim() || '';
     if (!sourcePrompt) {
       throw new AppError(`Session "${sessionId}" has no prompt to build a title from.`, {
         code: 'SESSION_TITLE_SOURCE_MISSING',

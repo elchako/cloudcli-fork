@@ -90,7 +90,16 @@ export const sessionsDb = {
     customName?: string,
     createdAt?: string,
     updatedAt?: string,
-    jsonlPath?: string | null
+    jsonlPath?: string | null,
+    /**
+     * Files a tool-generated session straight into the archive.
+     *
+     * Only ever set to `true` by the synchronizer for transcripts it detected
+     * as automated. Left undefined the row keeps upstream's behaviour, so a
+     * user who un-archives such a session by hand keeps that choice: the
+     * ON CONFLICT branch below only forces the flag when this is `true`.
+     */
+    archiveOnInsert?: boolean
   ): string {
     const db = getConnection();
     const createdAtValue = normalizeTimestamp(createdAt);
@@ -116,7 +125,10 @@ export const sessionsDb = {
            updated_at = COALESCE(?, CURRENT_TIMESTAMP),
            project_path = ?,
            jsonl_path = ?,
-           isArchived = 0,
+           -- See the ON CONFLICT branch below: re-indexing un-archives a row,
+           -- except for tool-generated sessions, which the plugin appends to
+           -- constantly and which would otherwise resurface every time.
+           isArchived = CASE WHEN ? = 1 THEN 1 ELSE 0 END,
            custom_name = CASE
              WHEN session_id <> provider_session_id AND custom_name IS NOT NULL THEN custom_name
              ELSE COALESCE(?, custom_name)
@@ -127,6 +139,7 @@ export const sessionsDb = {
         updatedAtValue,
         normalizedProjectPath,
         jsonlPath ?? null,
+        archiveOnInsert ? 1 : 0,
         customName ?? null,
         existing.session_id
       );
@@ -139,14 +152,18 @@ export const sessionsDb = {
     // covers legacy rows that predate the provider_session_id mapping.
     db.prepare(
       `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+       VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
        ON CONFLICT(session_id) DO UPDATE SET
          provider = excluded.provider,
          provider_session_id = excluded.provider_session_id,
          updated_at = excluded.updated_at,
          project_path = excluded.project_path,
          jsonl_path = excluded.jsonl_path,
-         isArchived = 0,
+         -- Re-indexing normally un-archives a row (a session that got new
+         -- activity is back in play). Automated sessions are the exception:
+         -- the plugin appends to them constantly, which would drag every
+         -- review back into the sidebar on the next write.
+         isArchived = CASE WHEN excluded.isArchived = 1 THEN 1 ELSE 0 END,
          custom_name = CASE
            WHEN sessions.session_id <> sessions.provider_session_id AND sessions.custom_name IS NOT NULL
              THEN sessions.custom_name
@@ -159,6 +176,7 @@ export const sessionsDb = {
       customName ?? null,
       normalizedProjectPath,
       jsonlPath ?? null,
+      archiveOnInsert ? 1 : 0,
       createdAtValue,
       updatedAtValue
     );

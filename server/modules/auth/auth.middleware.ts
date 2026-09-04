@@ -102,6 +102,19 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+/**
+ * Lifetime of an issued session token.
+ *
+ * Upstream ships 7 days, which for our single-operator remote workstation means
+ * re-typing credentials on the phone every week for no security gain. A year
+ * plus the halfway auto-refresh above makes the session effectively permanent
+ * for anyone who opens the app at least twice a year.
+ *
+ * Not infinite on purpose: the fork keeps no revocation list, so a token that
+ * never expires could not be invalidated at all if a device were lost.
+ */
+const TOKEN_TTL = process.env.CLOUDCLI_SESSION_TTL?.trim() || '365d';
+
 // Generate JWT token
 const generateToken = (user) => {
   return jwt.sign(
@@ -110,7 +123,7 @@ const generateToken = (user) => {
       username: user.username
     },
     JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: TOKEN_TTL }
   );
 };
 

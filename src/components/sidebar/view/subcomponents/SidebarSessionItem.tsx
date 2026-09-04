@@ -377,6 +377,27 @@ export default function SidebarSessionItem({
                   <span className="text-sm font-medium">Rename session</span>
                 </button>
 
+                {/* Mirrors the desktop menu: the mobile sheet shipped without
+                    this action, so a phone had no way to fix a bad title. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileOptionsOpen(false);
+                    onRegenerateSessionTitle(session.id);
+                  }}
+                  disabled={isRegeneratingTitle}
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-muted/35 px-4 py-3 text-left text-foreground transition-colors active:bg-muted disabled:opacity-60"
+                >
+                  {isRegeneratingTitle ? (
+                    <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-5 w-5 flex-shrink-0" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {t('tooltips.regenerateSessionTitle', 'Перегенерировать название')}
+                  </span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleCopyAction}
@@ -581,7 +602,7 @@ export default function SidebarSessionItem({
                   },
                   {
                     key: 'regenerate-title',
-                    label: t('tooltips.regenerateSessionTitle', 'Перегенерировать название по первому запросу'),
+                    label: t('tooltips.regenerateSessionTitle', 'Перегенерировать название'),
                     icon: Sparkles,
                     loading: isRegeneratingTitle,
                     onSelect: () => onRegenerateSessionTitle(session.id),

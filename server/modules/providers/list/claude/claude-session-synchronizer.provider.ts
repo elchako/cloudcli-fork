@@ -12,6 +12,8 @@ import {
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
 import { generateSessionTitle } from '@/modules/providers/services/session-title.service.js';
+import { extractFirstUserPrompt } from '@/modules/providers/services/first-user-prompt.service.js';
+import { isAutomatedToolSession } from '@/modules/providers/services/automated-session.service.js';
 
 type ParsedSession = {
   sessionId: string;
@@ -77,6 +79,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       }
 
       const timestamps = await readFileTimestamps(filePath);
+      const isAutomated = await isAutomatedToolSession(filePath);
       const storedSessionId = sessionsDb.createSession(
         parsed.sessionId,
         this.provider,
@@ -84,9 +87,14 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         parsed.sessionName,
         timestamps.createdAt,
         timestamps.updatedAt,
-        filePath
+        filePath,
+        isAutomated
       );
-      this.scheduleTitle(storedSessionId, parsed);
+      // Archived rows are not browsed, and their "prompt" is a multi-KB machine
+      // payload — titling them would only burn gateway calls.
+      if (!isAutomated) {
+        this.scheduleTitle(storedSessionId, parsed);
+      }
       processed += 1;
     }
 
@@ -111,6 +119,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     }
 
     const timestamps = await readFileTimestamps(filePath);
+    const isAutomated = await isAutomatedToolSession(filePath);
     const storedSessionId = sessionsDb.createSession(
       parsed.sessionId,
       this.provider,
@@ -118,9 +127,12 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       parsed.sessionName,
       timestamps.createdAt,
       timestamps.updatedAt,
-      filePath
+      filePath,
+      isAutomated
     );
-    this.scheduleTitle(storedSessionId, parsed);
+    if (!isAutomated) {
+      this.scheduleTitle(storedSessionId, parsed);
+    }
 
     return storedSessionId;
   }
@@ -144,6 +156,9 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       return;
     }
 
+    // The name this run is allowed to overwrite — whatever was just stored.
+    const storedName = normalizeSessionName(parsed.sessionName, 'Untitled Claude Session');
+
     this.titlesInFlight.add(storedSessionId);
     void (async () => {
       try {
@@ -154,13 +169,19 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         }
 
         // The model answers in seconds, during which the user may have renamed
-        // the session by hand. A hand-typed name is never the raw prompt, so
-        // re-read the row and only replace a name that is still untitled — a
-        // set `full_title` or a name that no longer matches the prompt means
-        // someone else won, and this result is dropped.
+        // the session by hand. Re-read the row and only replace the name this
+        // run started from: a set `full_title`, or a name that changed while
+        // the request was in flight, means someone else won and this result is
+        // dropped.
+        //
+        // Compare against the name that was actually stored, NOT against the
+        // prompt. The title source is the transcript's first message, while
+        // the stored name comes from `history.jsonl` or a truncated slice — so
+        // the two rarely match, and comparing them threw away nearly every
+        // generated title (measured: 39 of 40 live sessions).
         const current = sessionsDb.getSessionById(storedSessionId);
         const stillUntitled = !current?.full_title?.trim()
-          && current?.custom_name?.trim() === normalizeSessionName(prompt, 'Untitled Claude Session');
+          && current?.custom_name?.trim() === storedName;
         if (!stillUntitled) {
           return;
         }
@@ -222,7 +243,14 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       // started from and bails out on a mismatch — a manual title survives.
       const alreadyTitled = Boolean(existingSession?.full_title?.trim());
       // `custom_name` is capped at 120 chars, so prefer the untruncated prompt.
-      const titleSource = nameMap.get(parsed.sessionId) ?? existingSessionName;
+      // `history.jsonl` has no entry for app-created sessions, and the stored
+      // name may already be a short slice of the prompt — too short to clear
+      // the "already its own label" threshold, which made titling a no-op. The
+      // transcript always holds the full first message, so it is the last
+      // resort before giving up on a source.
+      const titleSource = nameMap.get(parsed.sessionId)
+        ?? (alreadyTitled ? undefined : await extractFirstUserPrompt(filePath))
+        ?? existingSessionName;
 
       return {
         ...parsed,
@@ -236,12 +264,18 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       sessionName = await this.extractSessionAiTitleFromEnd(filePath, parsed.sessionId);
     }
 
+    // The title must describe what the session is *about*, so it is built from
+    // the first message. `extractSessionAiTitleFromEnd` scans backwards and
+    // yields the latest prompt, which would name a session after "да, спасибо!"
+    // — fine as a display name, wrong as a title source.
+    const firstPrompt = await extractFirstUserPrompt(filePath);
+
     return {
       ...parsed,
-      sessionName: normalizeSessionName(sessionName, 'Untitled Claude Session'),
+      sessionName: normalizeSessionName(sessionName ?? firstPrompt, 'Untitled Claude Session'),
       // The raw prompt is the title source; shortening it happens after the row
       // is stored so indexing never waits on the network. See `scheduleTitle`.
-      rawPrompt: sessionName ?? null,
+      rawPrompt: firstPrompt ?? sessionName ?? null,
     };
   }
 

@@ -151,13 +151,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const userResponse = await api.auth.user();
       if (!userResponse.ok) {
-        clearSession();
+        // Only a rejected token ends the session. A 5xx, a proxy error or a
+        // request that raced the server restart says nothing about the token,
+        // and signing out there is what made every page reload ask for the
+        // password again. Keep the token and let the next check settle it.
+        if (userResponse.status === 401) {
+          clearSession();
+        }
         return;
       }
 
       const userPayload = await parseJsonSafely<AuthUserPayload>(userResponse);
       if (!userPayload?.user) {
-        clearSession();
+        // A 200 without a user body is a malformed response, not a verdict on
+        // the token — same reasoning as above.
         return;
       }
 
