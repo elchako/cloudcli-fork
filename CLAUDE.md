@@ -49,12 +49,19 @@ npm run server            # только запуск уже собранног�
 
 # Проверки (гонять перед каждым коммитом)
 npm run typecheck         # tsc --noEmit для client И server
-npm run lint              # eslint src/ server/
-npm run lint:fix          # eslint --fix
+npm run lint              # oxlint src/ server/ (с 1.37.3; eslint.config.js удалён)
+npm run lint:fix          # oxlint --fix
 
 # Тесты — на node:test, ЗАПУСКАТЬ через tsx (нужен для алиасов @/):
 npx tsx --tsconfig server/tsconfig.json --test <path/to/*.test.ts>
-# ⚠️ Отдельного `npm test` НЕТ. Тестовые файлы — server/**/tests/*.test.ts.
+# С 1.37.3 есть и `npm test` (все серверные тесты сразу).
+
+# Клиентские тесты (vitest, с 1.37.3) — ТОЛЬКО так:
+NODE_ENV=test npx vitest run          # весь набор
+NODE_ENV=test npx vitest run <file>   # один файл
+# ⚠️ NODE_ENV=test обязателен: в среде выставлен NODE_ENV=production, из-за
+# него React грузится production-сборкой и act() не работает — сотни ложных
+# падений. По той же причине `npm install` требует --include=dev.
 
 # Desktop-компаньон (Electron) — обычно не нужен для веб-сценария
 npm run desktop:dev
@@ -66,7 +73,7 @@ npm run desktop:dev
 **Установка апстрима у конечного пользователя** (не для разработки форка) —
 `npx @cloudcli-ai/cloudcli` или `npm i -g @cloudcli-ai/cloudcli && cloudcli`.
 
-**Husky/lint-staged** активны: pre-commit гоняет eslint по staged-файлам.
+**Husky/lint-staged** активны: pre-commit гоняет oxlint по staged-файлам.
 
 ## Архитектура
 
@@ -182,7 +189,8 @@ username}`. Middleware `authenticateToken` принимает токен из з
    при правках сервера — `npm run build` и профильные `node:test`. Для UI/тач-
    специфики — проверка в браузере (мобильный вьюпорт) на локальном инстансе
    (отдельный `SERVER_PORT`/`DATABASE_PATH`, рабочий :3301 не трогать).
-- **Тесты — через tsx.** `npx tsx --tsconfig server/tsconfig.json --test <file>`.
+- **Тесты — через tsx** (сервер) и **vitest** (клиент, с `NODE_ENV=test`).
+   `npx tsx --tsconfig server/tsconfig.json --test <file>`.
    Алиасы `@/` без tsx не резолвятся. Новую серверную логику покрывай тестом
    рядом (`server/**/tests/*.test.ts`).
 - **🔴 ОБЯЗАТЕЛЬНО: любое изменение кода форка → запись в реестре правок в ТОМ ЖЕ
