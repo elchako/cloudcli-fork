@@ -426,23 +426,23 @@ export default function ChatComposer({
               onBlur={() => onInputFocusChange?.(false)}
               onInput={onTextareaInput}
               placeholder={placeholder}
-              className={onVoiceTranscript && voiceAvailable ? 'pr-14 sm:pr-4' : undefined}
+              className={onVoiceTranscript && voiceAvailable ? 'pr-14' : undefined}
             />
 
             {/*
-              * Fork: on a phone the mic sits in the textarea's top-right corner
-              * (as Claude Code does), not in the footer row. Dictation is how
-              * this composer is used almost all the time, and the footer had it
-              * as one small icon among five. Above `sm` it stays in the footer,
-              * where a pointer makes the small target a non-issue.
+              * Fork: the mic sits in the textarea's top-right corner, the way
+              * Claude Code places it, rather than in the footer row of small
+              * controls. Dictation is how this composer is used nearly all the
+              * time, and the footer had it as one 32px icon among five — hard
+              * to hit with a thumb and easy to miss with a pointer. Same place
+              * on every width, so the habit carries between phone and desktop.
               */}
             {onVoiceTranscript && voiceAvailable && (
               <VoiceInputButton
                 state={voiceState}
                 onToggle={voiceToggle}
                 errorMsg={voiceError}
-                variant="floating"
-                className="absolute right-2 top-2 sm:hidden"
+                className="absolute right-2 top-2"
               />
             )}
         </PromptInputBody>
@@ -457,15 +457,7 @@ export default function ChatComposer({
               <PaperclipIcon />
             </PromptInputButton>
 
-            {/* Below `sm` this one is replaced by the floating mic above. */}
-            {onVoiceTranscript && voiceAvailable && (
-              <VoiceInputButton
-                state={voiceState}
-                onToggle={voiceToggle}
-                errorMsg={voiceError}
-                className="hidden sm:inline-flex"
-              />
-            )}
+            {/* The mic lives in the textarea's corner now — see above. */}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
 
