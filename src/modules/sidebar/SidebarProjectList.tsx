@@ -46,6 +46,7 @@ export default function SidebarProjectList({
   onSaveEditingSession,
   regeneratingTitleSessionIds,
   onRegenerateSessionTitle,
+  onToggleSessionPin,
   t,
 }: SidebarProjectListProps) {
   const pageTitle = getPageTitle(selectedProject, selectedSession);
@@ -123,6 +124,7 @@ export default function SidebarProjectList({
                 onSaveEditingSession={onSaveEditingSession}
                 regeneratingTitleSessionIds={regeneratingTitleSessionIds}
                 onRegenerateSessionTitle={onRegenerateSessionTitle}
+                onToggleSessionPin={onToggleSessionPin}
                 t={t}
               />
             );

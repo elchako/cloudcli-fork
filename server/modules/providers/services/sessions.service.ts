@@ -39,7 +39,12 @@ type ArchivedSessionListItem = {
 type RecentSessionListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  /** Pinned rows sort to the top of the Conversations list. */
+  isPinned: boolean;
+  /** Original prompt behind a shortened title; null when it was not shortened. */
+  fullTitle: string | null;
+};
 
 type RecentSessionsPage = {
   conversations: RecentSessionListItem[];
@@ -165,6 +170,8 @@ export const sessionsService = {
         projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
         sessionTitle: session.custom_name?.trim() || session.session_id,
         lastActivity: session.updated_at ?? session.created_at ?? null,
+        isPinned: Boolean(session.isPinned),
+        fullTitle: session.full_title?.trim() || null,
       };
     });
 
@@ -645,6 +652,24 @@ export const sessionsService = {
 
     sessionsDb.updateSessionIsArchived(sessionId, false);
     return { sessionId, isArchived: false };
+  },
+
+  /**
+   * Toggles whether one session is pinned to the top of the sidebar lists.
+   *
+   * The flag lives on the session, so a pin applies both inside the owning
+   * project and in the cross-project Conversations list.
+   */
+  toggleSessionPinnedById(sessionId: string): { sessionId: string; isPinned: boolean } {
+    const isPinned = sessionsDb.toggleSessionPinned(sessionId);
+    if (isPinned === null) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    return { sessionId, isPinned };
   },
 
   /**

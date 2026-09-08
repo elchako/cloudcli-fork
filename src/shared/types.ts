@@ -83,6 +83,10 @@ export type ProjectSession = {
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.
   __projectId?: string;
+  /** Original prompt behind a shortened `summary`; absent when they match. */
+  fullTitle?: string;
+  /** Pinned rows sort to the top of the sidebar lists. */
+  isPinned?: boolean;
   [key: string]: unknown;
 };
 
@@ -1256,6 +1260,8 @@ export type SessionRowActions = {
   regeneratingTitleSessionIds: ReadonlySet<string>;
   /** Rebuilds the short sidebar title from the session's original prompt. */
   onRegenerateSessionTitle: (sessionId: string) => void;
+  /** Pins/unpins a session so it sorts to the top of its list. */
+  onToggleSessionPin: (sessionId: string) => void;
 };
 
 export type SidebarProjectListProps = SessionRowActions & {
@@ -1320,7 +1326,12 @@ export type ArchivedSessionListItem = {
 export type RecentConversationListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  /** Pinned rows sort to the top of the Conversations list. */
+  isPinned: boolean;
+  /** Original prompt behind a shortened title; null when it was not shortened. */
+  fullTitle: string | null;
+};
 
 /**
  * The rename the sidebar currently has open, if any.

@@ -39,6 +39,8 @@ const conversation = (
   projectDisplayName: 'project one',
   sessionTitle: `title of ${sessionId}`,
   lastActivity: '2026-08-21T09:30:00.000Z',
+  isPinned: false,
+  fullTitle: null,
   ...overrides,
 });
 
@@ -53,6 +55,7 @@ const makeActions = (overrides: Partial<SessionRowActions> = {}): SessionRowActi
   onDeleteSession: noop,
   regeneratingTitleSessionIds: new Set<string>(),
   onRegenerateSessionTitle: noop,
+  onToggleSessionPin: noop,
   ...overrides,
 });
 

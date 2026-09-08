@@ -134,6 +134,7 @@ function Sidebar({
     refreshProjects,
     updateSessionSummary,
     regenerateSessionTitle,
+    toggleSessionPin,
     forkSession,
     collapseSidebar: handleCollapseSidebar,
     expandSidebar: handleExpandSidebar,
@@ -225,6 +226,9 @@ function Sidebar({
     onSaveEditingSession: handleSaveSessionName,
     onRegenerateSessionTitle: (sessionId: string) => {
       void regenerateSessionTitle(sessionId);
+    },
+    onToggleSessionPin: (sessionId: string) => {
+      void toggleSessionPin(sessionId);
     },
     t,
   };

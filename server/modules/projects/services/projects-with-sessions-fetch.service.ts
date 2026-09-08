@@ -13,6 +13,8 @@ type SessionSummary = {
   summary: string;
   /** Original prompt behind a shortened `summary`; empty when they match. */
   fullTitle: string;
+  /** Pinned rows sort to the top of the project's session list. */
+  isPinned: boolean;
   messageCount: number;
   lastActivity: string;
 };
@@ -22,6 +24,7 @@ type SessionRepositoryRow = {
   session_id: string;
   custom_name?: string | null;
   full_title?: string | null;
+  isPinned?: number | null;
   updated_at?: string | null;
   created_at?: string | null;
 };
@@ -127,6 +130,7 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     summary: row.custom_name || '',
     // Sidebar rows truncate; the tooltip reveals what the short title replaced.
     fullTitle: row.full_title || '',
+    isPinned: Boolean(row.isPinned),
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
   };

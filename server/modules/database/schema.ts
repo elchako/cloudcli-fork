@@ -179,6 +179,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- session, and deleting the source does not affect it.
     forked_from_session_id TEXT,
     isArchived BOOLEAN DEFAULT 0,
+    -- Keeps a session at the top of its list, both under its own project and
+    -- in the cross-project Conversations list. A property of the session, not
+    -- of the view, so both lists read this one flag.
+    isPinned BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (session_id),

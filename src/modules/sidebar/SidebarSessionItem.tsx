@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Check, Edit2, Loader2, MoreHorizontal, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, Edit2, Loader2, MoreHorizontal, Pin, PinOff, Sparkles, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Dialog, DialogContent, DialogTitle, LLMProviderLogo, Tooltip, buttonVariants } from '@/shared/ui';
@@ -26,6 +26,8 @@ type SidebarSessionItemProps = {
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
   onRegenerateSessionTitle: (sessionId: string) => void;
+  /** Pins/unpins this session so it sorts to the top of the project's list. */
+  onToggleSessionPin: (sessionId: string) => void;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   onDeleteSession: (sessionId: string, sessionTitle: string) => void;
@@ -50,6 +52,7 @@ function SidebarSessionItem({
   onCancelEditingSession,
   onSaveEditingSession,
   onRegenerateSessionTitle,
+  onToggleSessionPin,
   onProjectSelect,
   onSessionSelect,
   onDeleteSession,
@@ -163,6 +166,12 @@ function SidebarSessionItem({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                {session.isPinned && (
+                  <Pin
+                    className="h-3 w-3 flex-shrink-0 text-muted-foreground"
+                    aria-label={t('tooltips.pinnedSession', 'Закреплённый сеанс')}
+                  />
+                )}
                 <div
                   title={sessionFullTitle}
                   className={cn(
@@ -275,6 +284,28 @@ function SidebarSessionItem({
               </div>
             ) : (
               <div className="space-y-2">
+                {/* Same first action as the desktop menu: pinning is the one
+                    users reach for most when a list grows past a screenful. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileOptionsOpen(false);
+                    onToggleSessionPin(session.id);
+                  }}
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-muted/35 px-4 py-3 text-left text-foreground transition-colors active:bg-muted"
+                >
+                  {session.isPinned ? (
+                    <PinOff className="h-5 w-5 flex-shrink-0" />
+                  ) : (
+                    <Pin className="h-5 w-5 flex-shrink-0" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {session.isPinned
+                      ? t('tooltips.unpinSession', 'Открепить')
+                      : t('tooltips.pinSession', 'Закрепить')}
+                  </span>
+                </button>
+
                 <button
                   type="button"
                   onClick={startMobileRename}
@@ -399,6 +430,12 @@ function SidebarSessionItem({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                {session.isPinned && (
+                  <Pin
+                    className="h-3 w-3 flex-shrink-0 text-muted-foreground"
+                    aria-label={t('tooltips.pinnedSession', 'Закреплённый сеанс')}
+                  />
+                )}
                 <div
                   title={sessionFullTitle}
                   className={cn(
@@ -449,11 +486,13 @@ function SidebarSessionItem({
           isEditing={isEditing}
           renameDraft={renameDraft}
           isRegeneratingTitle={isRegeneratingTitle}
+          isPinned={Boolean(session.isPinned)}
           onRenameDraftChange={onRenameDraftChange}
           onStartEditingSession={onStartEditingSession}
           onCancelEditingSession={onCancelEditingSession}
           onSaveEditingSession={onSaveEditingSession}
           onRegenerateSessionTitle={onRegenerateSessionTitle}
+          onToggleSessionPin={onToggleSessionPin}
           onDeleteSession={onDeleteSession}
           onFork={onForkSession ? () => onForkSession(session) : undefined}
           t={t}

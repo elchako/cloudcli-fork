@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 
 import { api } from '@/shared/api';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
+import { useWebSocket } from '@/shared/context/WebSocketContext';
 import { usePaletteOps } from '@/modules/command-palette';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
 import {
@@ -60,6 +61,13 @@ type UseSidebarControllerArgs = {
   sidebarVisible: boolean;
 };
 
+/**
+ * Collapses a burst of session deltas into one refetch. A single run emits
+ * several in a row (start, status, end), and the feed only has to end up
+ * correct, not redraw for each frame.
+ */
+const RECENT_CONVERSATIONS_REFRESH_DEBOUNCE_MS = 400;
+
 export function useSidebarController({
   projects,
   selectedProject,
@@ -79,6 +87,7 @@ export function useSidebarController({
   sidebarVisible,
 }: UseSidebarControllerArgs) {
   const paletteOps = usePaletteOps();
+  const { subscribe } = useWebSocket();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   // The one rename the sidebar has open, as a single value so a project and a
   // session cannot both be mid-rename. See ActiveSidebarRename.
@@ -324,6 +333,48 @@ export function useSidebarController({
 
     reloadRecentConversations();
   }, [debouncedSearchQuery, reloadRecentConversations, searchMode]);
+
+  /**
+   * Keeps the Conversations tab live.
+   *
+   * The list was only fetched when the tab was opened, so a session that
+   * finished, was renamed or was started elsewhere stayed invisible until the
+   * user switched tabs and back. The backend already pushes a per-session
+   * delta for exactly these moments, so the tab re-reads on that instead.
+   *
+   * Only while the tab is actually showing the feed: a background reload would
+   * be a request per event for a list nobody is looking at. Bursts (a run
+   * emits several deltas in a row) collapse into one refetch.
+   */
+  useEffect(() => {
+    if (searchMode !== 'conversations' || debouncedSearchQuery.length >= 2) {
+      return;
+    }
+
+    let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const unsubscribe = subscribe((event) => {
+      if (event.kind !== 'session_upserted' && event.kind !== 'websocket_reconnected') {
+        return;
+      }
+
+      if (refetchTimer) {
+        return;
+      }
+
+      refetchTimer = setTimeout(() => {
+        refetchTimer = null;
+        reloadRecentConversations();
+      }, RECENT_CONVERSATIONS_REFRESH_DEBOUNCE_MS);
+    });
+
+    return () => {
+      if (refetchTimer) {
+        clearTimeout(refetchTimer);
+      }
+      unsubscribe();
+    };
+  }, [debouncedSearchQuery, reloadRecentConversations, searchMode, subscribe]);
 
   useEffect(() => {
     if (searchMode !== 'archived') {
@@ -1006,6 +1057,31 @@ export function useSidebarController({
   );
 
   /**
+   * Pins or unpins one session.
+   *
+   * The flag lives on the session, so both lists that can show it have to be
+   * re-read: the project lists (onRefresh) and the Conversations feed. The
+   * server owns the new state, so nothing is toggled optimistically here.
+   */
+  const toggleSessionPin = useCallback(
+    async (sessionId: string) => {
+      try {
+        const response = await api.toggleSessionPin(sessionId);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        await onRefresh();
+        reloadRecentConversations();
+      } catch (error) {
+        console.error('[Sidebar] Error toggling session pin:', error);
+        alert(t('messages.togglePinError', 'Не удалось закрепить сеанс.'));
+      }
+    },
+    [onRefresh, reloadRecentConversations, t],
+  );
+
+  /**
    * Rebuilds one session's short title from its original prompt.
    *
    * Indexing never rewrites an existing title, so this is how sessions created
@@ -1125,6 +1201,7 @@ export function useSidebarController({
     refreshProjects,
     updateSessionSummary,
     regenerateSessionTitle,
+    toggleSessionPin,
     collapseSidebar,
     expandSidebar,
     setShowNewProject,

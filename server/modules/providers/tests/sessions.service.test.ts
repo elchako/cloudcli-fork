@@ -119,6 +119,10 @@ test('recent sessions map project metadata and preserve database pagination', { 
         projectDisplayName: 'Recent Project',
         sessionTitle: 'Newer conversation',
         lastActivity: '2026-08-01T11:00:00.000Z',
+        // Fork: the feed also reports whether a row is pinned, and the prompt
+        // a shortened title replaced — see docs/ru/fork-changes.md.
+        isPinned: false,
+        fullTitle: null,
       }],
       total: 2,
       hasMore: true,

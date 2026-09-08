@@ -100,6 +100,7 @@ const listProps = (activeRename: ActiveSidebarRename | null): SidebarProjectList
   onSaveEditingSession: noop,
   regeneratingTitleSessionIds: NO_REGENERATING_TITLES,
   onRegenerateSessionTitle: noop,
+  onToggleSessionPin: noop,
   t,
 });
 
@@ -190,6 +191,7 @@ const sessionsProps = (sessionRenameId: string | null, sessionRenameDraft: strin
   onSaveEditingSession: noop,
   regeneratingTitleSessionIds: NO_REGENERATING_TITLES,
   onRegenerateSessionTitle: noop,
+  onToggleSessionPin: noop,
   onProjectSelect: noop,
   onSessionSelect: noop,
   onDeleteSession: noop,

@@ -1,4 +1,4 @@
-import { Loader2, MessageSquare } from 'lucide-react';
+import { Loader2, MessageSquare, Pin } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import type { TFunction } from 'i18next';
 
@@ -170,8 +170,16 @@ export default function SidebarRecentConversations({
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-normal leading-4">
-                    {conversation.sessionTitle}
+                  <span className="flex min-w-0 items-center gap-1">
+                    {conversation.isPinned && (
+                      <Pin
+                        className="h-3 w-3 flex-shrink-0 text-muted-foreground"
+                        aria-label={t('tooltips.pinnedSession', 'Закреплённый сеанс')}
+                      />
+                    )}
+                    <span className="block truncate text-[13px] font-normal leading-4">
+                      {conversation.sessionTitle}
+                    </span>
                   </span>
                   <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] leading-3 text-muted-foreground">
                     <span className="truncate">{conversation.projectDisplayName}</span>
@@ -204,8 +212,10 @@ export default function SidebarRecentConversations({
                 isEditing={sessionRename !== null}
                 renameDraft={sessionRename?.draft ?? ''}
                 isRegeneratingTitle={sessionActions.regeneratingTitleSessionIds.has(conversation.sessionId)}
+                isPinned={conversation.isPinned}
                 onRenameDraftChange={sessionActions.onRenameDraftChange}
                 onRegenerateSessionTitle={sessionActions.onRegenerateSessionTitle}
+                onToggleSessionPin={sessionActions.onToggleSessionPin}
                 onStartEditingSession={sessionActions.onStartEditingSession}
                 onCancelEditingSession={sessionActions.onCancelEditingSession}
                 onSaveEditingSession={sessionActions.onSaveEditingSession}

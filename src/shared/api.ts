@@ -245,6 +245,10 @@ export const api = {
   // Rebuilds the short sidebar title from the session's original prompt.
   regenerateSessionTitle: (sessionId: string) =>
     post(`/api/providers/sessions/${encodeURIComponent(sessionId)}/regenerate-title`),
+  // Pins/unpins a session so it sorts to the top of its lists. The flag lives
+  // on the session, so it applies in the project and in Conversations alike.
+  toggleSessionPin: (sessionId: string) =>
+    post(`/api/providers/sessions/${encodeURIComponent(sessionId)}/toggle-pin`),
 
   // Scheduled messages: send a message to a session at a future time.
   scheduledMessages: {

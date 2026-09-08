@@ -21,6 +21,8 @@ type SessionRow = {
   /** The app session this one was branched from; NULL unless it is a fork. */
   forked_from_session_id: string | null;
   isArchived: number;
+  /** 1 while the session is pinned to the top of the sidebar lists. */
+  isPinned: number;
   created_at: string;
   updated_at: string;
 };
@@ -31,7 +33,7 @@ type RecentSessionsPage = {
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, full_title, model, effort, forked_from_session_id, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, full_title, model, effort, forked_from_session_id, isArchived, isPinned, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -472,6 +474,29 @@ export const sessionsDb = {
     ).run(effort, sessionId);
   },
 
+  /**
+   * Flips `isPinned` for one session and returns the new state.
+   *
+   * `updated_at` is deliberately left alone: pinning is not activity, and
+   * touching it would reorder the very list the pin is meant to stabilize.
+   * Returns null when the session does not exist, so the route can 404 rather
+   * than report a state it never wrote.
+   */
+  toggleSessionPinned(sessionId: string): boolean | null {
+    const db = getConnection();
+    const row = db
+      .prepare('SELECT isPinned FROM sessions WHERE session_id = ?')
+      .get(sessionId) as { isPinned: number } | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    const nextIsPinned = row.isPinned === 1 ? 0 : 1;
+    db.prepare('UPDATE sessions SET isPinned = ? WHERE session_id = ?').run(nextIsPinned, sessionId);
+    return nextIsPinned === 1;
+  },
+
   updateSessionCustomName(sessionId: string, customName: string): void {
     const db = getConnection();
     db.prepare(
@@ -608,7 +633,8 @@ export const sessionsDb = {
          FROM sessions
          LEFT JOIN projects ON projects.project_path = sessions.project_path
          WHERE ${visibilityClause}
-         ORDER BY julianday(COALESCE(sessions.updated_at, sessions.created_at)) DESC,
+         ORDER BY sessions.isPinned DESC,
+                  julianday(COALESCE(sessions.updated_at, sessions.created_at)) DESC,
                   sessions.session_id DESC
          LIMIT ? OFFSET ?`
       )
@@ -688,7 +714,9 @@ export const sessionsDb = {
          FROM sessions
          WHERE project_path = ?
            AND isArchived = 0
-         ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
+         ORDER BY isPinned DESC,
+                  datetime(COALESCE(updated_at, created_at)) DESC,
+                  session_id DESC
          LIMIT ? OFFSET ?`
       )
       .all(normalizedProjectPath, limit, offset) as SessionRow[];

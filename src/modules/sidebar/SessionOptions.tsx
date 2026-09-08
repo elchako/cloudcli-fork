@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, GitBranch, MoreHorizontal, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, Edit2, GitBranch, MoreHorizontal, Pin, PinOff, Sparkles, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
@@ -24,12 +24,16 @@ type SessionOptionsProps = {
   renameDraft: string;
   /** True while the AI title for this session is being rebuilt. */
   isRegeneratingTitle: boolean;
+  /** True while this session is pinned to the top of its list. */
+  isPinned: boolean;
   onRenameDraftChange: (draft: string) => void;
   onStartEditingSession: (projectId: string, sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectId: string, sessionId: string, summary: string, provider: LLMProvider) => void;
   /** Rebuilds the short sidebar title from the session's original prompt. */
   onRegenerateSessionTitle: (sessionId: string) => void;
+  /** Pins/unpins the session. */
+  onToggleSessionPin: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, sessionTitle: string) => void;
   /** Bound by the caller, which owns the session object the fork needs. */
   onFork?: () => void;
@@ -57,11 +61,13 @@ export default function SessionOptions({
   isEditing,
   renameDraft,
   isRegeneratingTitle,
+  isPinned,
   onRenameDraftChange,
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
   onRegenerateSessionTitle,
+  onToggleSessionPin,
   onDeleteSession,
   onFork,
   canDelete = true,
@@ -166,6 +172,14 @@ export default function SessionOptions({
             </div>
           )}
           items={[
+            {
+              key: 'toggle-pin',
+              label: isPinned
+                ? t('tooltips.unpinSession', 'Открепить')
+                : t('tooltips.pinSession', 'Закрепить'),
+              icon: isPinned ? PinOff : Pin,
+              onSelect: () => onToggleSessionPin(sessionId),
+            },
             ...(projectId !== null ? [{
               key: 'rename',
               label: 'Rename session',

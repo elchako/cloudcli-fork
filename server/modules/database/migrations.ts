@@ -462,6 +462,20 @@ const addSessionFullTitleColumn = (db: Database): void => {
 };
 
 /**
+ * Adds the `isPinned` column that keeps a session at the top of its list.
+ *
+ * Mirrors `projects.isStarred`: a pin is a property of the session itself, not
+ * of a view, so the Conversations list and the owning project's list read the
+ * same flag. Existing rows default to 0 — nothing is pinned until asked.
+ */
+const addSessionIsPinnedColumn = (db: Database): void => {
+  const sessionsTableInfo = getTableInfo(db, 'sessions');
+  const columnNames = sessionsTableInfo.map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'isPinned', 'BOOLEAN DEFAULT 0');
+};
+
+/**
  * Adds the `effort` column that records a session's reasoning-effort choice.
  *
  * Existing rows stay NULL so clients can continue falling back to their
@@ -537,6 +551,7 @@ export const runMigrations = (db: Database) => {
     addProviderSessionIdMapping(db);
     addSessionModelColumn(db);
     addSessionFullTitleColumn(db);
+    addSessionIsPinnedColumn(db);
     addSessionEffortColumn(db);
     addForkedFromSessionIdColumn(db);
     ensureProjectsForSessionPaths(db);

@@ -815,6 +815,15 @@ router.post(
 );
 
 router.post(
+  '/sessions/:sessionId/toggle-pin',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const result = sessionsService.toggleSessionPinnedById(sessionId);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+router.post(
   '/sessions/:sessionId/fork',
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
