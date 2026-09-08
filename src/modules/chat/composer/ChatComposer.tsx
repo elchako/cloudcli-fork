@@ -426,7 +426,25 @@ export default function ChatComposer({
               onBlur={() => onInputFocusChange?.(false)}
               onInput={onTextareaInput}
               placeholder={placeholder}
+              className={onVoiceTranscript && voiceAvailable ? 'pr-14 sm:pr-4' : undefined}
             />
+
+            {/*
+              * Fork: on a phone the mic sits in the textarea's top-right corner
+              * (as Claude Code does), not in the footer row. Dictation is how
+              * this composer is used almost all the time, and the footer had it
+              * as one small icon among five. Above `sm` it stays in the footer,
+              * where a pointer makes the small target a non-issue.
+              */}
+            {onVoiceTranscript && voiceAvailable && (
+              <VoiceInputButton
+                state={voiceState}
+                onToggle={voiceToggle}
+                errorMsg={voiceError}
+                variant="floating"
+                className="absolute right-2 top-2 sm:hidden"
+              />
+            )}
         </PromptInputBody>
 
         <PromptInputFooter className="flex-wrap gap-y-1">
@@ -439,8 +457,14 @@ export default function ChatComposer({
               <PaperclipIcon />
             </PromptInputButton>
 
+            {/* Below `sm` this one is replaced by the floating mic above. */}
             {onVoiceTranscript && voiceAvailable && (
-              <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
+              <VoiceInputButton
+                state={voiceState}
+                onToggle={voiceToggle}
+                errorMsg={voiceError}
+                className="hidden sm:inline-flex"
+              />
             )}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
