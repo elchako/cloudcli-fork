@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 
 import type { ProviderModelOption } from '@/shared/types';
 import { DEFAULT_EFFORT_VALUE } from '@/shared/constants';
@@ -87,13 +87,19 @@ function ComposerModelMenu({
           updateAnchor();
           setIsOpen((current) => !current);
         }}
-        className="flex h-8 max-w-20 shrink-0 items-center gap-1 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted sm:max-w-56"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-xs font-medium text-foreground transition-colors hover:bg-muted sm:w-auto sm:max-w-56 sm:justify-start sm:gap-1 sm:px-2"
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        aria-label={ariaLabel}
-        title={ariaLabel}
+        aria-label={`${ariaLabel}: ${triggerLabel}`}
+        title={`${ariaLabel}: ${triggerLabel}`}
       >
-        <span className="truncate">{triggerLabel}</span>
+        {/* Fork: on a phone the composer row has to fit the schedule, permission
+            and send controls too, and the model name is the widest thing in it —
+            spelled out it pushed the row onto a second line. The name is a
+            rarely-changed setting, so below `sm` it collapses to its icon and
+            lives in the tooltip/aria-label instead. */}
+        <Sparkles className="h-4 w-4 sm:hidden" aria-hidden="true" />
+        <span className="hidden truncate sm:inline">{triggerLabel}</span>
         {hasModelSection && hasEffortSection && effort !== DEFAULT_EFFORT_VALUE && (
           <span className="hidden shrink-0 capitalize text-muted-foreground sm:inline">· {effortLabel}</span>
         )}
