@@ -92,7 +92,20 @@ export const storeAuthToken = (token: unknown): boolean => {
     return false;
   }
 
+  // Fork: announce only a token that actually changed. The server sets
+  // X-Refreshed-Token on EVERY authenticated response once the token is past
+  // half its lifetime (auth.middleware.ts), and api.ts stores whatever it gets
+  // back. Re-announcing an identical value made each request bump the auth
+  // context's `token` state, which re-created checkAuthStatus, which re-ran the
+  // startup check, which issued another request — an endless splash/loading
+  // flip on any client whose token had crossed the halfway mark.
+  // See docs/ru/fork-changes.md.
+  const previousToken = localStorage.getItem('auth-token');
   localStorage.setItem('auth-token', token);
+  if (previousToken === token) {
+    return true;
+  }
+
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(AUTH_TOKEN_REFRESHED_EVENT, { detail: token }));
   }

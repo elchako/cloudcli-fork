@@ -884,7 +884,7 @@ export function useProjectsState({
       const match = project.sessions?.find((session) => session.id === sessionId);
       if (match) {
         const normalizedSession = normalizeSessionProvider(match);
-        const shouldUpdateProject = selectedProject?.projectId !== project.projectId;
+        const shouldUpdateProject = selectedProjectRef.current?.projectId !== project.projectId;
         const shouldUpdateSession =
           selectedSession?.id !== sessionId || selectedSession.__provider !== normalizedSession.__provider;
 
@@ -1002,7 +1002,11 @@ export function useProjectsState({
           : resolvedSession,
       );
     })();
-  }, [navigate, sessionId, projects, selectedProject, selectedSession?.id, selectedSession?.__provider]);
+  // Fork: `selectedProject` is read through its ref above, so it no longer
+  // belongs here — every project selection used to re-run the whole resolver
+  // (and, on a deep link, re-issue the sessionDetails lookup). `projects` stays
+  // because the loop over it is what finds an already-loaded session.
+  }, [navigate, sessionId, projects, selectedSession?.id, selectedSession?.__provider]);
 
   const handleProjectSelect = useCallback(
     (project: Project) => {

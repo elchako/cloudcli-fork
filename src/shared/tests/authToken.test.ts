@@ -74,6 +74,29 @@ test('storeAuthToken: a valid token is persisted and announced to the app', () =
   assert.equal(announced, token);
 });
 
+test('storeAuthToken: re-storing the same token does not announce a refresh', () => {
+  localStorage.clear();
+  const now = Math.floor(Date.now() / 1000);
+  const token = makeToken({ iat: now, exp: now + 600 });
+  storeAuthToken(token);
+
+  let announcements = 0;
+  const onRefresh = () => {
+    announcements += 1;
+  };
+  window.addEventListener(AUTH_TOKEN_REFRESHED_EVENT, onRefresh);
+
+  // The server re-sends X-Refreshed-Token on every authenticated response once
+  // the token passes half its lifetime. Announcing an unchanged value bumped
+  // the auth context's token state on each request and span the startup check.
+  const stored = storeAuthToken(token);
+
+  window.removeEventListener(AUTH_TOKEN_REFRESHED_EVENT, onRefresh);
+  assert.equal(stored, true);
+  assert.equal(localStorage.getItem('auth-token'), token);
+  assert.equal(announcements, 0);
+});
+
 test('storeAuthToken: a non-token value is rejected and does not overwrite the session', () => {
   localStorage.clear();
   localStorage.setItem('auth-token', 'existing');

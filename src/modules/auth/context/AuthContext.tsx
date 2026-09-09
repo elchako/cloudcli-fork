@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 
@@ -118,6 +118,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Fork: the startup check reads the token through a ref so that a rotated
+  // token does not re-create checkAuthStatus and re-trigger the mount effect.
+  // See docs/ru/fork-changes.md.
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const userRef = useRef(user);
+  userRef.current = user;
+
   const setSession = useCallback((nextUser: AuthUser, nextToken: string) => {
     setUser(nextUser);
     setToken(nextToken);
@@ -214,7 +222,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const checkAuthStatus = useCallback(async () => {
     try {
-      setIsLoading(true);
+      // Fork: only blank the UI when there is nothing to show yet. Re-running
+      // this check for an already signed-in user must not drop the workspace
+      // back to the CloudCLI splash screen.
+      if (!userRef.current) {
+        setIsLoading(true);
+      }
       setError(null);
 
       const statusResponse = await api.auth.status();
@@ -227,7 +240,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       setNeedsSetup(false);
 
-      if (!token) {
+      if (!tokenRef.current) {
         return;
       }
 
@@ -259,7 +272,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [checkOnboardingStatus, clearSession, t, token]);
+  }, [checkOnboardingStatus, clearSession, t]);
 
   // Mirror every allowlisted settings change to the DB (not just the ones saved
   // through the big Settings modal), so quick-panel toggles and single-key
