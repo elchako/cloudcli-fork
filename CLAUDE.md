@@ -164,6 +164,13 @@ username}`. Middleware `authenticateToken` принимает токен из з
 10. **Живая вкладка «Разговоры»** — список обновляется сам по WebSocket-событию
    `session_upserted`, без переключения вкладок; подписка активна только при
    открытой вкладке, всплеск событий схлопывается в один перезапрос.
+11. **GitHub-зеркало для команды** — приватный `elchako/cloudcli-fork`, ветка
+   `main`, только на чтение; основной репозиторий по-прежнему `goldjaxe`
+   (`git.q-standard.com`, ветка `feat/goldjaxe-improvements`). Публикация —
+   `git publish` (алиас на `push github feat/goldjaxe-improvements:main`).
+   Обновление на машинах коллег — `./scripts/update.sh` (перезапуск службы
+   автоопределяется, переопределяется в `scripts/update.local.conf`);
+   инструкция — [`docs/ru/install.md`](docs/ru/install.md).
 
 ## Важно при работе с кодом
 

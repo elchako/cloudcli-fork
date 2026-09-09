@@ -1,0 +1,34 @@
+# Локальная настройка scripts/update.sh под конкретную машину.
+#
+# Скопируйте в scripts/update.local.conf и отредактируйте — этот файл
+# у каждого свой и в git не попадает.
+#
+#   cp scripts/update.local.conf.example scripts/update.local.conf
+#
+# Без конфига скрипт сам пытается найти способ перезапуска: systemd-служба
+# cloudcli-fork (user-scope) → pm2-процесс cloudcli-fork → launchd.
+# Настраивать нужно только если автоопределение не сработало или у вас
+# другое имя службы.
+
+# --- откуда обновляться -------------------------------------------------
+# Remote и ветка. По умолчанию: origin и текущая ветка.
+#CLOUDCLI_REMOTE=origin
+#CLOUDCLI_BRANCH=main
+
+# --- как перезапускать --------------------------------------------------
+# Вариант 1. systemd (Linux) — самый частый случай.
+# Имя вашей службы без суффикса .service:
+#CLOUDCLI_SERVICE=cloudcli-fork
+# Scope: user (по умолчанию, systemctl --user) или system (systemctl --system):
+#CLOUDCLI_SERVICE_SCOPE=user
+
+# Вариант 2. pm2 — имя процесса в pm2 list:
+#CLOUDCLI_SERVICE=cloudcli-fork
+
+# Вариант 3. launchd (macOS) — Label из вашего .plist:
+#CLOUDCLI_LAUNCHD_LABEL=com.goldjaxe.cloudcli
+
+# Вариант 4. Своя команда. Переопределяет всё вышеперечисленное —
+# используйте, если у вас Docker, WSL без systemd, запуск руками и т.п.
+#CLOUDCLI_RESTART_CMD="docker compose restart cloudcli"
+#CLOUDCLI_RESTART_CMD="pkill -f dist-server/server/index.js; nohup npm run server >/tmp/cloudcli.log 2>&1 &"

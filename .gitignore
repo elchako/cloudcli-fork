@@ -149,3 +149,6 @@ tasks/
 cloudcli-sidebar-app-source.tar.gz
 cloudcli-sidebar.html
 electron/*.tar.gz
+
+# Локальная настройка scripts/update.sh (у каждой машины своя)
+scripts/update.local.conf

@@ -56,6 +56,7 @@
     "lint:fix": "oxlint src/ server/ --fix",
     "start": "npm run build && npm run server",
     "release": "./release.sh",
+    "update": "./scripts/update.sh",
     "prepublishOnly": "npm run build",
     "postinstall": "node scripts/fix-node-pty.js",
     "prepare": "husky",
