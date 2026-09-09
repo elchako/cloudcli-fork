@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { transcribeVoice } from '@/shared/api';
+import { transcribeVoice, warmUpVoiceBackend } from '@/shared/api';
 import type { VoiceInputState } from '@/shared/types';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
@@ -11,6 +11,10 @@ const MIME_CANDIDATES = [
   'audio/ogg;codecs=opus',
   'audio/ogg',
 ];
+
+// Шаг нарезки MediaRecorder: чанк раз в секунду. Кодирование размазывается по
+// времени записи, поэтому на stop() остаётся дописать лишь последний фрагмент.
+const RECORDER_TIMESLICE_MS = 1000;
 
 function pickMime(): string {
   for (const t of MIME_CANDIDATES) {
@@ -69,6 +73,9 @@ export function useVoiceInput(
       return;
     }
     startingRef.current = true;
+    // Пока пользователь диктует, TLS-хендшейк и CORS-preflight успевают пройти
+    // фоном — иначе их цена ложится на паузу после отпускания кнопки.
+    warmUpVoiceBackend();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
@@ -119,7 +126,12 @@ export function useVoiceInput(
         }
       };
 
-      rec.start();
+      // timeslice: кодируем Opus ПО ХОДУ записи, а не одним куском на stop().
+      // Без аргумента браузер финализирует контейнер только после отпускания
+      // кнопки — задержка росла с длиной надиктовки. Замер: нативный клиент шлёт
+      // готовый PCM мгновенно, браузер же платил кодированием именно в тот момент,
+      // когда пользователь уже ждёт текст.
+      rec.start(RECORDER_TIMESLICE_MS);
       setState('recording');
     } catch (e) {
       recorderRef.current = null;

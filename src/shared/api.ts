@@ -588,6 +588,35 @@ function voiceDirectUrl(baseUrl: string, path: string): string {
 }
 
 /**
+ * Прогревает соединение с голосовым бэкендом в момент нажатия на микрофон.
+ *
+ * Браузер иначе платит TLS-хендшейком (~280 мс на нашем инстансе) и CORS-preflight
+ * уже ПОСЛЕ окончания записи, когда пользователь ждёт текст. Пока человек говорит,
+ * соединение успевает встать, и POST уходит по готовому каналу. Нативный клиент
+ * держит сессию открытой и этой платы не несёт.
+ *
+ * Осознанно «выстрелил и забыл»: любая ошибка гасится — это лишь оптимизация,
+ * ломать из-за неё диктовку нельзя. Греется только прямой путь; через прокси
+ * CloudCLI соединение с собственным сервером и так живое.
+ */
+export function warmUpVoiceBackend(): void {
+  const config = readVoiceConfig();
+  const baseUrl = config.baseUrl.trim();
+  if (!baseUrl) return;
+
+  // /health лежит в корне сервера, а baseUrl указывает на /v1 — поднимаемся на
+  // уровень выше. Если структура окажется иной, запрос просто вернёт 404: канал
+  // всё равно прогрет, а это единственное, ради чего он делается.
+  const healthUrl = voiceDirectUrl(baseUrl.replace(/\/v1$/, ''), '/health');
+
+  try {
+    void fetch(healthUrl, { method: 'GET', mode: 'cors', cache: 'no-store' }).catch(() => {});
+  } catch {
+    /* прогрев не обязан удаваться */
+  }
+}
+
+/**
  * Serializes the active voice configuration so callers can detect a settings change and
  * drop cached synthesized audio.
  */

@@ -537,7 +537,9 @@ export default function ChatComposer({
                       : !input.trim() && attachedFiles.length === 0
               }
               aria-label={submitAriaLabel}
-              title={submitAriaLabel}
+              // Строка-подсказка под композером убрана (съедала целый ряд на
+              // десктопе) — сами горячие клавиши остаются в тултипе кнопки.
+              title={`${submitAriaLabel} — ${submitHint}`}
               className="h-10 w-10 sm:h-10 sm:w-10"
             >
               {isTranscribing ? (
@@ -548,13 +550,6 @@ export default function ChatComposer({
             </PromptInputSubmit>
           </div>
 
-          <div
-            className={`order-last hidden basis-full px-2 text-center text-xs leading-4 text-muted-foreground/50 transition-opacity duration-200 lg:block ${
-              input.trim() && !canQueueDraft ? 'opacity-0' : 'opacity-100'
-            }`}
-          >
-            {submitHint}
-          </div>
         </PromptInputFooter>
       </PromptInput>
       </div>}
