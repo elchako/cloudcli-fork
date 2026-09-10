@@ -136,16 +136,18 @@ function normalizeNotificationSession(event) {
 }
 
 function resolveSessionName(event) {
-  const explicitSessionName = normalizeSessionName(event.meta?.sessionName);
-  if (explicitSessionName) {
-    return explicitSessionName;
+  // The database first: `meta.sessionName` is captured when the run starts,
+  // but an AI title often lands mid-run — a push sent at completion would
+  // otherwise name the session by its long-forgotten raw prompt. The explicit
+  // meta value stays as the fallback for sessions the index has no row for.
+  if (event.sessionId && event.provider) {
+    const storedName = normalizeSessionName(sessionsDb.getSessionName(event.sessionId, event.provider));
+    if (storedName) {
+      return storedName;
+    }
   }
 
-  if (!event.sessionId || !event.provider) {
-    return null;
-  }
-
-  return normalizeSessionName(sessionsDb.getSessionName(event.sessionId, event.provider));
+  return normalizeSessionName(event.meta?.sessionName);
 }
 
 function buildNotificationPayload(event) {

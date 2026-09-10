@@ -247,6 +247,14 @@ export type SessionUpsertedEvent = {
     summary: string;
     messageCount: number;
     lastActivity: string;
+    /**
+     * The untruncated first prompt behind a model-generated `summary`
+     * (`null` for hand-typed or raw-prompt names). Carried so the sidebar
+     * tooltip and the open-chat header stay truthful after a live rename —
+     * without it the AI title arrived over the socket but its tooltip text
+     * only appeared after a full refetch.
+     */
+    fullTitle: string | null;
   };
   project: SessionUpsertedProject | null;
   timestamp: string;

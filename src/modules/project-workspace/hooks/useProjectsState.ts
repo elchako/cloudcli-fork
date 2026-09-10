@@ -827,6 +827,37 @@ export function useProjectsState({
         return mergeProjectSelectionMetadata(previousProject, upsert.project);
       });
 
+      // Keep the open chat's own row in sync: an AI title landing (auto or
+      // manual regenerate) used to update only the sidebar's `projects`
+      // collection, so the header and the browser tab kept the old name until
+      // a full refetch. The merge is field-surgical on purpose — spreading the
+      // whole payload would also stamp `messageCount: 0` over the live row.
+      const selectedAliasIds = getSessionAliasIds(upsert);
+      setSelectedSession((previousSession) => {
+        if (!previousSession || !selectedAliasIds.has(String(previousSession.id))) {
+          return previousSession;
+        }
+
+        const next: ProjectSession = {
+          ...previousSession,
+          id: upsert.sessionId,
+          summary: upsert.session.summary?.trim()
+            ? upsert.session.summary
+            : previousSession.summary,
+          // `fullTitle` is only present on server-built events; an absent key
+          // (optimistic registration) must not wipe what we already know,
+          // while an explicit null is the database truth after a hand rename.
+          fullTitle: 'fullTitle' in upsert.session
+            ? (upsert.session.fullTitle ?? undefined)
+            : previousSession.fullTitle,
+          lastActivity: upsert.session.lastActivity ?? previousSession.lastActivity,
+          __provider: upsert.provider,
+          __projectId: upsert.project?.projectId ?? previousSession.__projectId,
+        };
+
+        return serialize(previousSession) === serialize(next) ? previousSession : next;
+      });
+
       const aliasedSelectedSessionId =
         typeof upsert.providerSessionId === 'string' && upsert.providerSessionId !== upsert.sessionId
           ? upsert.providerSessionId
@@ -834,24 +865,6 @@ export function useProjectsState({
       if (!aliasedSelectedSessionId) {
         return;
       }
-
-      const normalizedSelectedSession: ProjectSession = {
-        ...upsert.session,
-        id: upsert.sessionId,
-        __provider: upsert.provider,
-        __projectId: upsert.project?.projectId ?? currentSelectedSession?.__projectId,
-      };
-
-      setSelectedSession((previousSession) => {
-        if (previousSession?.id !== aliasedSelectedSessionId) {
-          return previousSession;
-        }
-
-        return {
-          ...previousSession,
-          ...normalizedSelectedSession,
-        };
-      });
 
       if (sessionId === aliasedSelectedSessionId) {
         navigate(`/session/${upsert.sessionId}`);

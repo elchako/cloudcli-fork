@@ -5,6 +5,7 @@ import { promises as fsPromises } from 'node:fs';
 import chokidar, { type FSWatcher } from 'chokidar';
 
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
+import { archiveAutomatedSessions } from '@/modules/providers/services/automated-session.service.js';
 import { broadcastSessionUpsertedBatch } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
 
@@ -203,6 +204,21 @@ export async function initializeSessionsWatcher(): Promise<void> {
     prunedOrphans: initialSync.prunedOrphans,
     failures: initialSync.failures,
   });
+
+  // Heal rows the insert-time archiving could never see: sessions indexed
+  // before the feature shipped (or by an older build, or a beat before their
+  // first prompt line hit the disk) stay unarchived forever because the scan
+  // cursor only moves forward. Fire-and-forget — boot must not wait on a
+  // thousand transcript reads.
+  void archiveAutomatedSessions()
+    .then((archived) => {
+      if (archived > 0) {
+        console.log(`Startup sweep archived ${archived} automated tool session(s)`);
+      }
+    })
+    .catch((error) => {
+      console.warn('Automated-session startup sweep failed:', error);
+    });
 
   for (const { provider, rootPath } of PROVIDER_WATCH_PATHS) {
     try {

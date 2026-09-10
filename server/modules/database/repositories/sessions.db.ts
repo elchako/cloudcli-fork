@@ -795,4 +795,26 @@ export const sessionsDb = {
       )
       .all() as Array<{ session_id: string; jsonl_path: string }>;
   },
+
+  /**
+   * The candidate set for the automated-session startup sweep: unarchived
+   * rows of one provider that have a transcript on disk to re-inspect.
+   * Archived rows need no re-testing — and `createSession` re-archives a
+   * detected row on every re-index anyway, so a hand un-archive of a plugin
+   * session is already documented as temporary.
+   */
+  getUnarchivedSessionsWithTranscriptPath(
+    provider: string
+  ): Array<{ session_id: string; jsonl_path: string }> {
+    const db = getConnection();
+    return db
+      .prepare(
+        `SELECT session_id, jsonl_path
+         FROM sessions
+         WHERE provider = ?
+           AND isArchived = 0
+           AND jsonl_path IS NOT NULL AND jsonl_path <> ''`
+      )
+      .all(provider) as Array<{ session_id: string; jsonl_path: string }>;
+  },
 };

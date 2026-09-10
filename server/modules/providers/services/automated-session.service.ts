@@ -1,4 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
+
+import { sessionsDb } from '@/modules/database/index.js';
 
 /**
  * Recognises sessions a tool started on the user's behalf.
@@ -32,12 +35,71 @@ const AUTOMATED_PROMPT_MARKERS = [
  */
 const AUTOMATED_ENTRYPOINTS = new Set(['sdk-py']);
 
+/**
+ * How much of a transcript the detector may scan before giving up. The
+ * deciding turn is always the first human-visible one, a few lines in — the
+ * cap only guards against a pathological single-line transcript eating
+ * memory. Well past the largest observed machine prompt (multi-KB payloads).
+ */
+const MAX_SCAN_BYTES = 8 * 1024 * 1024;
+
+type TranscriptLine = Record<string, unknown>;
+
+/**
+ * The verdict one parsed line produces: `null` keeps the scan going, a
+ * boolean ends it. Only a turn that actually holds content decides — see the
+ * caller for why bookkeeping records are skipped.
+ */
+function classifyTranscriptLine(data: TranscriptLine): boolean | null {
+  if (data.type !== 'user' || data.isMeta === true) {
+    return null;
+  }
+
+  if (!data.message) {
+    return null;
+  }
+
+  const entrypoint = typeof data.entrypoint === 'string' ? data.entrypoint : '';
+  if (!AUTOMATED_ENTRYPOINTS.has(entrypoint)) {
+    // The first human-visible turn decides; a session that opens with a UI
+    // prompt is a real conversation whatever follows.
+    return false;
+  }
+
+  const message = data.message as Record<string, unknown> | undefined;
+  const rawContent = message?.content;
+  const text = typeof rawContent === 'string'
+    ? rawContent
+    : Array.isArray(rawContent)
+      ? rawContent
+          .filter((block): block is { type: string; text: string } => {
+            const candidate = block as Record<string, unknown> | null;
+            return candidate?.type === 'text' && typeof candidate.text === 'string';
+          })
+          .map((block) => block.text)
+          .join(' ')
+      : '';
+
+  return AUTOMATED_PROMPT_MARKERS.some((marker) => marker.test(text.trim()));
+}
+
 /** True when the first user turn of a transcript is a tool-issued prompt. */
 export async function isAutomatedToolSession(filePath: string): Promise<boolean> {
-  try {
-    const content = await readFile(filePath, 'utf8');
+  // Streamed rather than read whole: the deciding line sits at the top of the
+  // transcript, and full reads made every sync (and the startup sweep below)
+  // pay the size of the longest sessions — tens of MB — to answer a question
+  // about line three.
+  const stream = createReadStream(filePath, { encoding: 'utf8' });
+  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+  let scannedBytes = 0;
 
-    for (const line of content.split(/\r?\n/)) {
+  try {
+    for await (const line of reader) {
+      scannedBytes += line.length + 1;
+      if (scannedBytes > MAX_SCAN_BYTES) {
+        return false;
+      }
+
       const trimmed = line.trim();
       if (!trimmed) {
         continue;
@@ -50,45 +112,49 @@ export async function isAutomatedToolSession(filePath: string): Promise<boolean>
         continue;
       }
 
-      const data = parsed as Record<string, unknown>;
-      if (data.type !== 'user' || data.isMeta === true) {
-        continue;
+      const verdict = classifyTranscriptLine(parsed as TranscriptLine);
+      if (verdict !== null) {
+        return verdict;
       }
-
-      // Transcripts open with bookkeeping records (`queue-operation`, session
-      // headers) that can also carry `type: 'user'` without a message body.
-      // Only a turn that actually holds content decides the verdict.
-      if (!data.message) {
-        continue;
-      }
-
-      const entrypoint = typeof data.entrypoint === 'string' ? data.entrypoint : '';
-      if (!AUTOMATED_ENTRYPOINTS.has(entrypoint)) {
-        // The first human-visible turn decides; a session that opens with a UI
-        // prompt is a real conversation whatever follows.
-        return false;
-      }
-
-      const message = data.message as Record<string, unknown> | undefined;
-      const rawContent = message?.content;
-      const text = typeof rawContent === 'string'
-        ? rawContent
-        : Array.isArray(rawContent)
-          ? rawContent
-              .filter((block): block is { type: string; text: string } => {
-                const candidate = block as Record<string, unknown> | null;
-                return candidate?.type === 'text' && typeof candidate.text === 'string';
-              })
-              .map((block) => block.text)
-              .join(' ')
-          : '';
-
-      return AUTOMATED_PROMPT_MARKERS.some((marker) => marker.test(text.trim()));
     }
   } catch {
     // An unreadable transcript is never assumed to be automated: hiding a real
     // session is far worse than leaving a review one visible.
+  } finally {
+    reader.close();
+    stream.destroy();
   }
 
   return false;
+}
+
+/**
+ * Archives already-indexed sessions that look like tool-issued runs.
+ *
+ * Auto-archiving on insert only covers sessions the indexer (re)parses, and
+ * the scan cursor is incremental: a session indexed before this feature (or
+ * by an older build, or milliseconds before its first prompt line was
+ * flushed) is never re-evaluated and stays visible in the sidebar forever.
+ * This sweep walks every unarchived Claude row that has a transcript on disk
+ * and files the matches away. Idempotent by construction, so it runs at every
+ * boot as the safety net for live-detection races.
+ */
+export async function archiveAutomatedSessions(): Promise<number> {
+  const candidates = sessionsDb.getUnarchivedSessionsWithTranscriptPath('claude');
+  let archived = 0;
+
+  // Sequential on purpose: the sweep is a background task and must not turn
+  // into a thousand concurrent transcript reads against the boot process.
+  for (const candidate of candidates) {
+    try {
+      if (await isAutomatedToolSession(candidate.jsonl_path)) {
+        sessionsDb.updateSessionIsArchived(candidate.session_id, true);
+        archived += 1;
+      }
+    } catch {
+      // A row whose transcript vanished mid-sweep is skipped, not archived.
+    }
+  }
+
+  return archived;
 }

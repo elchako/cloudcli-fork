@@ -191,6 +191,20 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
           generated.title,
           generated.fullTitle,
         );
+        // Push the fresh title (and its tooltip text) to open clients right
+        // away: the watcher's next transcript flush is not guaranteed to come
+        // soon — a short one-turn run may be done already — and until this the
+        // sidebar row, the open-chat header and the hover tooltip only caught
+        // up on a full refetch.
+        //
+        // Imported lazily: a static edge to the websocket module closes a
+        // module cycle (synchronizer → broadcast → projects → provider
+        // registry → this file) that leaves this class in the TDZ while the
+        // registry instantiates providers at module load.
+        const { broadcastSessionUpserted } = await import('@/modules/websocket/index.js');
+        void broadcastSessionUpserted(storedSessionId).catch((error) => {
+          console.warn('Failed to broadcast a generated session title:', error);
+        });
       } catch (error) {
         // A missing short title must never break session indexing.
         console.warn('Failed to generate a session title:', error);

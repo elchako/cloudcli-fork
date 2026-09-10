@@ -688,6 +688,11 @@ export const sessionsService = {
     }
 
     sessionsDb.updateSessionTitleWithFullText(sessionId, summary, null);
+    // A hand rename must reach every open client at once, not after the next
+    // transcript write wakes the watcher.
+    void broadcastSessionUpserted(sessionId).catch((error) => {
+      console.warn('Failed to broadcast a renamed session:', error);
+    });
     return { sessionId, summary };
   },
 
@@ -742,6 +747,10 @@ export const sessionsService = {
       generated.title,
       generated.fullTitle,
     );
+
+    void broadcastSessionUpserted(session.session_id).catch((error) => {
+      console.warn('Failed to broadcast a regenerated session title:', error);
+    });
 
     return {
       sessionId: session.session_id,

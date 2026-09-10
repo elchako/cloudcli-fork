@@ -134,7 +134,10 @@ export default function WorkspaceTabs({
                     className="flex h-3.5 w-3.5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full"
                   />
                 )}
-                <span className={`${isActive ? 'inline max-w-28' : 'hidden'} truncate sm:max-w-36 lg:inline`}>
+                {/* Phone widths get icons only — the bar shares one header row
+                    with the chat title there, and a "Чат" caption used to eat
+                    a third of it. The label is still the tooltip/aria-label. */}
+                <span className={`${isActive ? 'sm:inline' : ''} hidden max-w-28 truncate sm:max-w-36 lg:inline`}>
                   {displayLabel}
                 </span>
               </Pill>
