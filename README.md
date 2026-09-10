@@ -1,3 +1,21 @@
+<!-- GOLDJAXE fork: блок добавлен форком. При мерже upstream оставлять сверху,
+     остальной README — апстримный, его не трогаем. -->
+> ### Это форк CloudCLI холдинга GOLDJAXE
+>
+> **Ставите себе или обновляетесь? → [`docs/ru/install.md`](docs/ru/install.md)**
+> (установка с нуля, автозапуск, обновление одной командой).
+>
+> Обновиться: `./scripts/update.sh` · посмотреть, что нового: `./scripts/update.sh --check`
+>
+> Этот репозиторий — **зеркало только на чтение**: сюда не пушим, разработка идёт
+> во внутреннем git холдинга. Что мы поменяли относительно оригинала —
+> [`docs/ru/fork-changes.md`](docs/ru/fork-changes.md).
+>
+> Ниже — README оригинального проекта `siteboon/claudecodeui`. Команда установки
+> из него (`npx @cloudcli-ai/cloudcli`) ставит **оригинал, не наш форк**.
+
+---
+
 <div align="center">
  <img src="public/logo.svg" alt="CloudCLI UI" width="64" height="64">
  <h1>Cloud CLI (aka Claude Code UI)</h1>
