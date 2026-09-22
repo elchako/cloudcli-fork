@@ -55,7 +55,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
     {
       value: 'best',
       label: 'Best available',
-      description: 'Use Fable 5 when available, otherwise the latest Opus model.',
+      description: 'Use Fable 5.1 when available, otherwise the latest Opus model.',
       effort: {
         default: 'high',
         values: [
@@ -69,25 +69,9 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
     {
-      value: 'fable',
-      label: 'Fable 5',
-      description: 'Most capable Claude model for the hardest, longest-running tasks.',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'xhigh' },
-          { value: 'max' },
-          ULTRACODE_EFFORT_OPTION,
-        ],
-      },
-    },
-    {
-      value: 'sonnet',
-      label: 'Sonnet',
-      description: 'Latest Sonnet model for everyday coding tasks.',
+      value: 'claude-fable-5-1[1m]',
+      label: 'Fable 5.1 (1M context)',
+      description: 'Fable 5.1 with 1M context · Most capable Claude model for the hardest, longest-running tasks.',
       effort: {
         default: 'high',
         values: [
@@ -102,8 +86,8 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'sonnet[1m]',
-      label: 'Sonnet (1M context)',
-      description: 'Latest Sonnet model with a 1M context window.',
+      label: 'Sonnet 5 (1M context)',
+      description: 'Sonnet 5 with a 1M context window · everyday coding tasks.',
       effort: {
         default: 'high',
         values: [
@@ -117,39 +101,9 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
     {
-      value: 'claude-opus-5',
-      label: 'Opus 5',
-      description: 'Opus 5 · Most capable Opus for complex agentic & coding work · $5/$25 per Mtok',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'xhigh' },
-          { value: 'max' },
-        ],
-      },
-    },
-    {
-      value: 'claude-opus-5[1m]',
-      label: 'Opus 5 (1M context)',
-      description: 'Opus 5 with 1M context · For long agentic sessions · $5/$25 per Mtok',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'xhigh' },
-          { value: 'max' },
-        ],
-      },
-    },
-    {
-      value: 'opus',
-      label: 'Opus 4.8',
-      description: 'Opus 4.8 · Best for everyday, complex tasks · ~2× usage vs Sonnet',
+      value: 'claude-opus-5-5[1m]',
+      label: 'Opus 5.5 (1M context)',
+      description: 'Opus 5.5 with 1M context · Latest Opus for long agentic sessions',
       effort: {
         default: 'high',
         values: [
@@ -161,27 +115,6 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           ULTRACODE_EFFORT_OPTION,
         ],
       },
-    },
-    {
-      value: 'opus[1m]',
-      label: 'Opus (1M context)',
-      description: 'Latest Opus model with a 1M context window.',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'xhigh' },
-          { value: 'max' },
-          ULTRACODE_EFFORT_OPTION,
-        ],
-      },
-    },
-    {
-      value: 'haiku',
-      label: 'Haiku',
-      description: 'Fast and efficient Claude model for simple tasks.',
     },
     {
       value: 'opusplan',
