@@ -145,7 +145,7 @@ username}`. Middleware `authenticateToken` принимает токен из з
 
 Реализованы поверх апстрима (см. `GOLDJAXE-FORK.md` и git-историю ветки):
 
-1. **Модели** — Claude только 1M (Fable 5.1, Sonnet 5, Opus 5.5), `kimi-k3[1m]`
+1. **Модели** — Claude только 1M (Fable 5.1, Sonnet 5.5, Opus 5.5), `kimi-k3[1m]`
    (Moonshot, авто-endpoint) и GPT через шлюз CLIProxyAPI: `gpt-6-astra`,
    `gpt-6.1-sol` (effort — суффиксом в id модели); список моделей захардкожен,
    дописан вручную.

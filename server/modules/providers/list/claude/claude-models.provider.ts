@@ -115,9 +115,9 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
     {
-      value: 'sonnet[1m]',
-      label: 'Sonnet 5 (1M context)',
-      description: 'Sonnet 5 with a 1M context window · everyday coding tasks.',
+      value: 'claude-sonnet-5-5[1m]',
+      label: 'Sonnet 5.5 (1M context)',
+      description: 'Sonnet 5.5 with a 1M context window · everyday coding tasks.',
       effort: {
         default: 'high',
         values: [
