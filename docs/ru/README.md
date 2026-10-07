@@ -27,3 +27,4 @@
   [`../../CLAUDE.md`](../../CLAUDE.md) и [`../../GOLDJAXE-FORK.md`](../../GOLDJAXE-FORK.md).
 - Деплой в контуре холдинга (Tailscale, отдельный `SERVER_PORT`/`DATABASE_PATH`,
   раскатка форка вместо npm-пакета).
+- Картинки прямо в чате (gpt-image-2.5 через шлюз) — [`images.md`](images.md).

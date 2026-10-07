@@ -47,11 +47,43 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 
 ### 1.2 Opus 5 в списке моделей
 - **Слой:** модель · **Столкновение:** 🟡 · **PR:** нет.
-- **Что:** `claude-opus-5` и `claude-opus-5[1m]` добавлены выше Opus 4.8; старый
+- **Статус:** **снято коммитом `969a6443`** — каталог сокращён до 1M-моделей
+  (Fable 5.1, Sonnet 5, Opus 5.5; режим ultracode добавлен Opus 5.5),
+  `claude-opus-5`/`claude-opus-5[1m]` и Opus 4.8 из списка убраны. Массив после
+  слияния v1.37.3 называется `CLAUDE_PREDEFINED_MODELS` (не `CLAUDE_FALLBACK_MODELS`).
+- **Что было:** `claude-opus-5` и `claude-opus-5[1m]` добавлены выше Opus 4.8; старый
   label `Opus` переименован в `Opus 4.8`.
 - **Файлы:** `server/modules/providers/list/claude/claude-models.provider.ts`.
-- **Мерж:** обе модельные правки живут в одном массиве `CLAUDE_FALLBACK_MODELS` —
+- **Мерж:** все модельные правки живут в одном массиве `CLAUDE_PREDEFINED_MODELS` —
   при обновлении upstream сверять этот массив целиком.
+
+### 1.3 GPT-6 Astra и GPT-6.1 Sol через шлюз CLIProxyAPI
+- **Слой:** модель + server · **Столкновение:** 🟡 (тот же массив моделей +
+  строка в `mapCliOptionsToSDK`) · **PR:** нет (специфично для шлюза холдинга).
+- **Что:** в каталог Claude добавлены `gpt-6-astra` и `gpt-6.1-sol` (подписка
+  ChatGPT в CLIProxyAPI, тот же `ANTHROPIC_BASE_URL`). Модели ходят через тот же
+  Claude CLI: шлюз переводит Anthropic `/v1/messages` в Codex и обратно —
+  инструменты, стриминг и транскрипт работают как с Claude (проверено живым
+  прогоном: Bash/Read, многоходовые сессии).
+- **Effort через суффикс модели.** Шлюз **игнорирует** `output_config.effort`
+  для GPT (замер: low и max давали одинаковый расход reasoning; мусорное
+  `ultra` принималось без ошибки), зато понимает суффикс `модель(уровень)`:
+  `gpt-6-astra(max)` ≈ в 1,7 раза больше reasoning-токенов, чем `(low)`, а в
+  ответе и транскрипте остаётся чистое `gpt-6-astra`. Поэтому
+  `withGatewayEffortSuffix` (в `claude-models.provider.ts`) дописывает выбранный
+  уровень к id модели прямо перед SDK; в БД и UI модель остаётся без суффикса.
+  Уровни — ровно те, что шлюз сам называет допустимыми для GPT-6:
+  `low/medium/high/xhigh/max`. «Default» в меню = без суффикса = уровень шлюза.
+- **Контекст:** id без `[1m]` → Claude CLI считает окно 200k и сжимает историю
+  заранее; реальное окно GPT-6 у шлюза не опубликовано, `[1m]` не ставим
+  намеренно, чтобы не словить переполнение.
+- **Файлы:** `server/modules/providers/list/claude/claude-models.provider.ts`
+  (`GATEWAY_GPT_EFFORT`, записи моделей, `withGatewayEffortSuffix`),
+  `server/modules/providers/list/claude/claude-runtime.provider.js`
+  (`mapCliOptionsToSDK`); тест `server/modules/providers/tests/claude-models.test.ts`.
+- **Мерж:** суффикс применяется только к id на `gpt-` без `(` — Claude/Kimi не
+  затрагиваются. Если upstream начнёт передавать effort иначе, сверить, что
+  суффикс по-прежнему ставится после `resolveClaudeEffort`.
 
 ---
 
@@ -1049,6 +1081,78 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
   `server/modules/providers/services/sessions-watcher.service.ts` (запуск);
   тест `automated-session-sweep.test.ts` (архивит plugin-сеанс, не трогает
   живой чат и битый путь, идемпотентен).
+
+---
+
+## 13. Генерация картинок прямо в чате (gpt-image-2.5 через шлюз)
+
+Пользовательская инструкция — [`images.md`](images.md).
+
+### 13.1 Встроенный инструмент `generate_image`
+- **Слой:** server + frontend · **Столкновение:** 🟢 (свой модуль) + 🟡 (по
+  несколько строк в `claude-runtime.provider.js`, `toolConfigs.ts`,
+  `toolGrouping.ts`, `package.json`) · **PR:** кандидат после обобщения
+  (сейчас завязан на OpenAI-совместимый `/v1/images` шлюза).
+- **Что:** каждый Claude-ран, запущенный из CloudCLI, получает MCP-инструмент
+  `mcp__cloudcli-images__generate_image`. Агент (любая модель) вызывает его по
+  просьбе «нарисуй/сгенерируй/сделай иконку…»; сервер шлёт запрос в
+  `/v1/images/generations` того же шлюза (`ANTHROPIC_BASE_URL` + токен из env
+  или `~/.claude/settings.json`), PNG кладётся в `~/.cloudcli/assets`, а
+  карточка инструмента в чате сразу показывает картинку (markdown
+  `![](/api/assets/images/…)` → `MarkdownImage`, blob с JWT в заголовке).
+  Правка/вариации: путь прошлой картинки или вложения передаётся в
+  `input_images` → `/v1/images/edits` (проверено: «сделай тот же значок на белом
+  фоне» — модель сама подставила путь прошлого результата).
+- **Как устроено:** in-process MCP-сервер SDK (`createSdkMcpServer` + `tool`,
+  схема на zod) — без регистрации в `~/.claude.json` и без отдельного процесса;
+  создаётся на каждый ран только если шлюз настроен. `alwaysLoad`, чтобы
+  инструмент не прятался за ToolSearch; предразрешён в `allowedTools` (пишет
+  только в assets), запрет через `disallowedTools` по-прежнему работает. Таймаут
+  запроса 5 мин (high-качество и правки идут дольше минуты). Сбой создания
+  инструмента (например, несовместимый zod после обновления SDK) только убирает
+  инструмент из рана и пишет warning — сам чат не падает.
+- **Trust boundary:** `input_images` — только PNG/JPEG/WebP до 20 МБ из cwd рана
+  или `~/.cloudcli/assets` (`isAllowedImageSourcePath`, после `realpath` — симлинк
+  наружу не пройдёт). Не ослаблять.
+- **UI:** строка «Image / <промпт>» (одной строкой, без переноса посреди слов) и
+  раскрытая карточка «Generated image» — из текста результата берётся только
+  строка с картинкой, подсказки для модели не показываются. Подряд идущие вызовы
+  **не группируются** (`NEVER_GROUPED_TOOLS`), иначе «3 варианта логотипа»
+  спрятались бы в свёрнутую группу. Картинки переживают перезагрузку — результат
+  лежит в транскрипте, файл в assets. Проверено на 1440×900 и 390×844.
+- **Настройки:** `CLOUDCLI_IMAGE_GEN=off` — выключить; `CLOUDCLI_IMAGE_MODEL` —
+  модель картинок (по умолчанию `gpt-image-2.5`; шлюз также знает
+  `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2`, `gpt-image-1.5`,
+  `grok-imagine-image*`). Без `ANTHROPIC_BASE_URL` инструмента нет вовсе.
+- **Файлы:** `server/modules/image-generation/` (новый:
+  `image-generation.service.ts`, `image-generation.mcp.ts`, `index.ts`, тест
+  `tests/image-generation.service.test.ts` — 11),
+  `server/modules/providers/list/claude/claude-runtime.provider.js`
+  (подключение в `queryClaudeSDK`), `src/modules/chat/tools/configs/toolConfigs.ts`
+  (карточка), `src/modules/chat/utils/toolGrouping.ts` (исключение из групп),
+  тесты `src/modules/chat/tests/imageToolConfig.test.ts` (4) и
+  `toolGrouping.test.ts` (+1), `package.json`/`package-lock.json` (`zod` —
+  был peer-зависимостью SDK, теперь прямая, версия та же 4.3.6), `.env.example`.
+- **Мерж:** `NEVER_GROUPED_TOOLS` и ключ карточки завязаны на имя
+  `mcp__cloudcli-images__generate_image` — при переименовании сервера/инструмента
+  менять в трёх местах (mcp.ts, toolConfigs.ts, toolGrouping.ts).
+
+### 13.2 Известное ограничение: с GPT-моделью в чате картинка часто теряется
+- **Симптом:** чат на GPT-6 Astra/6.1 Sol на просьбу «нарисуй» отвечает пустым
+  ходом (Claude CLI дописывает «Your previous response had no visible output»),
+  потом «Готово.» — картинки нет, ~45 с потрачено.
+- **Причина (на стороне шлюза):** CLIProxyAPI сам подмешивает в каждый
+  GPT-запрос встроенный инструмент `image_generation`
+  (`gpt-image-2-codex`) — видно в ответе `/v1/responses` даже без своих tools.
+  GPT-6 предпочитает его нашему `generate_image` (замер на полном запросе
+  Claude CLI: наш инструмент выбран в 1 из 4; явная инструкция в описании и
+  системном промпте — тоже 1 из 4). Картинка генерируется, но в Anthropic-формате
+  ей нет места, и шлюз её выбрасывает.
+- **Что делать:** картинки просить у Claude-модели (Sonnet 5 / Opus 5.5 /
+  Fable 5.1) — у них встроенного генератора нет, вызов стабилен. Полноценное
+  исправление — в шлюзе: не подмешивать `image_generation` в запросы,
+  пришедшие через `/v1/messages`, либо переводить `image_generation_call` в
+  ответ. Со стороны CloudCLI не лечится.
 
 ---
 

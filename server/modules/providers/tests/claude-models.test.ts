@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { extractClaudeEventModel } from '@/modules/providers/list/claude/claude-models.provider.js';
+import {
+  extractClaudeEventModel,
+  findClaudeModelOption,
+  withGatewayEffortSuffix,
+} from '@/modules/providers/list/claude/claude-models.provider.js';
 
 const SESSION_ID = 'session-1';
 
@@ -84,4 +88,28 @@ test('falls back to the message model when every content hit is a placeholder', 
     ),
     'claude-sonnet-5',
   );
+});
+
+test('catalog offers the gateway GPT models with the levels CLIProxyAPI accepts', () => {
+  for (const model of ['gpt-6-astra', 'gpt-6.1-sol']) {
+    const option = findClaudeModelOption(model);
+    assert.ok(option, `${model} is in the catalog`);
+    assert.deepEqual(
+      option.effort?.values.map((entry) => entry.value),
+      ['low', 'medium', 'high', 'xhigh', 'max'],
+    );
+  }
+});
+
+test('gateway GPT models carry the chosen reasoning level in the model id', () => {
+  assert.equal(withGatewayEffortSuffix('gpt-6-astra', 'max'), 'gpt-6-astra(max)');
+  assert.equal(withGatewayEffortSuffix('gpt-6.1-sol', 'low'), 'gpt-6.1-sol(low)');
+});
+
+test('the effort suffix leaves other models and level-less GPT runs untouched', () => {
+  assert.equal(withGatewayEffortSuffix('claude-opus-5-5[1m]', 'max'), 'claude-opus-5-5[1m]');
+  assert.equal(withGatewayEffortSuffix('kimi-k3[1m]', 'high'), 'kimi-k3[1m]');
+  assert.equal(withGatewayEffortSuffix('gpt-6-astra', undefined), 'gpt-6-astra');
+  // An id that already names its level is never suffixed twice.
+  assert.equal(withGatewayEffortSuffix('gpt-6-astra(high)', 'max'), 'gpt-6-astra(high)');
 });

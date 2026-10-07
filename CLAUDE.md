@@ -104,17 +104,27 @@ npm run desktop:dev
 |---|---|
 | `index.js` | Точка входа: монтирование роутов, middleware, WebSocket, статика. |
 | `routes/` | REST-роуты (`settings.js`, `agent.js`, `git.js`, `commands.js` и др.). |
-| `modules/` | Доменные модули: `assets/` (вложения), `database/` (схема, репозитории, миграции), `providers/` (список моделей и синхро сессий по провайдерам), `websocket/` (чат-шлюз). |
+| `modules/` | Доменные модули: `assets/` (вложения), `database/` (схема, репозитории, миграции), `providers/` (список моделей и синхро сессий по провайдерам), `websocket/` (чат-шлюз), `image-generation/` (наш встроенный MCP-инструмент `generate_image`). |
 | `services/` | Сервисы (уведомления, vapid и пр.). |
 | `middleware/` | `auth.js` (JWT), валидация API-ключа. |
 | `shared/` | Общий код сервера: `image-attachments.ts` (доставка вложений провайдерам) и др. |
 | `claude-sdk.js` | Провайдер Claude Code: сборка промпта, опции SDK, стриминг. |
 
 **Провайдер Claude по умолчанию.** Значение выбранной модели (`value` из
-`CLAUDE_FALLBACK_MODELS` в `server/modules/providers/list/claude/claude-models.provider.ts`)
+`CLAUDE_PREDEFINED_MODELS` в `server/modules/providers/list/claude/claude-models.provider.ts`)
 передаётся в `claude-agent-sdk` как `model` **напрямую** — то есть это должен быть
-алиас или ID, который понимает Claude Code (`opus`, `sonnet`, `claude-opus-5`,
-суффикс `[1m]` для 1M-контекста).
+алиас или ID, который понимает Claude Code (`sonnet`, `claude-opus-5-5`,
+суффикс `[1m]` для 1M-контекста). Исключение — GPT через шлюз CLIProxyAPI
+(`gpt-6-astra`, `gpt-6.1-sol`): шлюз игнорирует `effort` для них, поэтому
+выбранный уровень уходит суффиксом в id (`gpt-6-astra(max)`,
+`withGatewayEffortSuffix`); в БД/UI модель хранится без суффикса.
+
+**Генерация картинок.** Если задан шлюз (`ANTHROPIC_BASE_URL` в env или
+`~/.claude/settings.json`), каждый Claude-ран получает in-process MCP-инструмент
+`mcp__cloudcli-images__generate_image` (`server/modules/image-generation/`):
+`/v1/images/generations|edits` шлюза → PNG в `~/.cloudcli/assets` → картинка в
+карточке инструмента. Флаги: `CLOUDCLI_IMAGE_GEN=off`, `CLOUDCLI_IMAGE_MODEL`
+(по умолчанию `gpt-image-2.5`).
 
 **Аутентификация.** JWT (`JWT_SECRET` в БД `app_config`), payload `{userId,
 username}`. Middleware `authenticateToken` принимает токен из заголовка
@@ -135,8 +145,10 @@ username}`. Middleware `authenticateToken` принимает токен из з
 
 Реализованы поверх апстрима (см. `GOLDJAXE-FORK.md` и git-историю ветки):
 
-1. **Модели Claude** — `kimi-k3[1m]` (Moonshot, авто-endpoint) и `claude-opus-5`
-   / `claude-opus-5[1m]`; список моделей захардкожен, дописаны вручную.
+1. **Модели** — Claude только 1M (Fable 5.1, Sonnet 5, Opus 5.5), `kimi-k3[1m]`
+   (Moonshot, авто-endpoint) и GPT через шлюз CLIProxyAPI: `gpt-6-astra`,
+   `gpt-6.1-sol` (effort — суффиксом в id модели); список моделей захардкожен,
+   дописан вручную.
 2. **Нативный показ картинок в чате** — markdown `![](/api/assets/...)`
    рендерится через `MarkdownImage` (blob-загрузка защищённых путей, JWT в
    заголовке, не в DOM).
@@ -181,6 +193,11 @@ username}`. Middleware `authenticateToken` принимает токен из з
    security-review дополнительно вычищаются sweep'ом при каждом старте
    (`archiveAutomatedSessions`) — закрывает сеансы, проиндексированные до
    появления автоархива; детектор читает транскрипт потоково, не целиком.
+13. **Картинки прямо в чате** — инструмент `generate_image` (gpt-image-2.5 через
+   тот же шлюз): «нарисуй…» → картинка в карточке инструмента, правки по
+   референсу через `input_images`, файлы в `~/.cloudcli/assets`. Надёжно с
+   Claude-моделью в чате; с GPT-моделью шлюз подсовывает свой генератор и
+   теряет картинку (реестр §13.2).
 
 ## Важно при работе с кодом
 
@@ -192,8 +209,16 @@ username}`. Middleware `authenticateToken` принимает токен из з
    Правки по возможности локальны и снабжены комментарием, зачем.
 - **Список моделей захардкожен.** `getSupportedModels()` в
    `claude-models.provider.ts` отключён апстримом → новые модели не появляются
-   автоматически, их дописывают в `CLAUDE_FALLBACK_MODELS` вручную. `value` модели
-   уходит в SDK как есть — используй алиас/ID, понятный Claude Code.
+   автоматически, их дописывают в `CLAUDE_PREDEFINED_MODELS` вручную. `value` модели
+   уходит в SDK как есть — используй алиас/ID, понятный Claude Code (GPT через
+   шлюз — плюс суффикс effort, см. «Архитектура»).
+- **Тестовый инстанс из сессии CloudCLI — только с явным `DATABASE_PATH`.**
+   Сессия агента наследует env боевого инстанса (`DATABASE_PATH`,
+   `SERVER_PORT`, `CLAUDE_CLI_PATH`): подмена одного `HOME` не изолирует БД, и
+   тестовый сервер пишет в боевую `~/.cloudcli/auth.db` (сканирование, автоархив,
+   курсор `scan_state`). Запускать через `env -i …` со своим `DATABASE_PATH`.
+   По той же причине 4 теста `claude-cli-path.test.ts` падают, пока в env есть
+   `CLAUDE_CLI_PATH` — гонять `env -u CLAUDE_CLI_PATH npm test`.
 - **Токен в query.** Ресурсы, которые нельзя запросить с заголовком (`<img>`,
    EventSource), берут JWT из `?token=`. Это штатно (см. `middleware/auth.js`);
    не считать дырой.

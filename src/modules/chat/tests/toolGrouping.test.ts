@@ -217,3 +217,14 @@ test('a subagent container is never absorbed into a group', () => {
   assert.equal(items.length, 2);
   assert.equal(items.filter(isToolGroupItem).length, 0);
 });
+
+test('consecutive generated images stay separate so every picture is visible', () => {
+  const items = groupConsecutiveTools([
+    toolMessage('mcp__cloudcli-images__generate_image', { prompt: 'logo, variant 1' }),
+    toolMessage('mcp__cloudcli-images__generate_image', { prompt: 'logo, variant 2' }),
+    toolMessage('mcp__cloudcli-images__generate_image', { prompt: 'logo, variant 3' }),
+  ]);
+
+  assert.equal(items.length, 3);
+  assert.ok(items.every((item) => !isToolGroupItem(item)));
+});

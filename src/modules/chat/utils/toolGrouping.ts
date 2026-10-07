@@ -13,8 +13,17 @@ export function isToolGroupItem(item: MessageListItem): item is ToolGroupItem {
   return '_isGroup' in item && (item as ToolGroupItem)._isGroup === true;
 }
 
+// Fork: each generated image is the result itself, so a run of them must not
+// collapse into a group that hides every picture behind a tap.
+const NEVER_GROUPED_TOOLS = new Set(['mcp__cloudcli-images__generate_image']);
+
 function isGroupableToolMessage(message: ChatMessage): message is ChatMessage & { toolName: string } {
-  return Boolean(message.isToolUse && message.toolName && !message.isSubagentContainer);
+  return Boolean(
+    message.isToolUse
+    && message.toolName
+    && !message.isSubagentContainer
+    && !NEVER_GROUPED_TOOLS.has(message.toolName)
+  );
 }
 
 // Messages that render nothing (e.g. reasoning hidden when showThinking is off)

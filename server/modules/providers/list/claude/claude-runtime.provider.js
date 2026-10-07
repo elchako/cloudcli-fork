@@ -26,9 +26,15 @@ import {
 } from '@/shared/image-attachments.js';
 import {
   CLAUDE_PREDEFINED_MODELS,
-  CLAUDE_ULTRACODE_EFFORT
+  CLAUDE_ULTRACODE_EFFORT,
+  withGatewayEffortSuffix
 } from '@/modules/providers/list/claude/claude-models.provider.js';
 import { resolveClaudeCodeExecutablePath } from '@/shared/claude-cli-path.js';
+import {
+  createImageGenerationMcpServer,
+  IMAGE_GENERATION_MCP_SERVER_NAME,
+  IMAGE_GENERATION_TOOL_ID
+} from '@/modules/image-generation/index.js';
 import {
   createNotificationEvent,
   notifyBackgroundWorkCompleted,
@@ -280,11 +286,14 @@ function mapCliOptionsToSDK(options = {}) {
 
   sdkOptions.model = options.model || CLAUDE_PREDEFINED_MODELS.DEFAULT;
 
-  applyClaudeEffort(sdkOptions, resolveClaudeEffort(
+  const resolvedEffort = resolveClaudeEffort(
     sdkOptions.model,
     effort,
     options.effortModels || CLAUDE_PREDEFINED_MODELS,
-  ));
+  );
+  applyClaudeEffort(sdkOptions, resolvedEffort);
+  // GPT via CLIProxyAPI takes its reasoning level from the model id, not from effort.
+  sdkOptions.model = withGatewayEffortSuffix(sdkOptions.model, resolvedEffort);
 
   sdkOptions.systemPrompt = {
     type: 'preset',
@@ -781,6 +790,22 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     const mcpServers = await loadMcpConfig(options.cwd);
     if (mcpServers) {
       sdkOptions.mcpServers = mcpServers;
+    }
+
+    // Fork: in-process `generate_image` tool backed by the same gateway. It only writes into
+    // ~/.cloudcli/assets, so it is pre-approved; a disallowedTools entry still blocks it.
+    // A failure here costs the run its image tool, never the run itself.
+    let imageMcpServer = null;
+    try {
+      imageMcpServer = await createImageGenerationMcpServer({ cwd: options.cwd });
+    } catch (error) {
+      console.warn('[Claude SDK] Image generation tool unavailable:', error?.message || error);
+    }
+    if (imageMcpServer) {
+      sdkOptions.mcpServers = { ...sdkOptions.mcpServers, [IMAGE_GENERATION_MCP_SERVER_NAME]: imageMcpServer };
+      if (!sdkOptions.allowedTools.includes(IMAGE_GENERATION_TOOL_ID)) {
+        sdkOptions.allowedTools.push(IMAGE_GENERATION_TOOL_ID);
+      }
     }
 
     // Every turn uses streaming input so stdin stays open past the turn's

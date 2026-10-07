@@ -22,6 +22,24 @@ const ULTRACODE_EFFORT_OPTION = {
   description: 'Highest effort plus standing workflow orchestration.',
 };
 
+/**
+ * GPT models reach the Claude CLI through the CLIProxyAPI gateway (ChatGPT subscription).
+ * The gateway ignores Anthropic's `output_config.effort` for them and reads the reasoning
+ * level from a model-id suffix instead — `gpt-6-astra(max)` — so the runtime appends the
+ * chosen level (see `withGatewayEffortSuffix`). These are the levels the gateway reports
+ * as valid for GPT-6.
+ */
+const GATEWAY_GPT_EFFORT: NonNullable<ProviderModelOption['effort']> = {
+  default: 'high',
+  values: [
+    { value: 'low' },
+    { value: 'medium' },
+    { value: 'high' },
+    { value: 'xhigh' },
+    { value: 'max' },
+  ],
+};
+
 export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
@@ -37,6 +55,18 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           { value: 'max' },
         ],
       },
+    },
+    {
+      value: 'gpt-6-astra',
+      label: 'GPT-6 Astra',
+      description: 'OpenAI GPT-6 Astra · ChatGPT subscription via the CLIProxyAPI gateway (ANTHROPIC_BASE_URL)',
+      effort: GATEWAY_GPT_EFFORT,
+    },
+    {
+      value: 'gpt-6.1-sol',
+      label: 'GPT-6.1 Sol',
+      description: 'OpenAI GPT-6.1 Sol · ChatGPT subscription via the CLIProxyAPI gateway (ANTHROPIC_BASE_URL)',
+      effort: GATEWAY_GPT_EFFORT,
     },
     {
       value: 'default',
@@ -144,6 +174,16 @@ export const findClaudeModelOption = (model: string | undefined | null): Provide
 
   return CLAUDE_PREDEFINED_MODELS.OPTIONS.find((option) => option.value === normalizedModel) ?? null;
 };
+
+/**
+ * Model id to hand the SDK for a catalog selection. A gateway GPT model carries its
+ * reasoning level in the id (`gpt-6-astra(max)`), because CLIProxyAPI ignores
+ * `output_config.effort` for it; the gateway strips the suffix and records the bare id in
+ * the transcript. Every other model, and a GPT run without an explicit level, passes through.
+ */
+export const withGatewayEffortSuffix = (model: string, effort: string | undefined): string =>
+  effort && model.startsWith('gpt-') && !model.includes('(') ? `${model}(${effort})` : model;
+
 type ClaudeInitEvent = {
   sessionId?: string;
   session_id?: string;

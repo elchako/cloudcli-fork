@@ -106,6 +106,35 @@ export function formatToolDisplayName(toolName: string): string {
   return `${mcpMatch[2]} (${mcpMatch[1]})`;
 }
 
+/** Joins the text parts of an MCP tool result, whether it arrives as an array or as JSON text. */
+function readMcpResultText(result: any): string {
+  let content = result?.content ?? '';
+  if (typeof content === 'string') {
+    try {
+      content = JSON.parse(content);
+    } catch {
+      return content;
+    }
+  }
+  if (!Array.isArray(content)) {
+    return typeof content === 'string' ? content : '';
+  }
+  return content
+    .filter((part: any) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part: any) => part.text)
+    .join('\n');
+}
+
+/**
+ * Keeps only the markdown image line of a `generate_image` result: the rest of
+ * the text is guidance for the model, not for the user.
+ */
+function extractGeneratedImageMarkdown(result: any): string {
+  const text = readMcpResultText(result);
+  const imageLine = /!\[[^\]]*\]\(\/api\/assets\/images\/[^)\s]+\)/.exec(text);
+  return imageLine ? imageLine[0] : text;
+}
+
 export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
   // ============================================================================
   // COMMAND TOOLS
@@ -203,6 +232,33 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
       defaultOpen: false,
       contentType: 'text',
       getContentProps: (result) => ({ content: String(result?.content || ''), format: 'plain' })
+    }
+  },
+
+  // ============================================================================
+  // IMAGE GENERATION (fork: in-process MCP tool, server/modules/image-generation)
+  // ============================================================================
+
+  // The result card shows the picture itself, so the user sees it even when the
+  // model does not repeat it in the reply.
+  'mcp__cloudcli-images__generate_image': {
+    input: {
+      type: 'one-line',
+      label: 'Image',
+      getValue: (input) => input.prompt || '',
+      action: 'none',
+      colorScheme: {
+        primary: 'text-gray-700 dark:text-gray-300',
+        border: 'border-fuchsia-400 dark:border-fuchsia-500',
+        icon: 'text-fuchsia-500 dark:text-fuchsia-400'
+      }
+    },
+    result: {
+      type: 'collapsible',
+      title: 'Generated image',
+      defaultOpen: true,
+      contentType: 'markdown',
+      getContentProps: (result) => ({ content: extractGeneratedImageMarkdown(result) })
     }
   },
 
