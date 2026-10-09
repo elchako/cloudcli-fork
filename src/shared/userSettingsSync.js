@@ -17,16 +17,23 @@
  * `shared/voiceConfig` and `server/modules/database/repositories/voice-settings.ts`).
  * `hydrateVoiceConfig` is kicked off alongside the pull below so both stores
  * are ready at the same moment.
+ *
+ * Since 1.37.3 upstream keeps theme, language, UI preferences, permissions,
+ * editor settings, the selected provider and project stars in its own per-user
+ * store (`shared/userSettings`, `user_preferences`) and reads the old
+ * localStorage keys only for a one-time migration. Those keys are left to it:
+ * mirroring them here re-applied a frozen copy on every load, which reverted a
+ * changed language and re-starred projects that had been un-starred. This module
+ * covers only what upstream still keeps in localStorage alone.
  */
 
-import { hydrateVoiceConfig, resetVoiceConfigCache } from '@/shared/voiceConfig';
-
+import { hydrateVoiceConfig } from '@/shared/voiceConfig';
 import { api } from '@/shared/api';
 
 // localStorage keys that are safe, non-secret UI/composer preferences.
-// Keep this in sync with the settings the app reads from localStorage.
+// Keep this in sync with the settings the app reads from localStorage — and
+// leave out whatever upstream's own preference store owns (see above).
 export const SYNCED_SETTINGS_KEYS = [
-  'selected-provider',
   'claude-model',
   'cursor-model',
   'codex-model',
@@ -35,23 +42,15 @@ export const SYNCED_SETTINGS_KEYS = [
   'cursor-effort',
   'codex-effort',
   'opencode-effort',
-  'userLanguage',
-  'theme',
-  'uiPreferences',
-  'codeEditorWordWrap',
-  'codeEditorShowMinimap',
-  'codeEditorLineNumbers',
-  'codeEditorFontSize',
-  'claude-settings',
-  'cursor-tools-settings',
-  'codex-settings',
   'file-tree-view-mode',
   'activeTab',
-  'tasks-enabled',
   'notificationSoundEnabled',
-  'starredProjects',
   // Where the user dragged the floating quick-settings handle.
   'quickSettingsHandlePosition',
+  // Whether the quick-settings panel is pinned as a dock, and its open tab.
+  'quickSettingsPanel',
+  // The width the sidebar was dragged to.
+  'sidebar-width',
   // "I dismissed the GitHub star badge" — an explicit choice, so it should not
   // come back on every new device or after a cache clear.
   'CLOUDCLI_HIDE_GITHUB_STAR',
@@ -61,13 +60,6 @@ export const SYNCED_SETTINGS_KEYS = [
 const PREFIX_SYNCED_KEYS = ['permissionMode-'];
 
 const MIGRATION_DONE_KEY = 'user-settings-migrated';
-
-// Keys that app code writes to localStorage automatically on first load (i18n
-// language detector, ThemeContext system-preference fallback) even without an
-// explicit user choice. They are excluded from the one-time migration so a
-// default doesn't get fossilized as a cross-device preference; an explicit
-// later change is still captured by pushLocalSettingsToServer.
-const AUTO_DEFAULT_KEYS = ['userLanguage', 'theme'];
 
 function isSyncedKey(key) {
   if (SYNCED_SETTINGS_KEYS.includes(key)) {
@@ -120,50 +112,8 @@ function applyToLocalStorage(settings) {
     // Ignore write failures.
   } finally {
     // Reset after the current task so React effects that react to these writes
-    // (e.g. useUiPreferences re-emitting `ui-preferences:sync`) still see the
-    // guard and don't echo the server values back as a fresh push.
+    // still see the guard and don't echo the server values back as a fresh push.
     setTimeout(() => { applyingServerSettings = false; }, 0);
-  }
-}
-
-/**
- * Applies live effects for settings that are read synchronously at app start
- * (theme, i18n language) so pulling them from the DB on a reload does not
- * require a full page refresh or leave a visible mismatch.
- *
- * Theme is NOT applied by touching the DOM class directly — ThemeContext owns
- * `isDarkMode` in React state, and a direct classList change would be reverted
- * by its next render. Instead we dispatch `cloudcli:settings-applied`, which
- * ThemeContext listens for and adopts into its state (the source of truth).
- * i18n is its own source of truth, so `changeLanguage` is called directly.
- */
-async function applyLiveEffects(settings) {
-  if (!settings || typeof settings !== 'object') {
-    return;
-  }
-
-  // Language: switch i18n if it differs from the current one.
-  //
-  // Imported lazily on purpose. `@/modules/i18n` configures i18next at module
-  // load and reads the preference mirror to do it, so a static import here
-  // would pull that read into every module that merely imports this file.
-  if (typeof settings.userLanguage === 'string') {
-    try {
-      const { i18n } = await import('@/modules/i18n');
-      if (i18n && i18n.language !== settings.userLanguage) {
-        await i18n.changeLanguage(settings.userLanguage);
-      }
-    } catch {
-      // i18n not available — ignore.
-    }
-  }
-
-  // Theme (and any other React-owned setting): notify context providers to
-  // re-read localStorage and sync their state.
-  try {
-    window.dispatchEvent(new Event('cloudcli:settings-applied'));
-  } catch {
-    // Non-DOM environment — ignore.
   }
 }
 
@@ -190,8 +140,9 @@ export async function loadUserSettingsIntoLocalStorage() {
 
     const hasServerSettings = Object.keys(settings).length > 0;
     if (hasServerSettings) {
+      // Keys upstream's store now owns may still sit in an older blob; the
+      // allowlist filter in applyToLocalStorage leaves them alone.
       applyToLocalStorage(settings);
-      await applyLiveEffects(settings);
       return;
     }
 
@@ -202,14 +153,7 @@ export async function loadUserSettingsIntoLocalStorage() {
       return;
     }
 
-    // Exclude auto-written defaults from the one-time migration: i18n writes
-    // `userLanguage` and ThemeContext writes `theme` on first load even when the
-    // user never chose them, so migrating them would fossilize a default as an
-    // explicit cross-device choice. A later explicit change is captured by push.
     const local = readLocalSettings();
-    for (const key of AUTO_DEFAULT_KEYS) {
-      delete local[key];
-    }
     if (Object.keys(local).length > 0) {
       await api.updateUserSettings(local, { merge: false });
     }
@@ -238,10 +182,6 @@ export async function pushLocalSettingsToServer() {
   }
 }
 
-// UI-preferences hook (useUiPreferences) fires this on every toggle change; the
-// quick-settings panel (raw params, thinking, Ctrl+Enter, voice) writes only
-// through that hook, so without listening here its changes never reach the DB.
-const UI_PREFERENCES_SYNC_EVENT = 'ui-preferences:sync';
 const AUTOSYNC_DEBOUNCE_MS = 800;
 
 let autoSyncInstalled = false;
@@ -267,13 +207,11 @@ function schedulePush() {
  * so a burst of toggles collapses into one write. Idempotent — safe to call on
  * each login. Returns a teardown function.
  *
- * Covers three change sources:
- *   - `ui-preferences:sync` — the quick-settings panel and any useUiPreferences
- *     consumer (same-tab, since they don't emit a native `storage` event);
+ * Covers two change sources:
  *   - native `storage` — settings changed in another tab of the same origin;
  *   - direct localStorage writes are patched below so single-key writers
- *     (model/effort/provider selectors) also trigger a push without each having
- *     to import this module.
+ *     (model/effort selectors, permission modes, …) also trigger a push without
+ *     each having to import this module.
  */
 export function startUserSettingsAutoSync() {
   if (autoSyncInstalled || typeof window === 'undefined') {
@@ -281,20 +219,18 @@ export function startUserSettingsAutoSync() {
   }
   autoSyncInstalled = true;
 
-  const handleUiPrefsSync = () => schedulePush();
   const handleStorage = (event) => {
     if (event.key && isSyncedKey(event.key)) {
       schedulePush();
     }
   };
 
-  window.addEventListener(UI_PREFERENCES_SYNC_EVENT, handleUiPrefsSync);
   window.addEventListener('storage', handleStorage);
 
   // Same-tab localStorage.setItem does not emit a `storage` event, so patch it
   // to schedule a push whenever an allowlisted key changes. This catches the
-  // single-key writers (selected-provider, *-model, *-effort, editor prefs,
-  // file-tree mode, …) that write localStorage directly without a custom event.
+  // single-key writers (*-model, *-effort, permission modes, file-tree mode, …)
+  // that write localStorage directly without a custom event.
   const originalSetItem = localStorage.setItem.bind(localStorage);
   localStorage.setItem = (key, value) => {
     originalSetItem(key, value);
@@ -308,7 +244,6 @@ export function startUserSettingsAutoSync() {
   };
 
   return () => {
-    window.removeEventListener(UI_PREFERENCES_SYNC_EVENT, handleUiPrefsSync);
     window.removeEventListener('storage', handleStorage);
     localStorage.setItem = originalSetItem;
     if (pushTimer) {

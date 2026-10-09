@@ -54,7 +54,9 @@ npm run lint:fix          # oxlint --fix
 
 # Тесты — на node:test, ЗАПУСКАТЬ через tsx (нужен для алиасов @/):
 npx tsx --tsconfig server/tsconfig.json --test <path/to/*.test.ts>
-# С 1.37.3 есть и `npm test` (все серверные тесты сразу).
+# С 1.37.3 есть и `npm test` (все серверные тесты сразу). Из сессии CloudCLI —
+# только в изолированном env (см. «Важно при работе с кодом»): унаследованная
+# DATABASE_PATH указывает на боевую ~/.cloudcli/auth.db.
 
 # Клиентские тесты (vitest, с 1.37.3) — ТОЛЬКО так:
 NODE_ENV=test npx vitest run          # весь набор
@@ -91,12 +93,8 @@ npm run desktop:dev
 
 | Каталог | Ответственность |
 |---|---|
-| `components/` | React-компоненты по доменам: `chat/` (композер, рендер сообщений, вложения), `auth/`, `settings/`, `file-tree/`, `code-editor/`, `sidebar/`, `shell/`. |
-| `contexts/` | React-контексты: `ThemeContext`, `WebSocketContext`, `PaletteOpsContext` и др. |
-| `hooks/` | Общие хуки (например `useSessionProtection`). |
-| `i18n/` | Локализация (i18next). Язык хранится в localStorage-ключе `userLanguage`. |
-| `utils/` | `api.js` (fetch-обёртки + JWT), `userSettingsSync.js` (синхро настроек с БД) и пр. |
-| `stores/`, `lib/`, `types/`, `constants/`, `shared/` | Состояние, библиотеки, типы, константы, общий UI. |
+| `modules/` | Доменные модули (с 1.37.3 вместо `components/`): `chat/` (`composer/`, `transcript/`, `tools/`, `hooks/`), `sidebar/`, `project-workspace/` (шапка, вкладки), `auth/`, `settings/`, `file-tree/`, `code-editor/`, `shell/`, `i18n/` (i18next) и др. |
+| `shared/` | Общий код: `api.ts` (fetch-обёртки + JWT), `authToken.ts`, `userSettings.ts` (per-user настройки апстрима в БД: тема, язык, UI-настройки, права…), `userSettingsSync.js` (наш мост для того, чего там нет), `voiceConfig.ts`, `context/` (`ThemeContext`, `WebSocketContext` и др.), `ui/`, `types.ts`. |
 
 **Сервер — `server/`:**
 
@@ -131,10 +129,15 @@ username}`. Middleware `authenticateToken` принимает токен из з
 `Authorization: Bearer` **или** из query `?token=` (для EventSource/`<img>`,
 которые не ставят заголовки). Первый вход при пустой БД — `POST /api/auth/register`.
 
-**Настройки пользователя.** Апстрим хранит UI-настройки в localStorage; наш форк
-дублирует их в БД (`user_settings`) через `src/utils/userSettingsSync.js`, чтобы
-они переживали очистку кэша/релогин/смену устройства. Секреты (voice apiKey)
-в этот JSON НЕ пишутся.
+**Настройки пользователя.** С 1.37.3 апстрим сам хранит тему, язык,
+UI-настройки, права, настройки редактора, выбранного провайдера и звёзды
+проектов per-user в БД (`user_preferences`, клиент — `src/shared/userSettings.ts`).
+Наш `src/shared/userSettingsSync.js` (таблица `user_settings`) покрывает только
+то, что апстрим по-прежнему держит лишь в localStorage: модель/effort по
+провайдерам, режимы прав, вкладку, вид дерева файлов, ширину сайдбара, док и
+ручку быстрых настроек. Ключи, которыми владеет апстрим, в наш allowlist НЕ
+добавлять — два механизма на один ключ откатывают выбор пользователя (реестр
+§14). Секреты (voice apiKey) в этот JSON НЕ пишутся.
 
 ## Наши доработки (форк)
 
@@ -149,13 +152,14 @@ username}`. Middleware `authenticateToken` принимает токен из з
    (Moonshot, авто-endpoint) и GPT через шлюз CLIProxyAPI: `gpt-6-astra`,
    `gpt-6.1-sol` (effort — суффиксом в id модели); список моделей захардкожен,
    дописан вручную.
-2. **Нативный показ картинок в чате** — markdown `![](/api/assets/...)`
-   рендерится через `MarkdownImage` (blob-загрузка защищённых путей, JWT в
-   заголовке, не в DOM).
+2. **Нативный показ картинок в чате** — с 1.37.4 это апстримовский
+   `MarkdownImage` (пути проекта, лайтбокс) плюс наша ветка: свои `/api/...`
+   (картинки `generate_image`, вложения) — blob с JWT в заголовке и **только
+   same-origin**; абсолютные пути вне проекта — запасной `local-media`.
 3. **Прикрепление любых файлов** — не только картинки; не-картинки доходят до
    агента как читаемый путь (блок `<files_input>`), а не base64.
-4. **Настройки в БД** — per-user `user_settings`, синхро localStorage↔БД;
-   автосинк на любое изменение (не только по кнопке «Сохранить»).
+4. **Настройки в БД** — per-user `user_settings` для того, чего нет в
+   хранилище настроек апстрима (см. «Архитектура»); автосинк на любое изменение.
 5. **UI холдинга** — убраны кнопки Discord/Issues из сайдбара; фикс наезда ленты
    вкладок на кнопку меню в мобильной шапке.
 6. **Читаемый список сеансов** — активный сеанс выделен явно (акцентная полоса,
@@ -217,8 +221,20 @@ username}`. Middleware `authenticateToken` принимает токен из з
    `SERVER_PORT`, `CLAUDE_CLI_PATH`): подмена одного `HOME` не изолирует БД, и
    тестовый сервер пишет в боевую `~/.cloudcli/auth.db` (сканирование, автоархив,
    курсор `scan_state`). Запускать через `env -i …` со своим `DATABASE_PATH`.
-   По той же причине 4 теста `claude-cli-path.test.ts` падают, пока в env есть
-   `CLAUDE_CLI_PATH` — гонять `env -u CLAUDE_CLI_PATH npm test`.
+   **Серверные тесты — так же:** тест, который сам не подменяет `DATABASE_PATH`,
+   получит унаследованную — боевую — БД, а 4 теста `claude-cli-path.test.ts`
+   падают, пока в env есть `CLAUDE_CLI_PATH`. Полный прогон:
+   `H=$(mktemp -d); env -i PATH="$PATH" HOME="$H" DATABASE_PATH="$H/auth.db"
+   node_modules/.bin/tsx --tsconfig server/tsconfig.json --test
+   "server/**/*.test.ts" "server/**/*.test.js"`.
+- **Слияние upstream — в отдельном git worktree, не в этой папке.** Боевой
+   инстанс :3302 (`cloudcli-fork.service`) работает из `dist-server/` и `dist/`
+   этой же папки, а сессия агента обычно идёт внутри него: пересборка здесь
+   подменит файлы под живым сервером, рестарт службы оборвёт сессию. Сливать,
+   собирать и тестировать в worktree (рядом — второй worktree на чистом теге
+   upstream для сверки падений), сюда — только `merge --ff-only` готового
+   результата. Выкатка (сборка здесь + рестарт службы) обрывает сессию агента —
+   согласовывать с владельцем. Порядок и итоги последнего слияния — реестр §14.
 - **Токен в query.** Ресурсы, которые нельзя запросить с заголовком (`<img>`,
    EventSource), берут JWT из `?token=`. Это штатно (см. `middleware/auth.js`);
    не считать дырой.

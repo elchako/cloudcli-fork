@@ -99,7 +99,10 @@ export const getAllSessions = (project: Project): SessionWithProvider[] => {
     ...session,
     __provider: getSessionProvider(session),
   })).sort(
-    (a, b) => getSessionDate(b).getTime() - getSessionDate(a).getTime(),
+    // Fork: pinned sessions first (docs/ru/fork-changes.md §9.1). The server
+    // already orders them so, but this re-sort by date used to undo it.
+    (a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned))
+      || getSessionDate(b).getTime() - getSessionDate(a).getTime(),
   );
 
   sortedSessionsByProject.set(project, sessions);

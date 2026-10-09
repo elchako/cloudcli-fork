@@ -7,18 +7,19 @@ import rehypeKatex from 'rehype-katex';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTranslation } from 'react-i18next';
 
-import { MermaidDiagram } from '@/modules/code-editor';
+// Fork: getPreviewKind — a clicked link to an image opens a lightbox instead
+// of the editor panel (fork-changes.md §4.5).
+import { MermaidDiagram, getPreviewKind } from '@/modules/code-editor';
+import { MarkdownImage } from '@/modules/chat/transcript/MarkdownImage';
 import { normalizeInlineCodeFences } from '@/modules/chat/utils/chatFormatting';
+import { normalizeLatexDelimiters } from '@/modules/chat/utils/latexDelimiters';
 import { copyTextToClipboard } from '@/shared/utils';
 import { SyntaxHighlighter } from '@/shared/syntaxHighlighter';
 import { usePaletteOps } from '@/modules/command-palette';
 import { buildSyntaxTheme } from '@/modules/chat/utils/syntaxHighlightTheme';
 import type { PrismStyleSheet } from '@/modules/chat/utils/syntaxHighlightTheme';
-// Fork: clickable file paths open a preview, and images referenced by an
-// authenticated /api/assets path are fetched as blobs — see fork-changes.md.
-import { getPreviewKind } from '@/modules/code-editor';
 import FilePathLightbox from '@/modules/chat/composer/FilePathLightbox';
-import { MarkdownImage } from '@/modules/chat/composer/MarkdownImage';
+import { useMarkdownWorkspaceProjectId } from '@/modules/chat/context/MarkdownWorkspaceContext';
 
 type MarkdownProps = {
   children: React.ReactNode;
@@ -31,6 +32,14 @@ type MarkdownProps = {
 // everything else is treated as a workspace file reference.
 const isExternalHref = (href?: string): boolean =>
   !!href && (/^(https?:|mailto:|tel:|data:)/i.test(href) || href.startsWith('#'));
+
+// Read the trailing `:line` / `:line:col` suffix so the editor can reveal it.
+// Both this and stripLineSuffix are anchored at the end, so callers pass an
+// already-trimmed reference.
+const lineFromRef = (value: string): number | null => {
+  const match = value.match(/:(\d+)(?::\d+)?$/);
+  return match ? Number(match[1]) : null;
+};
 
 // Strip a trailing `:line` / `:line:col` suffix (e.g. `src/foo.ts:130`).
 const stripLineSuffix = (value: string): string => value.replace(/:\d+(?::\d+)?$/, '');
@@ -62,8 +71,10 @@ const childrenToText = (children: React.ReactNode): string => {
   return '';
 };
 
-// The delimiters `remark-math` recognizes with `singleDollarTextMath` off.
-const MATH_DELIMITER = /\$\$|\\\(|\\\[/;
+// The only delimiter `remark-math` recognizes with `singleDollarTextMath` off.
+// `\(…\)` and `\[…\]` are already rewritten to `$$` by normalizeLatexDelimiters,
+// so this one probe covers both notations.
+const MATH_DELIMITER = /\$\$/;
 
 const EMPTY_PLUGINS: never[] = [];
 
@@ -200,9 +211,9 @@ if (!document.getElementById(SYNTAX_THEME_STYLE_ELEMENT_ID)) {
 
 const markdownComponents = {
   code: CodeBlock,
-  img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => (
-    <MarkdownImage src={src} alt={alt} title={title} />
-  ),
+  // Workspace image paths are fetched through the authenticated files route;
+  // a bare <img src> would resolve against the web origin and 404.
+  img: MarkdownImage,
   // Fenced/indented code arrives as <pre><code>. Re-render the child CodeBlock
   // with `forceBlock` so it always gets the block treatment (react-markdown v9+
   // no longer passes an `inline` flag), and skip the outer <pre> so Tailwind
@@ -253,7 +264,9 @@ const markdownComponents = {
  */
 function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 'className'>) {
   const content = useMemo(
-    () => normalizeInlineCodeFences(String(children ?? '')),
+    // The LaTeX pass runs second because it reads the code spans the fence pass
+    // normalizes, and must leave the LaTeX inside them literal.
+    () => normalizeLatexDelimiters(normalizeInlineCodeFences(String(children ?? ''))),
     [children],
   );
   // Math support costs a remark tree pass plus a full KaTeX walk on every
@@ -274,8 +287,9 @@ function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 
     [breaks, hasMath],
   );
   const rehypePlugins = useMemo(() => (hasMath ? [rehypeKatex] : EMPTY_PLUGINS), [hasMath]);
-  const { openFileInEditor } = usePaletteOps();
+  const { openFileInEditor, openDirectory } = usePaletteOps();
   const [lightboxPath, setLightboxPath] = useState<string | null>(null);
+  const projectId = useMarkdownWorkspaceProjectId();
 
   const components = useMemo(
     () => ({
@@ -287,23 +301,31 @@ function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 
         const fileRef = looksLikeFilePath(href) ? href : looksLikeFilePath(linkText) ? linkText : undefined;
 
         if (fileRef && !isExternalHref(href)) {
-          const filePath = stripLineSuffix(fileRef);
-          // An image opens in the lightbox rather than the editor panel: the
-          // editor is built for text, and a picture reads better full-bleed —
-          // especially on a phone, where the panel eats the whole screen.
-          const isImage = getPreviewKind(filePath) === 'image';
-
           return (
             <a
               href={href || fileRef}
               className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400"
               onClick={(event) => {
                 event.preventDefault();
-                if (isImage) {
-                  setLightboxPath(filePath);
-                } else {
-                  openFileInEditor(filePath);
+                // Normalized once for every branch below: the href arrives
+                // trimmed from the parser, but the link-text fallback keeps a
+                // trailing space (``[`src/foo.ts:12` ]()``), and that space
+                // defeats the `$`-anchored suffix strip.
+                const reference = fileRef.trim();
+                if (reference.endsWith('/')) {
+                  openDirectory(reference);
+                  return;
                 }
+                const filePath = stripLineSuffix(reference);
+                // Fork: an image opens in the lightbox rather than the editor
+                // panel: the editor is built for text, and a picture reads
+                // better full-bleed — especially on a phone, where the panel
+                // eats the whole screen.
+                if (getPreviewKind(filePath) === 'image') {
+                  setLightboxPath(filePath);
+                  return;
+                }
+                openFileInEditor(filePath, lineFromRef(reference));
               }}
             >
               {linkChildren}
@@ -323,7 +345,7 @@ function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 
         );
       },
     }),
-    [openFileInEditor],
+    [openFileInEditor, openDirectory],
   );
 
   return (
@@ -334,7 +356,7 @@ function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 
       {/* Fork: a clicked file path opens a preview. It lives here rather than in
           the prose wrapper so the streaming form gets it too. */}
       {lightboxPath && (
-        <FilePathLightbox path={lightboxPath} onClose={() => setLightboxPath(null)} />
+        <FilePathLightbox path={lightboxPath} projectId={projectId} onClose={() => setLightboxPath(null)} />
       )}
     </>
   );

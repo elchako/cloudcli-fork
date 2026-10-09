@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
 import { authenticatedFetch } from '@/shared/api';
-
 import { ImageLightbox } from '@/modules/chat/transcript/ChatMessageImages';
 
 type FilePathLightboxProps = {

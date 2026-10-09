@@ -98,7 +98,9 @@ export const storeAuthToken = (token: unknown): boolean => {
   // back. Re-announcing an identical value made each request bump the auth
   // context's `token` state, which re-created checkAuthStatus, which re-ran the
   // startup check, which issued another request — an endless splash/loading
-  // flip on any client whose token had crossed the halfway mark.
+  // flip on any client whose token had crossed the halfway mark. Upstream
+  // #1408 has since cut the startup check loose from `token` at the source;
+  // this stays as a cheap guard against announcing a no-op rotation.
   // See docs/ru/fork-changes.md.
   const previousToken = localStorage.getItem('auth-token');
   localStorage.setItem('auth-token', token);
