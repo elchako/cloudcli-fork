@@ -92,7 +92,7 @@ systemctl --user restart cloudcli-fork
 |---|---|---|
 | `read-roots.conf` | `CLOUDCLI_READ_ROOTS=%h:/tmp:/var/tmp:/dev/shm:/mnt/goldjaxe-files` | Файлы вне проекта открываются на чтение (реестр §15) |
 | `media-dirs.conf` | `CLOUDCLI_MEDIA_DIRS=…` | Каталоги превью медиа без проекта (§4.5); перекрыт `read-roots.conf` |
-| `context-tokens.conf` | `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` | Окно контекста GPT шлюза 1M (иначе CLI сжимает сессию на 200k) |
+| `context-tokens.conf` | `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` | Окно контекста GPT шлюза 1M, иначе CLI сжимает сессию на 200k (§1.3-бис) |
 
 Появился новый диск/каталог, куда пишет агент, и его файлы не открываются —
 допишите его в `read-roots.conf` через `:` и перезапустите службу.

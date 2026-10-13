@@ -115,7 +115,19 @@ npm run desktop:dev
 суффикс `[1m]` для 1M-контекста). Исключение — GPT через шлюз CLIProxyAPI
 (`gpt-6-astra`, `gpt-6.1-sol`): шлюз игнорирует `effort` для них, поэтому
 выбранный уровень уходит суффиксом в id (`gpt-6-astra(max)`,
-`withGatewayEffortSuffix`); в БД/UI модель хранится без суффикса.
+`withGatewayEffortSuffix`); в БД/UI модель хранится без суффикса. Окно
+контекста для нераспознанных CLI моделей (эти GPT) задаётся env
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` (drop-in `context-tokens.conf`
+службы), иначе CLI считает его 200k и сжимает сессию раньше времени —
+реестр §1.3-бис.
+
+**Пользовательские модели (штатный механизм).** Библиотека моделей дополняет
+встроенный список записями из `provider_models`; добавление — через интерфейс
+или `POST /api/providers/:provider/models` с `{ model: название, id: ID }`.
+Это только название/ID/effort, не отдельный адрес API или ключ. Если нужный
+источник настроен в общем шлюзе, менять `CLAUDE_PREDEFINED_MODELS` не нужно.
+Так подключены `xiaomi/mimo-v2.6-pro` и `qwen/qwen3.8-flash` через «Польза.ai»
+(реестр §1.5): ключ только в конфигурации CLIProxyAPI, модели — в БД CloudCLI.
 
 **Генерация картинок.** Если задан шлюз (`ANTHROPIC_BASE_URL` в env или
 `~/.claude/settings.json`), каждый Claude-ран получает in-process MCP-инструмент
