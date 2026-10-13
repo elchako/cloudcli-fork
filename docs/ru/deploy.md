@@ -84,6 +84,19 @@ systemctl --user daemon-reload
 systemctl --user restart cloudcli-fork
 ```
 
+Часть переменных вынесена в drop-in'ы
+`~/.config/systemd/user/cloudcli-fork.service.d/*.conf` (правятся и
+применяются так же):
+
+| Файл | Переменная | Зачем |
+|---|---|---|
+| `read-roots.conf` | `CLOUDCLI_READ_ROOTS=%h:/tmp:/var/tmp:/dev/shm:/mnt/goldjaxe-files` | Файлы вне проекта открываются на чтение (реестр §15) |
+| `media-dirs.conf` | `CLOUDCLI_MEDIA_DIRS=…` | Каталоги превью медиа без проекта (§4.5); перекрыт `read-roots.conf` |
+| `context-tokens.conf` | `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` | Окно контекста GPT шлюза 1M (иначе CLI сжимает сессию на 200k) |
+
+Появился новый диск/каталог, куда пишет агент, и его файлы не открываются —
+допишите его в `read-roots.conf` через `:` и перезапустите службу.
+
 ## Голосовой ввод с телефона (микрофон)
 
 Кнопка микрофона в чате появляется только когда браузер отдаёт

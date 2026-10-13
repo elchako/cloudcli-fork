@@ -23,6 +23,11 @@ const previousHome = process.env.HOME;
 const previousUserProfile = process.env.USERPROFILE;
 process.env.HOME = fixtureHome;
 process.env.USERPROFILE = fixtureHome;
+// The fork's service opens extra read roots (the whole home directory) and a
+// session started from it inherits that; under it the fixture would be readable
+// and the escape tests would fail for the wrong reason.
+const previousExtraReadRoots = process.env.CLOUDCLI_READ_ROOTS;
+delete process.env.CLOUDCLI_READ_ROOTS;
 
 const { resolvePathUnderRoots, resolveReadOnlyRootPath, validateWorkspacePath } = await import('@/shared/utils.js');
 
@@ -36,6 +41,9 @@ after(async () => {
     delete process.env.USERPROFILE;
   } else {
     process.env.USERPROFILE = previousUserProfile;
+  }
+  if (previousExtraReadRoots !== undefined) {
+    process.env.CLOUDCLI_READ_ROOTS = previousExtraReadRoots;
   }
   await rm(fixtureRoot, { recursive: true, force: true });
 });

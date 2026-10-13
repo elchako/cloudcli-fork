@@ -196,7 +196,24 @@ const READ_ONLY_ROOTS = [...new Set([
   '/tmp',
   os.tmpdir(),
   path.join(os.homedir(), '.claude', 'projects'),
+  ...getExtraReadRoots(),
 ])];
+
+/**
+ * Extra read-only roots from `CLOUDCLI_READ_ROOTS` (OS path separator), added
+ * by the fork. An agent writes files anywhere in the home directory, and a link
+ * to one outside the project opened as "Unable to display this file". Like the
+ * built-in roots these grant reads only. Empty and relative entries are dropped:
+ * a relative one would depend on the server's cwd. `local-media` accepts the
+ * same roots.
+ */
+export function getExtraReadRoots(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.CLOUDCLI_READ_ROOTS ?? '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry && path.isAbsolute(entry))
+    .map((entry) => path.resolve(entry));
+}
 
 /**
  * Resolves `targetPath` when it lives under one of `roots`, or `null` when it

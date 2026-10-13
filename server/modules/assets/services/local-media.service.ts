@@ -3,6 +3,8 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { getExtraReadRoots } from '@/shared/utils.js';
+
 /**
  * Serves media files an agent produced outside any project root — screenshots in
  * /tmp, downloads, and similar. The project file endpoints deliberately refuse
@@ -56,7 +58,9 @@ export type LocalMediaResult =
 /**
  * Directories readable through this endpoint. Defaults cover where agents drop
  * generated media; override with CLOUDCLI_MEDIA_DIRS (OS path separator) when a
- * deployment keeps them elsewhere.
+ * deployment keeps them elsewhere. The file viewer's extra read roots
+ * (CLOUDCLI_READ_ROOTS) are always added, so one setting opens a directory to
+ * both the project file endpoint and this fallback (used when there is no project).
  */
 export function getAllowedMediaRoots(): string[] {
   const configured = process.env.CLOUDCLI_MEDIA_DIRS;
@@ -64,7 +68,7 @@ export function getAllowedMediaRoots(): string[] {
     ? configured.split(path.delimiter)
     : [os.tmpdir(), path.join(os.homedir(), 'Downloads'), path.join(os.homedir(), '.cloudcli')];
 
-  return raw
+  return [...raw, ...getExtraReadRoots()]
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => path.resolve(entry));
