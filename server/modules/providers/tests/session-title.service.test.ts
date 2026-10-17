@@ -70,6 +70,28 @@ describe('session title service', () => {
     assert.equal(calls.length, 0);
   });
 
+  it('titles deterministically, but a regenerate avoids the previous title', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    const calls = stubFetch(() => textBlockResponse('CloudCLI — короткие названия сеансов'));
+
+    await generateSessionTitle(LONG_PROMPT);
+    const regenerated = await generateSessionTitle(LONG_PROMPT, {
+      previousTitle: 'Graceful shutdown с очередью запросов',
+    });
+
+    type Body = { system?: string; temperature?: number };
+    const firstBody = JSON.parse(String(calls[0]?.init.body)) as Body;
+    const regenerateBody = JSON.parse(String(calls[1]?.init.body)) as Body;
+
+    assert.equal(firstBody.temperature, 0);
+    assert.ok(!firstBody.system?.includes('Прежний заголовок'));
+    // At temperature 0 the button returned the same title and looked dead.
+    assert.ok((regenerateBody.temperature ?? 0) > 0);
+    assert.ok(regenerateBody.system?.includes('«Graceful shutdown с очередью запросов»'));
+    assert.equal(regenerated?.title, 'CloudCLI — короткие названия сеансов');
+    assert.equal(regenerated?.generated, true);
+  });
+
   it('returns the model title and keeps the original prompt for the tooltip', async () => {
     process.env.ANTHROPIC_API_KEY = 'test-key';
     const calls = stubFetch(() => textBlockResponse('CloudCLI — боковая панель сеансов'));

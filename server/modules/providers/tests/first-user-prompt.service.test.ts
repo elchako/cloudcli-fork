@@ -68,6 +68,17 @@ describe('first user prompt extraction', () => {
     assert.equal(await extractFirstUserPrompt(filePath), 'Настоящий вопрос пользователя');
   });
 
+  it('skips the interruption marker a stopped first turn leaves behind', async () => {
+    // A first turn stopped before its prompt was checked writes only the
+    // marker; the real prompt follows as the next turn.
+    const filePath = await writeTranscript('interrupted.jsonl', [
+      { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } },
+      { type: 'user', message: { role: 'user', content: 'Нам нужно запустить большое исследование' } },
+    ]);
+
+    assert.equal(await extractFirstUserPrompt(filePath), 'Нам нужно запустить большое исследование');
+  });
+
   it('tolerates malformed lines and returns undefined when nothing matches', async () => {
     const filePath = path.join(workDir, 'broken.jsonl');
     await writeFile(filePath, 'не json\n{"type":"assistant"}\n\n', 'utf8');

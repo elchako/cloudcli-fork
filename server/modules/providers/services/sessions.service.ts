@@ -834,7 +834,11 @@ export const sessionsService = {
       });
     }
 
-    const generated = await generateSessionTitle(sourcePrompt);
+    // The button means "not this one": at temperature 0 the model returned the
+    // same title again and the press looked like a no-op.
+    const generated = await generateSessionTitle(sourcePrompt, {
+      previousTitle: session.custom_name ?? undefined,
+    });
     if (!generated) {
       throw new AppError(`Session "${sessionId}" has no prompt to build a title from.`, {
         code: 'SESSION_TITLE_SOURCE_MISSING',

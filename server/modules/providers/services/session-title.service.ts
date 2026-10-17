@@ -88,6 +88,27 @@ const TITLE_SYSTEM_PROMPT = [
   '- Никаких вводных вроде «Запрос», «Задача», «Пользователь просит».',
 ].join('\n');
 
+/**
+ * Sampling temperature for a manual regenerate.
+ *
+ * Titling runs at temperature 0 so a session gets a stable name. For the
+ * "regenerate" button that is exactly wrong: the model returned the very same
+ * title every time, so pressing it looked like nothing happened.
+ */
+const REGENERATE_TEMPERATURE = 1;
+
+/** Tells the model which title the user just rejected. */
+function buildSystemPrompt(previousTitle: string | undefined): string {
+  if (!previousTitle) {
+    return TITLE_SYSTEM_PROMPT;
+  }
+
+  return [
+    TITLE_SYSTEM_PROMPT,
+    `- Прежний заголовок «${previousTitle}» не подошёл: предложи другой, сформулированный иначе.`,
+  ].join('\n');
+}
+
 type TitleCredentials = {
   token: string;
   baseUrl: string;
@@ -223,6 +244,7 @@ async function postTitleRequest(
   model: string,
   prompt: string,
   withThinking: boolean,
+  previousTitle: string | undefined,
 ): Promise<TitleRequestOutcome> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -240,7 +262,7 @@ async function postTitleRequest(
       },
       body: JSON.stringify({
         model,
-        system: TITLE_SYSTEM_PROMPT,
+        system: buildSystemPrompt(previousTitle),
         messages: [{ role: 'user', content: prompt.slice(0, MAX_PROMPT_CHARS) }],
         ...(withThinking
           ? {
@@ -248,7 +270,7 @@ async function postTitleRequest(
               max_tokens: THINKING_MAX_TOKENS,
               thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET_TOKENS },
             }
-          : { max_tokens: 64, temperature: 0 }),
+          : { max_tokens: 64, temperature: previousTitle ? REGENERATE_TEMPERATURE : 0 }),
       }),
     });
 
@@ -281,7 +303,10 @@ async function postTitleRequest(
   }
 }
 
-async function requestModelTitle(prompt: string): Promise<string | null> {
+async function requestModelTitle(
+  prompt: string,
+  previousTitle: string | undefined,
+): Promise<string | null> {
   const credentials = await resolveCredentials();
   if (!credentials) {
     return null;
@@ -290,7 +315,7 @@ async function requestModelTitle(prompt: string): Promise<string | null> {
   const model = await resolveTitleModel();
 
   return enqueueTitleRequest(async () => {
-    const firstAttempt = await postTitleRequest(credentials, model, prompt, false);
+    const firstAttempt = await postTitleRequest(credentials, model, prompt, false, previousTitle);
     if (firstAttempt.status === 'ok') {
       return firstAttempt.title;
     }
@@ -298,7 +323,7 @@ async function requestModelTitle(prompt: string): Promise<string | null> {
     // Some gateways (CLIProxyAPI among them) reject plain requests and require
     // extended thinking; retrying with it turns that hard failure into a title.
     if (firstAttempt.status === 'needs-thinking') {
-      const retry = await postTitleRequest(credentials, model, prompt, true);
+      const retry = await postTitleRequest(credentials, model, prompt, true, previousTitle);
       return retry.status === 'ok' ? retry.title : null;
     }
 
@@ -318,13 +343,25 @@ export type GeneratedSessionTitle = {
   generated: boolean;
 };
 
+export type GenerateSessionTitleOptions = {
+  /**
+   * The title the user is replacing (manual regenerate). The model is told to
+   * avoid it and sampled with a non-zero temperature, so a regenerate yields a
+   * new label instead of the same deterministic one.
+   */
+  previousTitle?: string;
+};
+
 /**
  * Turns the first user prompt of a session into a sidebar title.
  *
  * Never throws: on any failure it returns the trimmed prompt with
  * `generated: false`.
  */
-export async function generateSessionTitle(prompt: string): Promise<GeneratedSessionTitle | null> {
+export async function generateSessionTitle(
+  prompt: string,
+  options: GenerateSessionTitleOptions = {},
+): Promise<GeneratedSessionTitle | null> {
   const normalizedPrompt = prompt.replace(/\s+/g, ' ').trim();
   if (!normalizedPrompt) {
     return null;
@@ -338,7 +375,8 @@ export async function generateSessionTitle(prompt: string): Promise<GeneratedSes
     return { title: fallback, fullTitle, generated: false };
   }
 
-  const modelTitle = await requestModelTitle(normalizedPrompt);
+  const previousTitle = options.previousTitle?.replace(/\s+/g, ' ').trim() || undefined;
+  const modelTitle = await requestModelTitle(normalizedPrompt, previousTitle);
   if (!modelTitle) {
     return { title: fallback, fullTitle, generated: false };
   }
