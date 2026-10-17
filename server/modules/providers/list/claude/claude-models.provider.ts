@@ -188,6 +188,14 @@ export const findClaudeModelOption = (model: string | undefined | null): Provide
 export const withGatewayEffortSuffix = (model: string, effort: string | undefined): string =>
   effort && model.startsWith('gpt-') && !model.includes('(') ? `${model}(${effort})` : model;
 
+/**
+ * Inverse of `withGatewayEffortSuffix`. The CLI keys `result.modelUsage` by the id it
+ * requested (`gpt-6-astra(max)`) while the assistant rows name the bare id the gateway
+ * answered under, so matching the two needs the suffix dropped.
+ */
+export const withoutGatewayEffortSuffix = (model: string): string =>
+  model.startsWith('gpt-') ? model.replace(/\([^()]*\)$/, '') : model;
+
 type ClaudeInitEvent = {
   sessionId?: string;
   session_id?: string;
