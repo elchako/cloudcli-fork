@@ -453,6 +453,9 @@ export const api = {
     ) => get(sessionMessagesUrl(sessionId, pagination), options),
     sessionTokenUsage: (sessionId: string) =>
       get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/token-usage`),
+    // GOLDJAXE fork (реестр §17): only the user's prompts, for the chat's prompt navigator.
+    sessionPrompts: (sessionId: string, options: ApiRequestOptions = {}) =>
+      get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/prompts`, options),
     sessionActiveModel: (provider: string, sessionId: string) =>
       get(`/api/providers/${provider}/sessions/${encodeURIComponent(sessionId)}/active-model`),
     setSessionActiveModel: (provider: string, sessionId: string, model: string) =>

@@ -1143,6 +1143,15 @@ export function useChatSessionState({
     requestAnimationFrame(() => attempt(10));
   }, [chatMessages]);
 
+  // GOLDJAXE fork (реестр §17): the prompt navigator's jump renders the row at
+  // `index` of `total` loaded rows, as revealMessage does, and ends a
+  // just-opened session's stick-to-bottom loop, which would pull the view back
+  // down under the jump. The navigator scrolls to the row itself.
+  const revealRowAt = useCallback((total: number, index: number) => {
+    pendingInitialScrollRef.current = false;
+    setVisibleMessageCount((previous) => visibleCountToReveal(total, index, previous));
+  }, []);
+
   return {
     chatMessages,
     addMessage,
@@ -1163,6 +1172,7 @@ export function useChatSessionState({
     visibleMessages,
     loadEarlierMessages,
     revealMessage,
+    revealRowAt,
     loadAllMessages,
     loadFullTranscript,
     allMessagesLoaded,

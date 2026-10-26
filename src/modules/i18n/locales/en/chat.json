@@ -11,6 +11,13 @@
     "copyAsMarkdown": "Copy as markdown",
     "copyAsText": "Copy as text"
   },
+  "promptNavigator": {
+    "label": "Your prompts",
+    "previous": "Previous prompt",
+    "next": "Next prompt",
+    "attachmentsOnly_one": "{{count}} attachment",
+    "attachmentsOnly_other": "{{count}} attachments"
+  },
   "messageTypes": {
     "user": "U",
     "error": "Error",

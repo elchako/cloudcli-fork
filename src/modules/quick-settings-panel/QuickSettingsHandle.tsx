@@ -63,6 +63,8 @@ export default function QuickSettingsHandle({
       }}
       aria-label={ariaLabel}
       title={title}
+      // GOLDJAXE fork (реестр §17): the chat's prompt navigator keeps clear of this handle.
+      data-quick-settings-handle=""
     >
       {isDragging ? (
         <GripVertical className="h-5 w-5 text-blue-500 dark:text-blue-400" />

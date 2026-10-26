@@ -8,6 +8,7 @@ import { providerModelsService } from '@/modules/providers/services/provider-mod
 import { providerTokenUsageService } from '@/modules/providers/services/provider-token-usage.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
+import { sessionPromptsService } from '@/modules/providers/services/session-prompts.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type {
   CustomProviderModelEffort,
@@ -1001,6 +1002,16 @@ router.get(
       limit,
       offset,
     });
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+// GOLDJAXE fork (реестр §17): only the user's prompts, for the chat's prompt navigator.
+router.get(
+  '/sessions/:sessionId/prompts',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const result = await sessionPromptsService.listPrompts(sessionId);
     res.json(createApiSuccessResponse(result));
   }),
 );

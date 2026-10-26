@@ -27,6 +27,8 @@ import {
   useSessionProtectionActions,
 } from '@/shared/context/SessionProtectionContext';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
+import ChatPromptNavigator from '@/modules/chat/transcript/ChatPromptNavigator';
+import { usePromptNavigator } from '@/modules/chat/hooks/usePromptNavigator';
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
 import CommandResultModal from '@/modules/chat/modals/CommandResultModal';
 
@@ -149,6 +151,7 @@ function ChatInterface({
     visibleMessages,
     loadEarlierMessages,
     revealMessage,
+    revealRowAt,
     loadAllMessages,
     loadFullTranscript,
     allMessagesLoaded,
@@ -175,6 +178,20 @@ function ChatInterface({
     statusCheckSentAtRef,
     lastSeqRef,
     sessionStore,
+  });
+
+  // GOLDJAXE fork (реестр §17): the table of contents of the user's prompts on
+  // the transcript's right edge.
+  const promptNavigator = usePromptNavigator({
+    sessionId: selectedSession?.id || currentSessionId || null,
+    isActive,
+    isProcessing,
+    chatMessages,
+    visibleMessages,
+    scrollContainerRef,
+    sessionStore,
+    revealRowAt,
+    setIsUserScrolledUp,
   });
 
   // Brand-new conversation: the composer allocated a stable session id via
@@ -459,6 +476,8 @@ function ChatInterface({
       <div className="flex h-full min-h-0 flex-col">
         <MarkdownWorkspaceContext.Provider value={markdownWorkspaceValue}>
           <TranscriptSessionContext.Provider value={transcriptSessionValue}>
+            {/* GOLDJAXE fork (реестр §17): positions the prompt navigator over the pane. */}
+            <div className="relative flex min-h-0 flex-1 flex-col">
             <ChatMessagesPane
               scrollContainerRef={scrollContainerRef}
               // Not redundant with the `scroll` listener. A first page is 20 rows,
@@ -515,6 +534,20 @@ function ChatInterface({
               onForkFromMessage={supportsSessionForking ? handleForkFromMessage : undefined}
               onLoadFullTranscript={loadFullTranscript}
             />
+            {chatMessages.length > 0 && (
+              <ChatPromptNavigator
+                items={promptNavigator.entries}
+                activeIndex={promptNavigator.activeIndex}
+                canStepBack={promptNavigator.canStepBack}
+                canStepForward={promptNavigator.canStepForward}
+                isBusy={promptNavigator.isJumping}
+                placement={promptNavigator.placement}
+                onSelect={promptNavigator.jumpTo}
+                onStep={promptNavigator.step}
+                onWheelTranscript={promptNavigator.scrollTranscriptBy}
+              />
+            )}
+            </div>
           </TranscriptSessionContext.Provider>
         </MarkdownWorkspaceContext.Provider>
 

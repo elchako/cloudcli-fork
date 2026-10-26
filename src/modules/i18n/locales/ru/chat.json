@@ -11,6 +11,15 @@
     "copyAsMarkdown": "Копировать как Markdown",
     "copyAsText": "Копировать как текст"
   },
+  "promptNavigator": {
+    "label": "Ваши вопросы",
+    "previous": "Предыдущий вопрос",
+    "next": "Следующий вопрос",
+    "attachmentsOnly_one": "{{count}} вложение",
+    "attachmentsOnly_few": "{{count}} вложения",
+    "attachmentsOnly_many": "{{count}} вложений",
+    "attachmentsOnly_other": "{{count}} вложения"
+  },
   "messageTypes": {
     "user": "П",
     "error": "Ошибка",
