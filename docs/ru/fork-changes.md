@@ -10,8 +10,9 @@
 > работе с кодом»). Устарел реестр — сломан весь смысл форка.
 
 Форк-ветка: `feat/goldjaxe-improvements`. Upstream-remote: `origin =
-github.com/siteboon/claudecodeui`. База последнего слияния — **upstream v1.37.5**
-(коммит `0ce5630`). Порядок слияния — §14.1, итоги последнего — §16.
+github.com/siteboon/claudecodeui`. База последнего слияния —
+**upstream v1.37.6** (коммит `c17c2f6`). Порядок слияния — §14.1,
+проверки и статус выкатки — §18; предыдущее обновление — §16.
 
 > **Дефекты, найденные при слияниях (не наши).** Тест `conversation search
 > streams title matches before transcript results` падал «то на одних версиях,
@@ -44,7 +45,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
   `ANTHROPIC_BASE_URL` — endpoint `https://api.moonshot.ai/anthropic`
   подставляется автоматически.
 - **Файлы:** `server/modules/providers/list/claude/claude-models.provider.ts`
-  (запись в `CLAUDE_FALLBACK_MODELS`), `.../claude-runtime.provider.js`
+  (запись в `CLAUDE_FALLBACK_MODELS`), `.../claude-runtime.provider.ts`
   (хук env в `mapCliOptionsToSDK`), `.env.example` (переменные Kimi).
 - **Почему форк, не плагин:** список моделей захардкожен в ядре
   (`getSupportedModels()` отключён upstream), плагином не расширить.
@@ -84,7 +85,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 - **Файлы:** `server/modules/providers/list/claude/claude-models.provider.ts`
   (`GATEWAY_GPT_EFFORT`, записи моделей, `withGatewayEffortSuffix`,
   обратная `withoutGatewayEffortSuffix`),
-  `server/modules/providers/list/claude/claude-runtime.provider.js`
+  `server/modules/providers/list/claude/claude-runtime.provider.ts`
   (`mapCliOptionsToSDK`; с v1.37.5 ещё сопоставление окна контекста в
   `readReportedContextWindow`, §16.2); тесты
   `server/modules/providers/tests/claude-models.test.ts`, последний тест в
@@ -105,7 +106,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
   `~/.config/systemd/user/cloudcli-fork.service.d/context-tokens.conf` с
   `Environment=CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000`. Рантайм пробрасывает
   весь `process.env` в субпроцесс CLI (`mapCliOptionsToSDK`,
-  `claude-runtime.provider.js`), поэтому переменная видна каждому рану. Гейт
+  `claude-runtime.provider.ts`), поэтому переменная видна каждому рану. Гейт
   внутри CLI применяет её только к моделям, которые он не знает (канонические
   `claude-*` пропускает), — Claude с `[1m]` и kimi-k3[1m] она не меняет.
 - **Почему 1 000 000, а не 1 050 000:** реальное окно GPT-6.1 Sol — 1 050 000
@@ -1335,7 +1336,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 
 ### 13.1 Встроенный инструмент `generate_image`
 - **Слой:** server + frontend · **Столкновение:** 🟢 (свой модуль) + 🟡 (по
-  несколько строк в `claude-runtime.provider.js`, `toolConfigs.ts`,
+  несколько строк в `claude-runtime.provider.ts`, `toolConfigs.ts`,
   `toolGrouping.ts`, `package.json`) · **PR:** кандидат после обобщения
   (сейчас завязан на OpenAI-совместимый `/v1/images` шлюза).
 - **Что:** каждый Claude-ран, запущенный из CloudCLI, получает MCP-инструмент
@@ -1372,7 +1373,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 - **Файлы:** `server/modules/image-generation/` (новый:
   `image-generation.service.ts`, `image-generation.mcp.ts`, `index.ts`, тест
   `tests/image-generation.service.test.ts` — 11),
-  `server/modules/providers/list/claude/claude-runtime.provider.js`
+  `server/modules/providers/list/claude/claude-runtime.provider.ts`
   (подключение в `queryClaudeSDK`), `src/modules/chat/tools/configs/toolConfigs.ts`
   (карточка), `src/modules/chat/utils/toolGrouping.ts` (исключение из групп),
   тесты `src/modules/chat/tests/imageToolConfig.test.ts` (4) и
@@ -1604,7 +1605,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 ### 16.2 Своя правка: окно контекста для GPT с суффиксом effort
 
 - **Слой:** server · **Столкновение:** 🟡 (одна строка в апстримовской
-  `readReportedContextWindow`, `claude-runtime.provider.js`) · **PR:** нет
+  `readReportedContextWindow`, `claude-runtime.provider.ts`) · **PR:** нет
   (суффикс — специфика нашего шлюза).
 - **Что нашли:** живой прогон через шлюз (`claude -p --model
   'gpt-6-astra(low)'`, CLI 2.1.280) вернул в `modelUsage` **две** записи:
@@ -1819,6 +1820,148 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
   `data-message-timestamp` на обёртке `LazyMessageRow`: без них текущий
   вопрос не определится (переход продолжит работать через
   `querySelector`).
+
+---
+
+## 18. Обновление upstream v1.37.6 (2026-10-27)
+
+- **Слой:** frontend + server + документация · **Столкновение:** 🟡 (общие
+  файлы runtime, чата, sidebar, истории и viewer) · **PR:** само слияние —
+  нет; локальный фикс типизации runtime — кандидат в upstream.
+- **Основание:** тег `v1.37.6` (`c17c2f6`), 16 коммитов, 115 файлов;
+  зависимости не меняются, в lockfile только версия корневого пакета.
+  Схема БД и миграции не меняются, но меняется формат/обработка очереди в
+  существующем `session_drafts.queued_message`.
+- **Изоляция:** ветка `merge/upstream-v1.37.6`, отдельный интеграционный
+  worktree и чистый эталон на теге. Рабочая папка :3302, её сборки и БД
+  не используются для проверок. Зависимости взяты из проверенного lockfile
+  без обновления пакетов, физические копии `node_modules` — отдельные.
+
+### 18.1 Пересечения и локальные исправления
+
+| Upstream v1.37.6 | Решение для форка |
+|---|---|
+| Runtime Claude переименован `.js → .ts`; `buildClaudeSdkEnv` включает Artifact и сохраняет host env | Принят TypeScript runtime вместе с нашими Kimi endpoint, GPT effort/сопоставлением контекста, любыми вложениями и image MCP. Дублирующего исходника `.js` нет |
+| Тип `ClaudeQuery` описывал только тестовую инъекцию с `interrupt(): Promise<void>` | Учтены оба реальных источника query: `ReturnType<typeof query>` и `ReturnType<NonNullable<ProviderRuntimeContext['createQuery']>>`. Нативный SDK 0.3.263 возвращает ответ interrupt, а тестовый поток может возвращать void; при вытеснении рана ответ явно игнорируется через await. Без `any`/принудительных casts |
+| Sidebar запоминает раскрытые проекты; изменена дозагрузка сеансов | Единственный текстовый конфликт: объединены инициализация/сохранение expandedProjects upstream и optional WebSocket-подписка/дебаунс наших живых «Разговоров». Пины, полные названия и перегенерация сохранены |
+| Очередь дописывает все follow-up и получает состояние с сервера | Не возвращаем прежний клиентский источник истины; сохраняем любые файловые вложения и мобильный композер |
+| JSONL пропускает повреждённые строки; matcher watcher работает относительно watch-root | Сохранены наш стартовый autoarchive sweep и навигатор вопросов с `fromEnd`; проверять список и переходы отдельно от ленты |
+| Viewer читает весь `WORKSPACES_ROOT` по realpath | Сохранён `CLOUDCLI_READ_ROOTS`; запись вне проекта и trust boundary вложений (assets/cwd) не расширены. `local-media` не получает весь workspace автоматически |
+| Новые upstream UI-preferences и CLI updater | Не добавляем их в наш allowlist `user_settings`: нет второго владельца настроек. Обновление CLI — отдельное действие, не автоматическое последствие слияния |
+
+**Ключевые файлы:** `server/modules/providers/list/claude/claude-runtime.provider.ts`
+(до v1.37.6 — `.js`), `server/shared/utils.ts`,
+`server/modules/providers/services/sessions-watcher.service.ts`,
+`server/modules/file-tree/file-tree.service.ts`,
+`src/modules/chat/hooks/useChatComposerState.ts`,
+`src/modules/sidebar/hooks/useSidebarController.ts`,
+`src/modules/sidebar/tests/conversationsExpandedProjects.test.tsx`.
+Новый sidebar-тест совмещает сохранённые раскрытые проекты, coalescing
+`session_upserted`/reconnect, сохранность пина/полного названия и снятие
+подписки/таймера при уходе со вкладки.
+
+### 18.2 Дополнительный фикс: вложения не теряются при смене чата
+
+- **Слой:** frontend · **Столкновение:** 🟡 (`useChatComposerState.ts`) ·
+  **PR:** кандидат в upstream; баг воспроизводится в новой очереди и общей
+  асинхронной отправке, не зависит от наших моделей.
+- Скептик указал на отказ enqueue после A→B: код восстанавливал лишь текст,
+  а файлы терялись. Тесты подтвердили потерю файлов и попадание файлов A в B,
+  если переключиться во время upload. Вложения в памяти композера теперь
+  хранятся по существующему `draftScope`; серверный append остаётся источником
+  истины, формат persistence не меняется.
+- Повторный проход скептика нашёл пропущенную прямую отправку: её поздняя
+  очистка могла стереть новый текст/файлы B и оставить отправленный File в A.
+  Исправлено: `submissionScope` захватывается до первого await, из A удаляется
+  только отправленный снимок файлов, текст очищается лишь при совпадении со
+  снимком; новый ввод A/B не затрагивается. Ошибка upload ничего не очищает.
+- **Контроль до/после:** 3 первоначальных regression failures, затем 3 на
+  прямой отправке и ещё 1 на A→B→A во время queue-upload воспроизведены до
+  соответствующих исправлений. После — 54 профильных теста проходят, в том
+  числе 38 в `composerQueuedFollowUps.test.ts`; 8 вариантов прямой отправки
+  покрывают успех/ошибку × новый черновик A × возврат до/после upload.
+  Третий узкий проход скептика подтвердил закрытие P1; новых подтверждённых
+  дефектов в этих ветках не найдено.
+- Новый upstream-тест `chatInterfaceScheduledMessagesSubscribe.test.tsx`
+  изолирует навигатор форка отдельными mocks, как и остальные не относящиеся
+  к расписанию части ChatInterface: без этого его неполный sessionStore
+  вызывал `getSessionSlot is not a function`. Сам навигатор по-прежнему
+  проверяется своими тестами и живой браузерной приёмкой.
+- Ограничение не меняется: принятая очередь хранит дескрипторы, а ещё не
+  отправленные File — только память композера, не перезагрузка страницы.
+  Пользовательское описание — [`chat.md`](chat.md).
+
+### 18.3 Проверки и ограничения стенда
+
+- `npm run build` — успешно; окончательная сборка повторно поднята на
+  изолированном порту и прошла браузерную приёмку. Typecheck — 0; lint —
+  0 ошибок, 136 предупреждений против 137 у чистого v1.37.6 (новых не добавлено).
+- Полный серверный набор: 889 тестов, 888 проходят, 0 падений, 1 пропуск
+  (реальный Codex rollout без fixture). Чистый upstream: 790 / 789 / 0 / 1.
+- Серверные тесты выполняются с очищенным env, собственными HOME и явным
+  DATABASE_PATH; для клиентских обязателен NODE_ENV=test. На этой машине
+  исчерпан лимит inotify: первый upstream-прогон падает с ENOSPC в watcher.
+  Повтор обоих полных наборов с CHOKIDAR_USEPOLLING=1,
+  --test-reporter=tap и --test-concurrency=4 проходит; системные лимиты и
+  прод-наблюдатели не менялись.
+- Чистый upstream также воспроизводит прежний отсутствующий
+  backgroundSessionIds в recentConversationTitleSync.test.ts (у нас уже
+  исправлен), несовместимость типа interrupt при серверной сборке и
+  лишний /api/auth/refresh в authTokenRefreshRemount.test.tsx. Последнее
+  не является перемонтированием приложения: соответствующие assertions
+  про один mount и один loading pass проходят.
+- Полный клиентский прогон: 125 файлов, 928 тестов, все проходят. Ошибки
+  upstream не используются как оправдание падений форка: итоговые наборы
+  интеграции зелёные (кроме явно указанного пропуска Codex).
+- Браузерная приёмка на синтетическом проекте, отдельном HOME/БД и порту 3397:
+  регистрация и онбординг, действующая авторизация после перезагрузки,
+  1280×800 и 390×844 с настоящими touch-событиями, светлая/тёмная тема.
+  Список содержит 35 вопросов при странице истории, несмотря на повреждённую
+  JSONL-строку и служебную task-notification. Переход к незагруженному вопросу
+  вызывает конечный `limit` (не `null`), ставит строку под шапкой; шеврон,
+  подсказка, мобильный список и выбор работают. Горизонтального переполнения
+  на телефоне нет, ошибок JavaScript — 0; снимки экрана просмотрены.
+- Viewer/API: файл проекта, соседний файл workspace и дополнительный read-root
+  читаются (200); посторонний путь, symlink наружу и запись в соседний каталог
+  получают 403. README открыт в редакторе через UI. CLI status отвечает 200;
+  обновление бинарников не запускалось. Через UI выбраны GPT-6.1 Sol и max,
+  агент не запускался.
+- Тема и русский язык проверены после подтверждённой записи в БД и перезагрузки,
+  также в отдельном мобильном browser context. Upstream сохраняет предпочтения
+  с дебаунсом 400 мс: приёмка ждёт PATCH, а не проверяет перезагрузку до отправки.
+- Платные запросы к моделям, реальная генерация картинок и голосовой backend
+  не запускались. Их локальная интеграция покрыта серверными/клиентскими тестами;
+  это не утверждение о проверке внешних сервисов вживую.
+
+### 18.4 Статус выкатки
+
+Владелец 27.10.2026 отдельно разрешил коммит и выкатку, **без публикации**.
+Резерв — `~/.cloudcli/deploy-backup-v1.37.6.VIPJOr` (закрытый каталог):
+согласованный SQLite `.backup`, обе прежние сборки и ветка
+`backup/pre-v1.37.6-ec53a2b7`. `quick_check` резерва — `ok`.
+
+Окончательная сборка успешно запущена на расходной копии боевой БД с отдельным
+HOME и портом 3398: синхронизация завершилась, главная и авторизованный каталог
+отвечают 200, доступны 443 проекта, обе GPT и две пользовательские модели.
+Перед запуском **только в расходной копии** очищены scheduled/queued-сообщения,
+адресаты уведомлений и user_credentials; ИИ-названия выключены, плагины не
+скопированы. Неизменённый резерв хранится отдельно. Это важно: штатного env-флага
+отключения dispatcher нет, его первый poll выполняется сразу при старте.
+
+Утверждённый порядок выкатки — внешний user-юнит
+`cloudcli-deploy-v1376-VIPJOr`: блокировка от повторного запуска, проверка SHA и
+чистоты дерева, привязанные к коммиту хеши сборок, ожидание 120 секунд тишины
+**и** отсутствия active/background-сеансов (не более 30 минут, затем отмена).
+После последней проверки — остановка только :3302, fast-forward, перенос
+проверенных сборок, старт и проверка нового PID, синхронизации, журнала,
+главной и авторизованных API. При сбое возвращаются исходники и сборки;
+БД автоматически не откатывается, чтобы не повторить уже исполненные очереди.
+:3301 и remotes не затрагиваются.
+
+Окончательный исход внешней задачи записывается в `result.json` и `deploy.log`
+в каталоге резерва: назначение юнита само по себе не означает успешную выкатку.
+Документация деплоя уточнена: сборка сама не вызывает systemd restart; для
+согласованного резерва SQLite с WAL нужен `.backup`, не копирование одного `.db`.
 
 ---
 

@@ -100,13 +100,13 @@ npm run desktop:dev
 
 | Каталог | Ответственность |
 |---|---|
-| `index.js` | Точка входа: монтирование роутов, middleware, WebSocket, статика. |
+| `index.ts` | Точка входа: монтирование роутов, middleware, WebSocket, статика. |
 | `routes/` | REST-роуты (`settings.js`, `agent.js`, `git.js`, `commands.js` и др.). |
 | `modules/` | Доменные модули: `assets/` (вложения), `database/` (схема, репозитории, миграции), `providers/` (список моделей и синхро сессий по провайдерам), `websocket/` (чат-шлюз), `image-generation/` (наш встроенный MCP-инструмент `generate_image`). |
 | `services/` | Сервисы (уведомления, vapid и пр.). |
 | `middleware/` | `auth.js` (JWT), валидация API-ключа. |
 | `shared/` | Общий код сервера: `image-attachments.ts` (доставка вложений провайдерам) и др. |
-| `claude-sdk.js` | Провайдер Claude Code: сборка промпта, опции SDK, стриминг. |
+| `modules/providers/list/claude/claude-runtime.provider.ts` | Провайдер Claude Code: сборка промпта, опции SDK, стриминг (с v1.37.6 — TypeScript). |
 
 **Провайдер Claude по умолчанию.** Значение выбранной модели (`value` из
 `CLAUDE_PREDEFINED_MODELS` в `server/modules/providers/list/claude/claude-models.provider.ts`)
@@ -120,6 +120,13 @@ npm run desktop:dev
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` (drop-in `context-tokens.conf`
 службы), иначе CLI считает его 200k и сжимает сессию раньше времени —
 реестр §1.3-бис.
+
+**Runtime и версии CLI (upstream v1.37.6).** `buildClaudeSdkEnv` сохраняет
+окружение хоста, включает `CLAUDE_CODE_ARTIFACT=1` по умолчанию (явный `0`
+сохраняется) и задаёт потолок ожидания фоновой работы. В настройках показываются
+версии установленных CLI: `GET /api/providers/:provider/cli`; ручное обновление —
+`POST /api/providers/:provider/cli/update`, во время работы провайдера запрещено.
+Это обновление самого CLI, не кода форка и не зависимостей SDK.
 
 **Пользовательские модели (штатный механизм).** Библиотека моделей дополняет
 встроенный список записями из `provider_models`; добавление — через интерфейс
@@ -136,13 +143,15 @@ npm run desktop:dev
 карточке инструмента. Флаги: `CLOUDCLI_IMAGE_GEN=off`, `CLOUDCLI_IMAGE_MODEL`
 (по умолчанию `gpt-image-2.5`).
 
-**Чтение файлов вне проекта.** Просмотрщик (редактор, превью медиа, дерево
-файлов) читает вне корня проекта только «корни на чтение»: встроенные апстрима
-(`/tmp`, `os.tmpdir()`, `~/.claude/projects`) плюс `CLOUDCLI_READ_ROOTS`
-(`getExtraReadRoots`, `server/shared/utils.ts`; разделитель как в `PATH`). Те же
-корни принимает запасной `local-media`. На боевой службе — домашняя папка,
-временные каталоги и `/mnt/goldjaxe-files` (drop-in `read-roots.conf`). Запись
-вне проекта по-прежнему запрещена — реестр §15.
+**Чтение файлов вне проекта.** С v1.37.6 просмотрщик (редактор, превью медиа,
+дерево файлов) читает весь workspace-root (`WORKSPACES_ROOT`, по умолчанию
+домашняя папка), а также «корни на чтение»: встроенные апстрима (`/tmp`,
+`os.tmpdir()`, `~/.claude/projects`) плюс `CLOUDCLI_READ_ROOTS` (`getExtraReadRoots`,
+`server/shared/utils.ts`; разделитель как в `PATH`). Проверка идёт по realpath.
+Запасной `local-media` использует корни на чтение, не весь workspace-root.
+На боевой службе дополнительно разрешены домашняя папка, временные каталоги
+и `/mnt/goldjaxe-files` (drop-in `read-roots.conf`). Запись вне проекта и
+передача вложений вне assets/cwd по-прежнему запрещены — реестр §15, §18.
 
 **Навигатор по вопросам.** Оглавление справа в ленте строится из
 `GET /api/providers/sessions/:sessionId/prompts`
