@@ -103,7 +103,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 
 | Страница | О чём |
 |---|---|
-| [Как вливать upstream](fork/upstream-merge.md) | Порядок работы в worktree (§14.1), чужие дефекты, мерж-заметка про `docs/` (§6) |
+| [Как вливать upstream](fork/upstream-merge.md) | Порядок работы в worktree (§14.1), чужие дефекты, история `docs/README.md` (§6) |
 | [v1.37.3](fork/merge-v1.37.3.md) | Переезд `src/components` → `src/modules`, восстановленные вручную правки (§8) |
 | [v1.37.4 (2026-10-09)](fork/merge-v1.37.4.md) | Пересечения, свои дефекты, подогнанные тесты (§14) |
 | [v1.37.5 (2026-10-17)](fork/merge-v1.37.5.md) | Пересечения, проверки, заметки (§16) |
@@ -145,7 +145,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | §4.12 | Микрофон — в правом верхнем углу поля ввода | 🟡 | [voice](fork/voice.md) |
 | §4.13 | Диктовка отвечает быстрее: timeslice + прогрев соединения | 🟡 | [voice](fork/voice.md) |
 | §5 | Инфраструктура и деплой: служба systemd, порт 3302, Tailscale, drop-in'ы | — | [deploy](deploy.md) |
-| §6 | Мерж-заметка v1.37.2: конфликт оглавления docs/ | 🟡 | [upstream-merge](fork/upstream-merge.md) |
+| §6 | Мерж-заметка: `docs/README.md` и корневой README | 🟢 | [upstream-merge](fork/upstream-merge.md) |
 | §7 | Сессия не сбрасывается при обновлении страницы (регресс v1.37.2) | 🔴 | [auth-session](fork/auth-session.md) |
 | §8 | Слияние upstream v1.37.3 — переезд путей и поглощённые правки | — | [merge-v1.37.3](fork/merge-v1.37.3.md) |
 | §8.1 | Куда переехали наши файлы | — | [merge-v1.37.3](fork/merge-v1.37.3.md) |
