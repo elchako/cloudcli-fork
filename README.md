@@ -9,7 +9,8 @@
 >
 > Этот репозиторий — **зеркало только на чтение**: сюда не пушим, разработка идёт
 > во внутреннем git холдинга. Что мы поменяли относительно оригинала —
-> [`docs/ru/fork-changes.md`](docs/ru/fork-changes.md).
+> [`docs/ru/fork-changes.md`](docs/ru/fork-changes.md); вся документация форка —
+> [`docs/ru/index.md`](docs/ru/index.md).
 >
 > Ниже — README оригинального проекта `siteboon/claudecodeui`. Команда установки
 > из него (`npx @cloudcli-ai/cloudcli`) ставит **оригинал, не наш форк**.

@@ -1,3 +1,10 @@
+---
+title: "Деплой форка на ноуте mx-linux"
+type: ops
+tags: [деплой, systemd, порт-3302, tailscale, drop-in, https]
+description: "Боевой инстанс форка: user-служба systemd на порту 3302, параметры, drop-in'ы окружения (корни на чтение, медиа, окно контекста GPT), перезапуск, HTTPS для микрофона, проверки."
+updated: 2026-10-31
+---
 # Деплой форка на ноуте mx-linux (автозапуск)
 
 Форк CloudCLI холдинга крутится на ноуте `mx-linux` как **user-сервис systemd**
@@ -94,9 +101,9 @@ systemctl --user restart cloudcli-fork
 
 | Файл | Переменная | Зачем |
 |---|---|---|
-| `read-roots.conf` | `CLOUDCLI_READ_ROOTS=%h:/tmp:/var/tmp:/dev/shm:/mnt/goldjaxe-files` | Файлы вне проекта открываются на чтение (реестр §15) |
-| `media-dirs.conf` | `CLOUDCLI_MEDIA_DIRS=…` | Каталоги превью медиа без проекта (§4.5); перекрыт `read-roots.conf` |
-| `context-tokens.conf` | `CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` | Окно контекста GPT шлюза: без него CLI сжимает сессию на 200k, при 1M не успевает сжать до отказа шлюза на ~930k (§1.3-бис) |
+| `read-roots.conf` | `CLOUDCLI_READ_ROOTS=%h:/tmp:/var/tmp:/dev/shm:/mnt/goldjaxe-files` | Файлы вне проекта открываются на чтение (реестр [§15](fork/file-viewer.md)) |
+| `media-dirs.conf` | `CLOUDCLI_MEDIA_DIRS=…` | Каталоги превью медиа без проекта ([§4.5](fork/file-viewer.md)); перекрыт `read-roots.conf` |
+| `context-tokens.conf` | `CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` | Окно контекста GPT шлюза: без него CLI сжимает сессию на 200k, при 1M не успевает сжать до отказа шлюза на ~930k ([§1.3-бис](fork/gpt-gateway.md)) |
 
 Появился новый диск/каталог, куда пишет агент, и его файлы не открываются —
 допишите его в `read-roots.conf` через `:` и перезапустите службу.
@@ -107,7 +114,7 @@ systemctl --user restart cloudcli-fork
 `navigator.mediaDevices.getUserMedia`, а он доступен **исключительно в secure
 context** — HTTPS либо localhost. Заход по `http://100.64.0.27:3302` (Tailscale-IP)
 защищённым не считается, поэтому по умолчанию на телефоне микрофона нет
-(см. `fork-changes.md` §4.4 — форк скрывает кнопку вместо падения по тапу).
+(см. [§4.4](fork/voice.md) — форк скрывает кнопку вместо падения по тапу).
 
 **Рабочее решение холдинга — Chrome-флаг на телефоне.** Один раз, ~1 минута:
 
@@ -154,3 +161,11 @@ JSON.stringify({
 
 `secure: false` / `gum: "undefined"` → микрофон физически недоступен на этом
 origin, дело не в коде приложения. Лечится только secure context (см. выше).
+
+## Связанные страницы
+
+- [Установка и обновление форка](install.md) — установка у коллег
+- [Раздача форка команде](fork/team-distribution.md) — GitHub-зеркало и скрипт обновления
+- [GPT через шлюз CLIProxyAPI: effort и окно контекста](fork/gpt-gateway.md) — зачем context-tokens.conf (§1.3-бис)
+- [Файлы вне проекта открываются на чтение](fork/file-viewer.md) — зачем read-roots.conf (§15)
+- [Голосовой ввод: настройки, микрофон, диктовка](fork/voice.md) — микрофон вне HTTPS (§4.4)
