@@ -74,6 +74,8 @@ function ComposerModelMenu({
   }
 
   const triggerLabel = hasModelSection ? modelLabel : effortLabel;
+  // Форк: на телефоне важнее имя модели, а не повторяющаяся приписка об окне контекста.
+  const compactTriggerLabel = triggerLabel.replace(/\s+\(1M context\)$/, '');
   const ariaLabel = t('composer.modelMenu', {
     defaultValue: 'Select model and reasoning effort',
   });
@@ -87,19 +89,20 @@ function ComposerModelMenu({
           updateAnchor();
           setIsOpen((current) => !current);
         }}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-xs font-medium text-foreground transition-colors hover:bg-muted sm:w-auto sm:max-w-56 sm:justify-start sm:gap-1 sm:px-2"
+        className="flex h-8 min-w-8 max-w-56 items-center justify-start gap-1 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
         aria-haspopup="menu"
         aria-expanded={isOpen}
         aria-label={`${ariaLabel}: ${triggerLabel}`}
         title={`${ariaLabel}: ${triggerLabel}`}
       >
-        {/* Fork: on a phone the composer row has to fit the schedule, permission
-            and send controls too, and the model name is the widest thing in it —
-            spelled out it pushed the row onto a second line. The name is a
-            rarely-changed setting, so below `sm` it collapses to its icon and
-            lives in the tooltip/aria-label instead. */}
-        <Sparkles className="h-4 w-4 sm:hidden" aria-hidden="true" />
-        <span className="hidden truncate sm:inline">{triggerLabel}</span>
+        {/* На узких телефонах значок лучше пары букв; длинные пользовательские имена сокращаются. */}
+        <Sparkles className="h-4 w-4 shrink-0 min-[360px]:hidden" aria-hidden="true" />
+        <span className="hidden truncate min-[360px]:inline">
+          {compactTriggerLabel}
+          {compactTriggerLabel !== triggerLabel && (
+            <span className="hidden sm:inline">{triggerLabel.slice(compactTriggerLabel.length)}</span>
+          )}
+        </span>
         {hasModelSection && hasEffortSection && effort !== DEFAULT_EFFORT_VALUE && (
           <span className="hidden shrink-0 capitalize text-muted-foreground sm:inline">· {effortLabel}</span>
         )}

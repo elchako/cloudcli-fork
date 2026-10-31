@@ -33,7 +33,6 @@ import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequests
 import TokenUsageSummary from '@/modules/chat/composer/TokenUsageSummary';
 import QueuedMessageCard from '@/modules/chat/composer/QueuedMessageCard';
 import BackgroundSendDialog from '@/modules/chat/composer/BackgroundSendDialog';
-import { ScheduleMessagePopover } from '@/modules/chat/composer/ScheduleMessagePopover';
 import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageList';
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
@@ -155,7 +154,6 @@ export default function ChatComposer({
   isEditingSentMessage,
   onCancelEditMessage,
   scheduledMessages,
-  onScheduleMessage,
   onCancelScheduledMessage,
   onEditQueuedDraft,
   onDeleteQueuedDraft,
@@ -498,12 +496,8 @@ export default function ChatComposer({
 
           </PromptInputTools>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <ScheduleMessagePopover
-              disabled={!input.trim()}
-              onSchedule={onScheduleMessage}
-            />
-
+          {/* Форк: место часов и подписи прав отдаём названию модели, даже на телефоне. */}
+          <div className="ml-1.5 flex min-w-0 flex-1 items-center justify-end gap-1 sm:ml-2 sm:gap-2">
             <ComposerModelMenu
               effort={effort}
               effortOptions={availableEffortOptions}
