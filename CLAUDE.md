@@ -117,8 +117,9 @@ npm run desktop:dev
 выбранный уровень уходит суффиксом в id (`gpt-6-astra(max)`,
 `withGatewayEffortSuffix`); в БД/UI модель хранится без суффикса. Окно
 контекста для нераспознанных CLI моделей (эти GPT) задаётся env
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` (drop-in `context-tokens.conf`
-службы), иначе CLI считает его 200k и сжимает сессию раньше времени —
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` (drop-in `context-tokens.conf`
+службы), иначе CLI считает его 200k и сжимает сессию раньше времени. Не
+1M: CLI сжимает на «окно − 33k», а шлюз отказывает GPT уже на ~930k входа —
 реестр §1.3-бис.
 
 **Runtime и версии CLI (upstream v1.37.6).** `buildClaudeSdkEnv` сохраняет
