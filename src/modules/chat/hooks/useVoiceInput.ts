@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { warmUpVoiceBackend } from '@/shared/api';
 import type { VoiceInputState } from '@/shared/types';
+import { useAuth } from '@/modules/auth';
 import { useVoiceOutbox, type VoiceOutboxControls } from '@/modules/chat/hooks/useVoiceOutbox';
 import {
   transcribeWithRetries,
@@ -16,7 +17,8 @@ import {
   notifyVoiceOutboxChanged,
   type VoiceOutboxPatch,
   type VoiceOutboxRecord,
-} from '@/modules/chat/utils/voiceOutbox';
+  voiceOutboxOwnerOf,
+} from '@/shared/voiceOutbox';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
 const MIME_CANDIDATES = [
@@ -63,6 +65,7 @@ function newRecordingId(): string {
  */
 type ActiveRecording = {
   id: string;
+  owner: string;
   startedAt: number;
   type: string;
   filename: string;
@@ -90,7 +93,13 @@ async function ensurePersisted(active: ActiveRecording, blob: Blob, durationMs: 
   const store = getVoiceOutboxStore();
   try {
     if (active.persistFailed) {
-      await store.begin({ id: active.id, createdAt: active.startedAt, mimeType: active.type, filename: active.filename });
+      await store.begin({
+        id: active.id,
+        owner: active.owner,
+        createdAt: active.startedAt,
+        mimeType: active.type,
+        filename: active.filename,
+      });
       await store.replaceAudio(active.id, blob);
       await store.update(active.id, { status: 'pending', durationMs });
       active.persistFailed = false;
@@ -147,6 +156,9 @@ export function useVoiceInput(
   options: VoiceInputOptions = {},
 ): { state: VoiceInputState; toggle: () => void; stop: (opts?: { send?: boolean }) => void; outbox: VoiceOutboxControls } {
   const { t } = useTranslation('chat');
+  // Очередь общая на браузер — запись помечается вошедшим пользователем (§4.14).
+  const { user } = useAuth();
+  const owner = voiceOutboxOwnerOf(user);
   const [state, setState] = useState<VoiceInputState>('idle');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -213,6 +225,7 @@ export function useVoiceInput(
 
   const outbox = useVoiceOutbox({
     enabled: Boolean(options.outboxEnabled) && state === 'idle',
+    owner,
     deliver: deliverFromOutbox,
   });
 
@@ -245,6 +258,7 @@ export function useVoiceInput(
 
       const active: ActiveRecording = {
         id: newRecordingId(),
+        owner,
         startedAt: Date.now(),
         type: mimeType || 'audio/webm',
         filename: '',
@@ -348,6 +362,7 @@ export function useVoiceInput(
         active.release = await holdVoiceRecordLock(active.id);
         await getVoiceOutboxStore().begin({
           id: active.id,
+          owner: active.owner,
           createdAt: active.startedAt,
           mimeType: active.type,
           filename: active.filename,
@@ -367,7 +382,7 @@ export function useVoiceInput(
     } finally {
       startingRef.current = false;
     }
-  }, [onError, t]);
+  }, [onError, owner, t]);
 
   // Stop recording. Pass { send: true } to auto-send the transcript once it's ready.
   // Guard on the recorder's own state (not React state) so a double tap, or the mic

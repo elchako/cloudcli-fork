@@ -14,7 +14,7 @@ import {
   subscribeVoiceOutbox,
   withVoiceRecordLock,
   type VoiceOutboxRecord,
-} from '@/modules/chat/utils/voiceOutbox';
+} from '@/shared/voiceOutbox';
 
 /** Пауза перед первой досылкой после монтирования: дать приложению подняться. */
 const INITIAL_FLUSH_DELAY_MS = 1500;
@@ -48,9 +48,12 @@ function downloadName(record: VoiceOutboxRecord): string {
  */
 export function useVoiceOutbox({
   enabled,
+  owner,
   deliver,
 }: {
   enabled: boolean;
+  /** Вошедший пользователь: видны и уходят только его записи. */
+  owner: string;
   deliver: VoiceOutboxDeliver;
 }): VoiceOutboxControls {
   const [snapshot, setSnapshot] = useState<{
@@ -83,8 +86,8 @@ export function useVoiceOutbox({
   }, []);
 
   const flush = useCallback((options?: { onlyId?: string; force?: boolean }) => (
-    flushVoiceOutbox((text, record) => deliverRef.current(text, record), options)
-  ), []);
+    flushVoiceOutbox((text, record) => deliverRef.current(text, record), { owner, ...options })
+  ), [owner]);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -107,7 +110,9 @@ export function useVoiceOutbox({
   const { records, sending, listedAt } = snapshot;
 
   // Таймер — только пока есть что досылать: пустая очередь не будит вкладку.
-  const hasRetryable = records.some((record) => !record.permanent && !isVoiceRecordHeldHere(record.id));
+  const hasRetryable = records.some((record) => (
+    record.owner === owner && !record.permanent && !isVoiceRecordHeldHere(record.id)
+  ));
   useEffect(() => {
     if (!enabled || !hasRetryable) return undefined;
     const timer = setInterval(() => {
@@ -119,6 +124,7 @@ export function useVoiceOutbox({
   const items = useMemo<VoiceOutboxItem[]>(() => (
     records
       .filter((record) => {
+        if (record.owner !== owner) return false;
         if (sending.has(record.id)) return true;
         // Запись, которую эта вкладка пишет или отправляет сразу после диктовки,
         // — ещё не «отложенная»: её состояние показывает сама кнопка микрофона.
@@ -127,21 +133,25 @@ export function useVoiceOutbox({
         return !(record.status === 'recording' && listedAt - record.updatedAt < VOICE_ORPHAN_AFTER_MS);
       })
       .map((record) => ({ ...record, sending: sending.has(record.id) }))
-  ), [records, sending, listedAt]);
+  ), [records, sending, listedAt, owner]);
 
   const sendNow = useCallback((id: string) => {
     void flush({ onlyId: id, force: true });
   }, [flush]);
 
   const remove = useCallback(async (id: string) => {
-    await withVoiceRecordLock(id, () => getVoiceOutboxStore().remove(id));
+    await withVoiceRecordLock(id, async () => {
+      const store = getVoiceOutboxStore();
+      const record = await store.get(id);
+      if (record?.owner === owner) await store.remove(id);
+    });
     notifyVoiceOutboxChanged();
-  }, []);
+  }, [owner]);
 
   const download = useCallback(async (id: string) => {
     const store = getVoiceOutboxStore();
     const [record, audio] = await Promise.all([store.get(id), store.readAudio(id)]);
-    if (!record || !audio) return;
+    if (!record || record.owner !== owner || !audio) return;
     const url = URL.createObjectURL(audio);
     const link = document.createElement('a');
     link.href = url;
@@ -151,7 +161,7 @@ export function useVoiceOutbox({
     link.remove();
     // Мобильный Chrome забирает файл асинхронно: ссылку держим, пока не скачает.
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  }, []);
+  }, [owner]);
 
   return { items, sendNow, remove, download };
 }

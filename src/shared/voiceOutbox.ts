@@ -13,12 +13,19 @@
  * Очередь — страховка, а не критический путь: нет IndexedDB (старый браузер,
  * запрет хранилища) — работает та же логика в памяти вкладки. Тогда от обрыва
  * связи она ещё спасает, от перезагрузки страницы — уже нет.
+ *
+ * Хранилище браузера общее для всех, кто входит в CloudCLI на этом устройстве,
+ * поэтому у каждой записи есть владелец: очередь видит, шлёт и вручает только
+ * записи вошедшего пользователя, а явный выход из аккаунта стирает его записи.
+ * Лежит в `shared/`, потому что выход живёт в AuthContext.
  */
 
 export type VoiceOutboxStatus = 'recording' | 'pending';
 
 export type VoiceOutboxRecord = {
   id: string;
+  /** Чья надиктовка — `voiceOutboxOwnerOf(user)`. Чужие записи очередь не трогает. */
+  owner: string;
   createdAt: number;
   /** Обновляется каждым чанком — по нему видно, что запись ещё идёт. */
   updatedAt: number;
@@ -35,9 +42,15 @@ export type VoiceOutboxRecord = {
   permanent: boolean;
 };
 
-export type NewVoiceOutboxRecord = Pick<VoiceOutboxRecord, 'id' | 'createdAt' | 'mimeType' | 'filename'>;
+export type NewVoiceOutboxRecord = Pick<VoiceOutboxRecord, 'id' | 'owner' | 'createdAt' | 'mimeType' | 'filename'>;
 
-export type VoiceOutboxPatch = Partial<Omit<VoiceOutboxRecord, 'id' | 'createdAt'>>;
+export type VoiceOutboxPatch = Partial<Omit<VoiceOutboxRecord, 'id' | 'owner' | 'createdAt'>>;
+
+/** Ключ владельца — тот же, по которому AuthContext грузит настройки пользователя. */
+export function voiceOutboxOwnerOf(user: { id?: number | string; username?: string } | null | undefined): string {
+  if (!user) return 'anonymous';
+  return String(user.id ?? user.username ?? 'anonymous');
+}
 
 export type VoiceOutboxStore = {
   begin(record: NewVoiceOutboxRecord): Promise<void>;
@@ -337,6 +350,22 @@ export function getVoiceOutboxStore(): VoiceOutboxStore {
 
 export function setVoiceOutboxStoreForTests(store: VoiceOutboxStore | null): void {
   activeStore = store;
+}
+
+/**
+ * Стирает записи пользователя — на явном выходе из аккаунта: сырое аудио не
+ * должно оставаться на устройстве, которым дальше пользуется кто-то другой.
+ * Истечение сессии сюда не ведёт: разлогин не по воле человека не должен
+ * стирать то, что он не успел отправить. Чанки, дописанные позже, станут
+ * сиротами и уйдут при уборке.
+ */
+export async function discardVoiceOutboxOwner(owner: string): Promise<void> {
+  const store = getVoiceOutboxStore();
+  const records = await store.list();
+  for (const record of records) {
+    if (record.owner === owner) await store.remove(record.id);
+  }
+  notifyVoiceOutboxChanged();
 }
 
 //----------------- ОПОВЕЩЕНИЕ ------------

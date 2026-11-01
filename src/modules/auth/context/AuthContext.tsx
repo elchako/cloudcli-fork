@@ -8,6 +8,7 @@ import { AUTH_SESSION_EXPIRED_EVENT, AUTH_TOKEN_REFRESHED_EVENT, getAuthTokenRef
 import { hydrateChatDrafts, resetChatDrafts } from '@/shared/chatDrafts';
 import { hydrateUserPreferences, resetUserPreferences } from '@/shared/userSettings';
 import { resetVoiceConfigCache } from '@/shared/voiceConfig';
+import { discardVoiceOutboxOwner, voiceOutboxOwnerOf } from '@/shared/voiceOutbox';
 // Fork: our own per-user settings bridge, kept alongside upstream's
 // preferences hydration — see docs/ru/fork-changes.md.
 import { loadUserSettingsIntoLocalStorage, startUserSettingsAutoSync } from '@/shared/userSettingsSync';
@@ -373,10 +374,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   const logout = useCallback(() => {
+    // GOLDJAXE fork (реестр §4.14): unsent dictations are raw audio in this
+    // browser; a deliberate sign-out wipes this user's, so the next person on the
+    // device cannot play them back. Session expiry (clearSession alone) keeps
+    // them — losing speech to a logout nobody chose is what the queue prevents.
+    void discardVoiceOutboxOwner(voiceOutboxOwnerOf(user)).catch(() => {});
     // JWT logout is client-side: the server endpoint does not maintain a
     // revocation list, so clearing the session is the complete operation.
     clearSession();
-  }, [clearSession]);
+  }, [clearSession, user]);
 
   const contextValue = useMemo<AuthContextValue>(
     () => ({

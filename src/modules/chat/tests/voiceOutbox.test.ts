@@ -14,15 +14,23 @@ import {
 } from '@/modules/chat/utils/voiceDelivery';
 import {
   createMemoryVoiceOutboxStore,
+  discardVoiceOutboxOwner,
   setVoiceOutboxStoreForTests,
   type VoiceOutboxRecord,
   type VoiceOutboxStore,
-} from '@/modules/chat/utils/voiceOutbox';
+} from '@/shared/voiceOutbox';
 
 vi.mock('@/shared/api', () => ({
   transcribeVoice: vi.fn(),
   warmUpVoiceBackend: vi.fn(),
 }));
+
+vi.mock('@/modules/auth', () => ({
+  useAuth: () => ({ user: { id: 7, username: 'artem' } }),
+}));
+
+/** Вошедший пользователь — тот, кого отдаёт замоканный useAuth. */
+const ME = '7';
 
 const transcribeMock = vi.mocked(transcribeVoice);
 
@@ -32,8 +40,11 @@ const errorResponse = (status: number, error = 'nope') => new Response(JSON.stri
 
 let store: VoiceOutboxStore;
 
-async function addPending(id: string, options: { createdAt?: number; bytes?: number; permanent?: boolean } = {}) {
-  await store.begin({ id, createdAt: options.createdAt ?? Date.now(), mimeType: 'audio/webm', filename: 'recording.webm' });
+async function addPending(
+  id: string,
+  options: { createdAt?: number; bytes?: number; permanent?: boolean; owner?: string } = {},
+) {
+  await store.begin({ id, owner: options.owner ?? ME, createdAt: options.createdAt ?? Date.now(), mimeType: 'audio/webm', filename: 'recording.webm' });
   await store.appendChunk(id, 0, audio(options.bytes));
   await store.update(id, { status: 'pending', durationMs: 5000, permanent: options.permanent ?? false });
 }
@@ -111,7 +122,7 @@ describe('фоновая досылка очереди', () => {
     transcribeMock.mockResolvedValue(okResponse('длинная мысль'));
     const deliver = vi.fn(() => true);
 
-    await flushVoiceOutbox(deliver);
+    await flushVoiceOutbox(deliver, { owner: ME });
 
     expect(deliver).toHaveBeenCalledWith('длинная мысль', expect.objectContaining({ id: 'rec-1' }));
     expect(transcribeMock.mock.calls[0][2]).toMatchObject({ idempotencyKey: 'rec-1' });
@@ -123,7 +134,7 @@ describe('фоновая досылка очереди', () => {
     await addPending('new', { createdAt: Date.now() - 1000 });
     transcribeMock.mockResolvedValue(errorResponse(503));
 
-    await flushVoiceOutbox(() => true);
+    await flushVoiceOutbox(() => true, { owner: ME });
 
     expect(transcribeMock).toHaveBeenCalledTimes(1);
     const [old, fresh] = await store.list();
@@ -135,15 +146,15 @@ describe('фоновая досылка очереди', () => {
   it('безнадёжный отказ фон больше не трогает, а кнопка «Отправить» — шлёт', async () => {
     await addPending('rec-1');
     transcribeMock.mockResolvedValueOnce(errorResponse(401));
-    await flushVoiceOutbox(() => true);
+    await flushVoiceOutbox(() => true, { owner: ME });
     expect(await store.get('rec-1')).toMatchObject({ permanent: true, attempts: 1 });
 
-    await flushVoiceOutbox(() => true);
+    await flushVoiceOutbox(() => true, { owner: ME });
     expect(transcribeMock).toHaveBeenCalledTimes(1);
 
     transcribeMock.mockResolvedValueOnce(okResponse('текст'));
     const deliver = vi.fn(() => true);
-    await flushVoiceOutbox(deliver, { onlyId: 'rec-1', force: true });
+    await flushVoiceOutbox(deliver, { owner: ME, onlyId: 'rec-1', force: true });
     expect(deliver).toHaveBeenCalledWith('текст', expect.anything());
     expect(await store.get('rec-1')).toBeNull();
   });
@@ -152,46 +163,67 @@ describe('фоновая досылка очереди', () => {
     await addPending('rec-1');
     await store.update('rec-1', { attempts: VOICE_OUTBOX_MAX_ATTEMPTS - 1 });
     transcribeMock.mockResolvedValue(errorResponse(502));
-    await flushVoiceOutbox(() => true);
+    await flushVoiceOutbox(() => true, { owner: ME });
     expect(await store.get('rec-1')).toMatchObject({ permanent: true });
   });
 
   it('если вручить некому, запись остаётся до следующего композера', async () => {
     await addPending('rec-1');
     transcribeMock.mockResolvedValue(okResponse('текст'));
-    await flushVoiceOutbox(() => false);
+    await flushVoiceOutbox(() => false, { owner: ME });
     expect(await store.get('rec-1')).not.toBeNull();
   });
 
   it('без сети не делает ни одного запроса', async () => {
     await addPending('rec-1');
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
-    await flushVoiceOutbox(() => true);
+    await flushVoiceOutbox(() => true, { owner: ME });
     expect(transcribeMock).not.toHaveBeenCalled();
     expect(await store.get('rec-1')).toMatchObject({ attempts: 0 });
   });
 
   it('подхватывает запись, брошенную посреди диктовки, но не трогает идущую', async () => {
     const now = Date.now();
-    await store.begin({ id: 'dead', createdAt: now - 120_000, mimeType: 'audio/webm', filename: 'recording.webm' });
+    await store.begin({ id: 'dead', owner: ME, createdAt: now - 120_000, mimeType: 'audio/webm', filename: 'recording.webm' });
     await store.appendChunk('dead', 0, audio());
     await store.update('dead', { updatedAt: now - 60_000 });
-    await store.begin({ id: 'live', createdAt: now - 5_000, mimeType: 'audio/webm', filename: 'recording.webm' });
+    await store.begin({ id: 'live', owner: ME, createdAt: now - 5_000, mimeType: 'audio/webm', filename: 'recording.webm' });
     await store.appendChunk('live', 0, audio());
     transcribeMock.mockResolvedValue(okResponse('спасённое'));
     const deliver = vi.fn((_text: string, _record: VoiceOutboxRecord) => true);
 
-    await flushVoiceOutbox(deliver);
+    await flushVoiceOutbox(deliver, { owner: ME });
 
     expect(deliver).toHaveBeenCalledTimes(1);
     expect(deliver.mock.calls[0][1]).toMatchObject({ id: 'dead', status: 'pending', durationMs: 60_000 });
     expect((await store.list()).map((record) => record.id)).toEqual(['live']);
   });
 
+  it('чужие надиктовки в том же браузере не шлёт и не вручает', async () => {
+    await addPending('theirs', { owner: '9', createdAt: Date.now() - 2000 });
+    await addPending('mine', { createdAt: Date.now() - 1000 });
+    transcribeMock.mockResolvedValue(okResponse('моё'));
+    const deliver = vi.fn((_text: string, _record: VoiceOutboxRecord) => true);
+
+    await flushVoiceOutbox(deliver, { owner: ME });
+    await flushVoiceOutbox(deliver, { owner: ME, onlyId: 'theirs', force: true });
+
+    expect(transcribeMock).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls.map(([, record]) => record.id)).toEqual(['mine']);
+    expect((await store.list()).map((record) => record.id)).toEqual(['theirs']);
+  });
+
+  it('выход из аккаунта стирает только записи этого пользователя', async () => {
+    await addPending('theirs', { owner: '9' });
+    await addPending('mine');
+    await discardVoiceOutboxOwner(ME);
+    expect((await store.list()).map((record) => record.id)).toEqual(['theirs']);
+  });
+
   it('убирает просроченные записи', async () => {
     await addPending('stale', { createdAt: Date.now() - VOICE_OUTBOX_TTL_MS - 1000 });
     transcribeMock.mockResolvedValue(okResponse('x'));
-    await flushVoiceOutbox(() => true);
+    await flushVoiceOutbox(() => true, { owner: ME });
     expect(transcribeMock).not.toHaveBeenCalled();
     expect(await store.list()).toEqual([]);
   });
@@ -270,7 +302,7 @@ describe('useVoiceInput и очередь', () => {
     expect(onTranscript).not.toHaveBeenCalled();
     expect(onNotice).toHaveBeenCalledWith('voice.outbox.savedOffline');
     const [saved] = await store.list();
-    expect(saved).toMatchObject({ status: 'pending', size: 3500, lastError: 'offline' });
+    expect(saved).toMatchObject({ owner: ME, status: 'pending', size: 3500, lastError: 'offline' });
     expect((await store.readAudio(saved.id))?.size).toBe(3500);
     await waitFor(() => expect(result.current.outbox.items).toHaveLength(1));
 
@@ -285,6 +317,13 @@ describe('useVoiceInput и очередь', () => {
     expect(transcribeMock.mock.calls[0][2]).toMatchObject({ idempotencyKey: saved.id });
     await waitFor(() => expect(result.current.outbox.items).toHaveLength(0));
     expect(await store.list()).toEqual([]);
+  });
+
+  it('плашка не показывает надиктовки другого пользователя', async () => {
+    await addPending('theirs', { owner: '9' });
+    await addPending('mine');
+    const { result } = renderHook(() => useVoiceInput(vi.fn(), vi.fn(), { outboxEnabled: false }));
+    await waitFor(() => expect(result.current.outbox.items.map((item) => item.id)).toEqual(['mine']));
   });
 
   it('обычный путь: текст вручается сразу, очередь пуста', async () => {

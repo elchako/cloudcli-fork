@@ -21,7 +21,7 @@ import {
   withVoiceRecordLock,
   type VoiceOutboxRecord,
   type VoiceOutboxStore,
-} from '@/modules/chat/utils/voiceOutbox';
+} from '@/shared/voiceOutbox';
 
 /** Паузы перед повторами сразу после диктовки: 1 с, затем 2.5 с — как в diktor. */
 export const VOICE_RETRY_DELAYS_MS = [1000, 2500];
@@ -219,6 +219,8 @@ export async function transcribeWithRetries(
 export type VoiceOutboxDeliver = (text: string, record: VoiceOutboxRecord) => boolean;
 
 type FlushOptions = {
+  /** Чьи записи слать: только вошедшего пользователя, чужие не трогаем вовсе. */
+  owner: string;
   /** Только эта запись — кнопка «Отправить». */
   onlyId?: string;
   /** Отправить и запись, выпавшую из фоновых повторов. */
@@ -267,10 +269,11 @@ type SendResult = 'sent' | 'skipped' | 'failed' | 'stop';
 async function sendStoredRecord(
   store: VoiceOutboxStore,
   id: string,
+  owner: string,
   deliver: VoiceOutboxDeliver,
 ): Promise<SendResult> {
   let record = await store.get(id);
-  if (!record) return 'skipped';
+  if (!record || record.owner !== owner) return 'skipped';
 
   if (record.status === 'recording') {
     // Сюда доходит только запись без хозяина: её замок свободен, значит вкладка,
@@ -320,10 +323,13 @@ async function runFlush(deliver: VoiceOutboxDeliver, options: FlushOptions): Pro
   try {
     const records = await pruneVoiceOutbox(store, Date.now());
     for (const record of records) {
+      // Чужая надиктовка: тот же браузер, другой аккаунт. Её не шлём ни с
+      // нашим ключом, ни в наш композер.
+      if (record.owner !== options.owner) continue;
       if (options.onlyId && record.id !== options.onlyId) continue;
       if (record.permanent && !options.force) continue;
       if (isOffline()) break;
-      const result = await withVoiceRecordLock(record.id, () => sendStoredRecord(store, record.id, deliver));
+      const result = await withVoiceRecordLock(record.id, () => sendStoredRecord(store, record.id, options.owner, deliver));
       if (result.acquired && result.value === 'stop') break;
     }
   } finally {
@@ -337,7 +343,7 @@ let flushing: Promise<void> | null = null;
  * Досылает очередь: от старых записей к новым, до первой сетевой беды. Фоновые
  * вызовы, пока идёт проход, не плодят новых; кнопка «Отправить» встаёт за ним.
  */
-export function flushVoiceOutbox(deliver: VoiceOutboxDeliver, options: FlushOptions = {}): Promise<void> {
+export function flushVoiceOutbox(deliver: VoiceOutboxDeliver, options: FlushOptions): Promise<void> {
   if (flushing && !options.onlyId) return flushing;
   const current: Promise<void> = (flushing ?? Promise.resolve())
     .then(() => runFlush(deliver, options))

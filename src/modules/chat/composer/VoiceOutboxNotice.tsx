@@ -5,7 +5,7 @@ import { CloudOff, Download, Loader2, RotateCw, Trash2 } from 'lucide-react';
 
 import { cn } from '@/shared/utils';
 import type { VoiceOutboxControls, VoiceOutboxItem } from '@/modules/chat/hooks/useVoiceOutbox';
-import { formatVoiceDuration } from '@/modules/chat/utils/voiceOutbox';
+import { formatVoiceDuration } from '@/shared/voiceOutbox';
 
 /** Сколько держится «Удалить безвозвратно?», если не подтвердили. */
 const CONFIRM_TIMEOUT_MS = 4000;
