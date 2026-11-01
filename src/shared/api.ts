@@ -641,11 +641,12 @@ export const api = {
 
   voice: {
     health: () => get('/api/voice/health'),
-    transcribe: (formData: FormData, headers: Record<string, string> = {}) =>
+    transcribe: (formData: FormData, headers: Record<string, string> = {}, signal?: AbortSignal) =>
       authenticatedFetch('/api/voice/transcribe', {
         method: 'POST',
         headers,
         body: formData,
+        signal,
       }),
     tts: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/tts', { text }, options),
   },
@@ -711,8 +712,17 @@ export function voiceConfigSignature(): string {
 /**
  * Transcribes recorded audio, posting directly to the user's configured OpenAI-compatible
  * endpoint when one is set and otherwise going through the CloudCLI voice proxy.
+ *
+ * GOLDJAXE fork (реестр §4.14): `signal` обрывает зависший запрос (таймаут, пропала
+ * сеть), `idempotencyKey` уходит заголовком `Idempotency-Key` на прямом пути —
+ * сервер diktor по нему не распознаёт одно и то же аудио дважды, когда повтор
+ * догоняет ответ, потерянный на обрыве.
  */
-export async function transcribeVoice(blob: Blob, filename: string): Promise<Response> {
+export async function transcribeVoice(
+  blob: Blob,
+  filename: string,
+  options: { signal?: AbortSignal; idempotencyKey?: string } = {},
+): Promise<Response> {
   const config = readVoiceConfig();
   const body = new FormData();
 
@@ -722,15 +732,18 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
     const apiKey = config.apiKey || await revealVoiceApiKey();
     body.append('file', blob, filename);
     body.append('model', config.sttModel || 'whisper-1');
+    const headers: Record<string, string> = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+    if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
     return fetch(voiceDirectUrl(config.baseUrl.trim(), '/audio/transcriptions'), {
       method: 'POST',
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      headers,
       body,
+      signal: options.signal,
     });
   }
 
   body.append('audio', blob, filename);
-  return api.voice.transcribe(body, voiceConfigHeaders());
+  return api.voice.transcribe(body, voiceConfigHeaders(), options.signal);
 }
 
 /**

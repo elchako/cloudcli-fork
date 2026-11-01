@@ -138,7 +138,26 @@
     "transcribing": "Transcribing…",
     "speak": "Read aloud",
     "stopSpeaking": "Stop",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "retrying": "Unstable connection — attempt {{attempt}} of {{total}}",
+    "outbox": {
+      "savedOffline": "No connection — dictation saved, it will be sent when the network is back",
+      "savedRetry": "Couldn't reach the server — dictation saved, will retry",
+      "rejected": "The server rejected the dictation ({{error}}) — it is kept above the input",
+      "delivered": "Delayed dictation ({{duration}}) transcribed — the text is in the input",
+      "noSpeech": "Delayed dictation ({{duration}}): no speech detected",
+      "title": "Dictation {{duration}} · {{time}}",
+      "statusWaiting": "waiting to be sent",
+      "statusOffline": "no network — will send when it is back",
+      "statusRetry": "not sent ({{error}}) — will retry",
+      "statusInterrupted": "interrupted — will send what was recorded",
+      "statusRejected": "rejected: {{error}}",
+      "statusSending": "sending…",
+      "send": "Send now",
+      "download": "Download audio",
+      "delete": "Delete",
+      "confirmDelete": "Delete?"
+    }
   },
   "input": {
     "placeholder": "Type / for commands, @ for files, or ask {{provider}} anything...",

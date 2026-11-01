@@ -8,6 +8,8 @@ type Props = {
   state: VoiceInputState;
   onToggle: () => void;
   errorMsg?: string | null;
+  /** Fork (§4.14): neutral status — retrying, dictation queued, queued one delivered. */
+  noticeMsg?: string | null;
   className?: string;
 };
 
@@ -23,9 +25,10 @@ type Props = {
  * easy to miss with a pointer; dictation is how this composer is used nearly all
  * the time, so it gets its own target — the same one on every width.
  */
-export default function VoiceInputButton({ state, onToggle, errorMsg, className }: Props) {
+export default function VoiceInputButton({ state, onToggle, errorMsg, noticeMsg, className }: Props) {
   const { t } = useTranslation('chat');
   const label = state === 'recording' ? t('voice.stopRecording') : t('voice.input');
+  const bubble = errorMsg || noticeMsg;
 
   const icon =
     state === 'recording' ? (
@@ -38,11 +41,18 @@ export default function VoiceInputButton({ state, onToggle, errorMsg, className 
 
   return (
     <span className={cn('relative inline-flex', className)}>
-      {errorMsg && (
+      {bubble && (
         // Opens downwards: above the button is the top edge of the composer,
-        // which would clip the message.
-        <span className="absolute right-0 top-full mt-1 whitespace-nowrap rounded bg-red-600 px-2 py-1 text-xs text-white shadow-lg">
-          {errorMsg}
+        // which would clip the message. Fork: wraps within a phone-width cap —
+        // the queue messages are a sentence long and ran off a 360px screen.
+        <span
+          role="status"
+          className={cn(
+            'absolute right-0 top-full z-10 mt-1 w-max max-w-[min(18rem,calc(100vw-2rem))] whitespace-normal rounded px-2 py-1 text-xs text-white shadow-lg',
+            errorMsg ? 'bg-red-600' : 'bg-neutral-800 dark:bg-neutral-700',
+          )}
+        >
+          {bubble}
         </span>
       )}
       <button

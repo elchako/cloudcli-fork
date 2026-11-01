@@ -29,6 +29,7 @@ import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
 import VoiceInputButton from '@/modules/chat/composer/VoiceInputButton';
+import VoiceOutboxNotice from '@/modules/chat/composer/VoiceOutboxNotice';
 import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequestsBanner';
 import TokenUsageSummary from '@/modules/chat/composer/TokenUsageSummary';
 import QueuedMessageCard from '@/modules/chat/composer/QueuedMessageCard';
@@ -234,13 +235,25 @@ export default function ChatComposer({
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
     voiceErrorTimer.current = setTimeout(() => setVoiceError(null), 4000);
   }, []);
+  // GOLDJAXE fork (реестр §4.14): нейтральные сообщения диктовки — повтор,
+  // надиктовка отложена, отложенная дошла. Держатся дольше ошибки: их читают,
+  // вернувшись к экрану после звонка.
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const voiceNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleVoiceNotice = useCallback((msg: string) => {
+    setVoiceNotice(msg);
+    if (voiceNoticeTimer.current) clearTimeout(voiceNoticeTimer.current);
+    voiceNoticeTimer.current = setTimeout(() => setVoiceNotice(null), 8000);
+  }, []);
   useEffect(() => () => {
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
+    if (voiceNoticeTimer.current) clearTimeout(voiceNoticeTimer.current);
   }, []);
   const noopTranscript = useCallback(() => {}, []);
-  const { state: voiceState, toggle: voiceToggle, stop: voiceStop } = useVoiceInput(
+  const { state: voiceState, toggle: voiceToggle, stop: voiceStop, outbox: voiceOutbox } = useVoiceInput(
     onVoiceTranscript ?? noopTranscript,
     handleVoiceError,
+    { onNotice: handleVoiceNotice, outboxEnabled: Boolean(onVoiceTranscript) && voiceAvailable },
   );
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';
@@ -412,6 +425,12 @@ export default function ChatComposer({
             </PromptInputHeader>
           )}
 
+          {voiceOutbox.items.length > 0 && (
+            <PromptInputHeader>
+              <VoiceOutboxNotice outbox={voiceOutbox} />
+            </PromptInputHeader>
+          )}
+
           <input {...getInputProps()} />
 
           <PromptInputBody>
@@ -450,6 +469,7 @@ export default function ChatComposer({
                 state={voiceState}
                 onToggle={voiceToggle}
                 errorMsg={voiceError}
+                noticeMsg={voiceNotice}
                 className="absolute right-2 top-2"
               />
             )}
