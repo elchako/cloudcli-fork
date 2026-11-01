@@ -180,13 +180,14 @@ export function usePromptNavigator({
   /*  The prompt list                                                  */
   /* ---------------------------------------------------------------- */
 
-  // The slot's total changes when the store learns the history grew or was
-  // cut (an edit truncates it); while a run streams it is ignored and the
-  // list is refreshed once the run ends.
+  // Полный список нужен и при открытии работающего чата: в хвосте бывает
+  // только один вопрос. Во время рана total не перезапускает таймер; после
+  // окончания рана список обновляется, как и после изменения idle-истории.
   const slotTotal = sessionId ? sessionStore.getSessionSlot(sessionId)?.total ?? 0 : 0;
+  const refreshTotal = isProcessing ? null : slotTotal;
 
   useEffect(() => {
-    if (!isActive || !sessionId || isProcessing) {
+    if (!isActive || !sessionId) {
       return undefined;
     }
 
@@ -199,7 +200,7 @@ export function usePromptNavigator({
         }
         const payload = await response.json();
         const data = payload?.data;
-        if (Array.isArray(data?.prompts)) {
+        if (!controller.signal.aborted && Array.isArray(data?.prompts)) {
           setServerList({ sessionId, prompts: data.prompts, total: Number(data.total) || 0 });
         }
       } catch {
@@ -211,7 +212,7 @@ export function usePromptNavigator({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [isActive, isProcessing, sessionId, slotTotal]);
+  }, [isActive, isProcessing, sessionId, refreshTotal]);
 
   const loadedPrompts = useMemo(() => collectLoadedPrompts(chatMessages), [chatMessages]);
 
