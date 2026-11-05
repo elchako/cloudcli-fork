@@ -12,6 +12,58 @@ const IDLE: VoiceSnapshot = { state: 'idle', error: null };
 const CACHE_MAX = 24;
 const CLIENT_TIMEOUT_MS = 330000; // backstop; the server proxy already times out at 5 min
 
+// GOLDJAXE fork (реестр §4.15): read-aloud starts with the first chunk of audio.
+// Before, the whole MP3 had to download first, and synthesis runs only about
+// three times faster than speech: a long reply waited a minute or more in
+// silence. MediaSource plays MP3 while it arrives (Chrome, Edge, Firefox, also
+// on Android); where it is missing (iPhone Safari) the whole-file path stays.
+const STREAM_MIME = 'audio/mpeg';
+
+function canStreamResponse(res: Response): boolean {
+  const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!res.body || (type !== 'audio/mpeg' && type !== 'audio/mp3')) return false;
+  try {
+    return typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(STREAM_MIME);
+  } catch {
+    return false;
+  }
+}
+
+function waitForEvent(target: EventTarget, name: string): Promise<void> {
+  return new Promise((resolve) => target.addEventListener(name, () => resolve(), { once: true }));
+}
+
+// A SourceBuffer takes one append at a time: the next waits for `updateend`.
+function appendChunk(buffer: SourceBuffer, chunk: Uint8Array<ArrayBuffer>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      buffer.removeEventListener('updateend', onDone);
+      buffer.removeEventListener('error', onError);
+    };
+    const onDone = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('Read-aloud audio could not be decoded'));
+    };
+    buffer.addEventListener('updateend', onDone);
+    buffer.addEventListener('error', onError);
+    buffer.appendBuffer(chunk);
+  });
+}
+
+async function readErrorMessage(res: Response): Promise<string> {
+  try {
+    const j = await res.json();
+    if (j?.error) return String(j.error);
+  } catch {
+    /* non-JSON error body */
+  }
+  return `Read-aloud failed (${res.status})`;
+}
+
 // Stable id / cache key from the text and voice settings that affect its audio (djb2).
 export function voiceId(content: string, signature = voiceConfigSignature()): string {
   const input = JSON.stringify([content, signature]);
@@ -145,25 +197,24 @@ class VoicePlayer {
         const controller = new AbortController();
         this.activeController = controller;
         const timer = setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
-        const res = await synthesizeVoice(content, controller.signal).finally(() => {
+        // GOLDJAXE fork (реестр §4.15): the request stays abortable until the
+        // body is read, so stop() also cancels a stream that is still playing.
+        try {
+          const res = await synthesizeVoice(content, controller.signal);
+          if (myToken !== this.token) return; // superseded by another play/stop
+          if (!res.ok) throw new Error(await readErrorMessage(res));
+          if (canStreamResponse(res)) {
+            await this.playStream(id, res.body as ReadableStream<Uint8Array<ArrayBuffer>>, audio, myToken);
+            return;
+          }
+          const blob = await res.blob();
+          if (myToken !== this.token) return;
+          url = URL.createObjectURL(blob);
+          this.cacheSet(id, url);
+        } finally {
           clearTimeout(timer);
           if (this.activeController === controller) this.activeController = null;
-        });
-        if (myToken !== this.token) return; // superseded by another play/stop
-        if (!res.ok) {
-          let msg = `Read-aloud failed (${res.status})`;
-          try {
-            const j = await res.json();
-            if (j?.error) msg = String(j.error);
-          } catch {
-            /* non-JSON error body */
-          }
-          throw new Error(msg);
         }
-        const blob = await res.blob();
-        if (myToken !== this.token) return;
-        url = URL.createObjectURL(blob);
-        this.cacheSet(id, url);
       }
       if (myToken !== this.token) return;
       audio.src = url;
@@ -177,6 +228,53 @@ class VoicePlayer {
       const aborted = e instanceof Error && e.name === 'AbortError';
       this.setError(id, aborted ? 'Read-aloud timed out.' : e instanceof Error ? e.message : 'Read-aloud failed');
     }
+  }
+
+  /**
+   * GOLDJAXE fork (реестр §4.15): feeds the MP3 into a MediaSource as it arrives
+   * and starts playing on the first chunk. The finished file is cached as a
+   * blob, so a replay is instant and needs no network.
+   */
+  private async playStream(
+    id: string,
+    body: ReadableStream<Uint8Array<ArrayBuffer>>,
+    audio: HTMLAudioElement,
+    myToken: number,
+  ) {
+    const mediaSource = new MediaSource();
+    const streamUrl = URL.createObjectURL(mediaSource);
+    audio.src = streamUrl;
+    await waitForEvent(mediaSource, 'sourceopen');
+    URL.revokeObjectURL(streamUrl); // attached to the element; the URL itself is spent
+    const reader = body.getReader();
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
+    let playing = false;
+    try {
+      if (myToken !== this.token) return;
+      const buffer = mediaSource.addSourceBuffer(STREAM_MIME);
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (myToken !== this.token) return;
+        if (done) break;
+        if (!value || value.byteLength === 0) continue;
+        chunks.push(value);
+        await appendChunk(buffer, value);
+        if (myToken !== this.token) return;
+        if (!playing) {
+          playing = true;
+          await audio.play();
+          if (myToken !== this.token) return;
+          this.state = 'playing';
+          this.emit();
+        }
+      }
+    } finally {
+      // Superseded mid-stream: drop the rest of the download.
+      if (myToken !== this.token) void reader.cancel().catch(() => {});
+    }
+    if (!playing) throw new Error('Read-aloud returned no audio');
+    if (mediaSource.readyState === 'open') mediaSource.endOfStream();
+    this.cacheSet(id, URL.createObjectURL(new Blob(chunks, { type: STREAM_MIME })));
   }
 
   private cacheSet(id: string, url: string) {
