@@ -426,13 +426,15 @@ const addProviderSessionIdMapping = (db: Database): void => {
  * GOLDJAXE fork (реестр §4.16): read-aloud summary settings.
  *
  * `speech_summary` is '' (default: on), 'on' or 'off'; `speech_summary_prompt`
- * is the user's own instruction, '' meaning the built-in one. Existing rows get
+ * is the user's own instruction, '' meaning the built-in one; §4.16-бис adds
+ * `speech_summary_model`, '' meaning the server's choice. Existing rows get
  * NULL, which reads as the defaults.
  */
 const addVoiceSpeechSummaryColumns = (db: Database): void => {
   const columnNames = getTableInfo(db, 'voice_settings').map((column) => column.name);
   addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary', 'TEXT');
   addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary_prompt', 'TEXT');
+  addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary_model', 'TEXT');
 };
 
 const addSupersededTranscriptPathColumn = (db: Database): void => {

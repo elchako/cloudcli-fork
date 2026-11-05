@@ -14,6 +14,7 @@ function requestUserId(request: express.Request): number {
  * GOLDJAXE fork (реестр §4.16): HTTP surface of the read-aloud summary.
  *
  *   GET  /status → what the settings screen needs (no secrets);
+ *   GET  /models → { models: string[] } — Claude models for the picker;
  *   POST /       → { summary: string | null, reason? }.
  *
  * Every outcome except an oversized body is a 200 with `summary: null` and a
@@ -25,6 +26,10 @@ export function createSpeechSummaryRouter(service: SpeechSummaryService): expres
 
   router.get('/status', asyncHandler(async (request, response) => {
     response.json(await service.getStatus(requestUserId(request)));
+  }));
+
+  router.get('/models', asyncHandler(async (_request, response) => {
+    response.json({ models: await service.listModels() });
   }));
 
   router.post('/', asyncHandler(async (request, response) => {

@@ -31,6 +31,7 @@ test('the migration adds the summary columns to an existing voice_settings table
   const db = connect();
   db.exec('ALTER TABLE voice_settings DROP COLUMN speech_summary');
   db.exec('ALTER TABLE voice_settings DROP COLUMN speech_summary_prompt');
+  db.exec('ALTER TABLE voice_settings DROP COLUMN speech_summary_model');
   db.prepare("INSERT INTO users (id, username, password_hash) VALUES (1, 'tester', 'x')").run();
   db.prepare("INSERT INTO voice_settings (user_id, base_url, tts_voice) VALUES (1, 'https://voice.example.test/v1', 'nova')").run();
 
@@ -42,6 +43,7 @@ test('the migration adds the summary columns to an existing voice_settings table
     .map((column) => column.name);
   assert.ok(columns.includes('speech_summary'));
   assert.ok(columns.includes('speech_summary_prompt'));
+  assert.ok(columns.includes('speech_summary_model'));
 
   const { voiceSettingsDb } = await import('@/modules/database/repositories/voice-settings.js');
   const stored = voiceSettingsDb.getVoiceSettings(1);
@@ -49,4 +51,5 @@ test('the migration adds the summary columns to an existing voice_settings table
   assert.equal(stored.ttsVoice, 'nova');
   assert.equal(stored.speechSummary, '');
   assert.equal(stored.speechSummaryPrompt, '');
+  assert.equal(stored.speechSummaryModel, '');
 });

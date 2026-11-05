@@ -25,6 +25,9 @@ before(async () => {
   db.prepare(
     "INSERT INTO users (id, username, password_hash) VALUES (2, 'other', 'x')"
   ).run();
+  db.prepare(
+    "INSERT INTO users (id, username, password_hash) VALUES (3, 'third', 'x')"
+  ).run();
 });
 
 after(async () => {
@@ -43,7 +46,7 @@ test('getVoiceSettings returns empty fields before anything is stored', async ()
 
   assert.deepEqual(voiceSettingsDb.getVoiceSettings(1), {
     baseUrl: '', sttModel: '', ttsModel: '', ttsVoice: '', ttsFormat: '',
-    speechSummary: '', speechSummaryPrompt: '', hasApiKey: false,
+    speechSummary: '', speechSummaryPrompt: '', speechSummaryModel: '', hasApiKey: false,
   });
   assert.equal(voiceSettingsDb.getVoiceApiKey(1), null);
 });
@@ -187,4 +190,35 @@ test('a bad summary mode or an over-long instruction is refused, not clipped', a
     speechSummaryPrompt: 'я'.repeat(SPEECH_SUMMARY_PROMPT_MAX_CHARS),
   });
   assert.equal(atLimit.speechSummaryPrompt.length, SPEECH_SUMMARY_PROMPT_MAX_CHARS);
+});
+
+// GOLDJAXE fork (реестр §4.16-бис): the summary model.
+
+test('the summary model is stored, kept by other saves and checked for format only', async () => {
+  const { voiceSettingsDb } = await import('@/modules/database/repositories/voice-settings.js');
+
+  const stored = voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: '  claude-haiku-4-5-20251001 ' });
+  assert.equal(stored.speechSummaryModel, 'claude-haiku-4-5-20251001');
+  // A gateway's own spelling passes: the list may be briefly unavailable.
+  assert.equal(
+    voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: 'anthropic/claude-opus-5-5@2026[1m]' }).speechSummaryModel,
+    'anthropic/claude-opus-5-5@2026[1m]',
+  );
+  assert.equal(
+    voiceSettingsDb.updateVoiceSettings(3, { speechSummaryPrompt: 'Коротко.' }).speechSummaryModel,
+    'anthropic/claude-opus-5-5@2026[1m]',
+  );
+
+  for (const bad of ['claude haiku', 'модель', 'a'.repeat(201), 'x;DROP', '<script>']) {
+    assert.throws(
+      () => voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: bad }),
+      (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+      bad,
+    );
+  }
+  assert.equal(voiceSettingsDb.getVoiceSettings(3).speechSummaryModel, 'anthropic/claude-opus-5-5@2026[1m]');
+  assert.equal(voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: 'a'.repeat(200) }).speechSummaryModel.length, 200);
+
+  // '' returns to the server's choice.
+  assert.equal(voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: '' }).speechSummaryModel, '');
 });

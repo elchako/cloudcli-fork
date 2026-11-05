@@ -8,7 +8,9 @@ import {
   buildSpeechSummaryMessages,
   clipForSummary,
   createSpeechSummaryService,
+  DEFAULT_SPEECH_SUMMARY_MODEL,
   DEFAULT_SPEECH_SUMMARY_PROMPT,
+  filterSummaryModels,
   isSpeechSummaryAllowedByEnv,
   neutralizeAnswerTags,
   SPEECH_SUMMARY_MAX_TEXT_CHARS,
@@ -18,7 +20,7 @@ import {
 } from '@/modules/speech-summary/speech-summary.service.js';
 import { createSpeechSummaryRouter } from '@/modules/speech-summary/speech-summary.routes.js';
 
-// GOLDJAXE fork (реестр §4.16): the read-aloud summary.
+// GOLDJAXE fork (реестр §4.16, §4.16-бис): the read-aloud summary.
 
 const LONG_REPLY = `${'Подробности проверки и перечень изменённых мест. '.repeat(20)}Нужно твоё решение: выкатывать?`;
 const CREDENTIALS = { token: 'test-token', baseUrl: 'https://gateway.test', isApiKey: false };
@@ -29,26 +31,36 @@ function makeService(options: {
   outcomes?: SmallModelOutcome[];
   mode?: string;
   prompt?: string;
+  model?: string;
+  serverModel?: string | null;
   credentials?: typeof CREDENTIALS | null;
   allowed?: boolean;
   request?: (request: SmallModelRequest, signal?: AbortSignal) => Promise<SmallModelOutcome>;
+  listModels?: () => Promise<string[] | null>;
 } = {}) {
   const calls: Call[] = [];
   const logs: string[] = [];
+  const clock = { now: 1_000_000 };
+  const listCalls = { count: 0 };
   const outcomes = [...(options.outcomes ?? [{ status: 'ok', text: 'Сделал. Нужно твоё решение.', stopReason: 'end_turn' }])];
   const service = createSpeechSummaryService({
-    readUserSettings: () => ({ mode: options.mode ?? '', prompt: options.prompt ?? '' }),
+    readUserSettings: () => ({ mode: options.mode ?? '', prompt: options.prompt ?? '', model: options.model ?? '' }),
     resolveCredentials: async () => (options.credentials === undefined ? CREDENTIALS : options.credentials),
-    resolveModel: async () => 'claude-haiku-test',
+    resolveServerModel: async () => options.serverModel ?? null,
     request: async (_credentials, request, requestOptions) => {
       calls.push({ request, signal: requestOptions.signal });
       if (options.request) return options.request(request, requestOptions.signal);
       return outcomes.shift() ?? { status: 'failed', reason: 'no more outcomes' };
     },
+    listModels: async () => {
+      listCalls.count += 1;
+      return options.listModels ? options.listModels() : ['claude-haiku-5-5'];
+    },
     allowedByEnv: () => options.allowed ?? true,
     log: (message) => logs.push(message),
+    now: () => clock.now,
   });
-  return { service, calls, logs };
+  return { service, calls, logs, clock, listCalls };
 }
 
 describe('speech summary prompt building', () => {
@@ -77,6 +89,16 @@ describe('speech summary prompt building', () => {
     assert.equal(clipForSummary('коротко', 400), 'коротко');
   });
 
+  it('offers only Claude models in the picker, without the disguised ones', () => {
+    assert.deepEqual(
+      filterSummaryModels([
+        'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-5-5[1m]', 'claude-fable-5-dd-high', 'claude-fable-5-1',
+        'gpt-5', 'claude-3-5-haiku-latest', 'claude-haiku-4-5-20251001', 'claude-haiku-5-5',
+      ]),
+      ['claude-fable-5-1', 'claude-haiku-4-5-20251001', 'claude-haiku-5-5', 'claude-sonnet-5-5'],
+    );
+  });
+
   it('reads the server-wide switch', () => {
     assert.equal(isSpeechSummaryAllowedByEnv(undefined), true);
     assert.equal(isSpeechSummaryAllowedByEnv('off'), false);
@@ -86,19 +108,36 @@ describe('speech summary prompt building', () => {
 });
 
 describe('speech summary service', () => {
-  it('summarizes with the built-in instruction, low temperature and a token cap', async () => {
+  it('summarizes on Haiku 5.5 at low effort, without a temperature', async () => {
     const { service, calls, logs } = makeService();
     const result = await service.summarize(1, LONG_REPLY);
     assert.deepEqual(result, { status: 'ok', summary: 'Сделал. Нужно твоё решение.' });
     const request = calls[0].request;
-    assert.equal(request.model, 'claude-haiku-test');
+    assert.equal(DEFAULT_SPEECH_SUMMARY_MODEL, 'claude-haiku-5-5');
+    assert.equal(request.model, DEFAULT_SPEECH_SUMMARY_MODEL);
     assert.ok(request.system.startsWith(DEFAULT_SPEECH_SUMMARY_PROMPT));
-    assert.equal(request.temperature, 0.2);
-    assert.equal(request.maxTokens, 700);
+    assert.equal(request.temperature, undefined);
+    assert.equal(request.effort, 'low');
+    // Adaptive thinking counts against the limit, so it is far above the answer.
+    assert.equal(request.maxTokens, 3000);
     assert.equal(request.thinkingBudget, undefined);
-    // The log carries lengths and timing, never the reply or the summary.
+    assert.equal(request.adaptiveThinking, undefined);
+    // The log carries lengths, timing and the model, never the reply or the summary.
     assert.equal(logs.length, 1);
+    assert.ok(logs[0].includes('claude-haiku-5-5'));
     assert.ok(!logs[0].includes('решение'));
+  });
+
+  it('takes the user model over the operator one, and the operator one over Haiku 5.5', async () => {
+    const operator = makeService({ serverModel: 'claude-sonnet-5-5' });
+    await operator.service.summarize(1, LONG_REPLY);
+    assert.equal(operator.calls[0].request.model, 'claude-sonnet-5-5');
+    const user = makeService({ serverModel: 'claude-sonnet-5-5', model: '  claude-haiku-4-5-20251001 ' });
+    await user.service.summarize(1, LONG_REPLY);
+    assert.equal(user.calls[0].request.model, 'claude-haiku-4-5-20251001');
+    // A model before 4.6 gets no effort: it would reject output_config.
+    assert.equal(user.calls[0].request.effort, undefined);
+    assert.equal(user.calls[0].request.temperature, undefined);
   });
 
   it('uses the user instruction, still followed by the policy', async () => {
@@ -107,20 +146,36 @@ describe('speech summary service', () => {
     assert.equal(calls[0].request.system, `Коротко, на «вы».\n\n${SPEECH_SUMMARY_POLICY}`);
   });
 
-  it('retries with thinking and without a temperature when the gateway demands it', async () => {
-    const { service, calls } = makeService({
+  it('retries with the thinking form the model takes when the gateway demands it', async () => {
+    const thinking = (model?: string) => makeService({
+      model,
       outcomes: [{ status: 'needs-thinking' }, { status: 'ok', text: 'Готово.', stopReason: 'end_turn' }],
     });
-    assert.deepEqual(await service.summarize(1, LONG_REPLY), { status: 'ok', summary: 'Готово.' });
-    assert.equal(calls.length, 2);
-    assert.equal(calls[1].request.thinkingBudget, 1024);
-    assert.equal(calls[1].request.temperature, undefined);
-    assert.equal(calls[1].request.maxTokens, 700);
+    const adaptive = thinking();
+    assert.deepEqual(await adaptive.service.summarize(1, LONG_REPLY), { status: 'ok', summary: 'Готово.' });
+    assert.equal(adaptive.calls.length, 2);
+    assert.equal(adaptive.calls[1].request.adaptiveThinking, true);
+    assert.equal(adaptive.calls[1].request.thinkingBudget, undefined);
+    assert.equal(adaptive.calls[1].request.effort, 'low');
+    const legacy = thinking('claude-haiku-4-5-20251001');
+    assert.deepEqual(await legacy.service.summarize(1, LONG_REPLY), { status: 'ok', summary: 'Готово.' });
+    assert.equal(legacy.calls[1].request.thinkingBudget, 1024);
+    assert.equal(legacy.calls[1].request.adaptiveThinking, undefined);
+    assert.equal(legacy.calls[1].request.maxTokens, 3000);
   });
 
-  it('drops a retelling cut by the token limit, and an empty one', async () => {
+  it('speaks only a finished answer', async () => {
     const truncated = makeService({ outcomes: [{ status: 'ok', text: 'Сделал озвучку и', stopReason: 'max_tokens' }] });
     assert.deepEqual(await truncated.service.summarize(1, LONG_REPLY), { status: 'failed', reason: 'truncated' });
+    const refusal = makeService({ outcomes: [{ status: 'ok', text: 'Частично', stopReason: 'refusal' }] });
+    assert.deepEqual(await refusal.service.summarize(1, LONG_REPLY), { status: 'failed', reason: 'stop: refusal' });
+    const pause = makeService({ outcomes: [{ status: 'ok', text: 'Частично', stopReason: 'pause_turn' }] });
+    assert.deepEqual(await pause.service.summarize(1, LONG_REPLY), { status: 'failed', reason: 'stop: pause_turn' });
+    // A gateway that sends no stop reason is trusted, as before §4.16-бис.
+    const unknown = makeService({ outcomes: [{ status: 'ok', text: 'Текст.', stopReason: null }] });
+    assert.deepEqual(await unknown.service.summarize(1, LONG_REPLY), { status: 'ok', summary: 'Текст.' });
+    const stop = makeService({ outcomes: [{ status: 'ok', text: 'Готово.', stopReason: 'stop_sequence' }] });
+    assert.deepEqual(await stop.service.summarize(1, LONG_REPLY), { status: 'ok', summary: 'Готово.' });
     const empty = makeService({ outcomes: [{ status: 'ok', text: '   ', stopReason: 'end_turn' }] });
     assert.deepEqual(await empty.service.summarize(1, LONG_REPLY), { status: 'failed', reason: 'empty' });
     const failed = makeService({ outcomes: [{ status: 'failed', reason: 'HTTP 502' }] });
@@ -171,17 +226,43 @@ describe('speech summary service', () => {
   });
 
   it('reports its status without secrets', async () => {
-    const { service } = makeService({ mode: 'off' });
+    const { service } = makeService({ mode: 'off', model: 'claude-sonnet-5-5' });
     const status = await service.getStatus(1);
     assert.deepEqual(status, {
       available: true,
       enabled: false,
-      model: 'claude-haiku-test',
+      model: 'claude-sonnet-5-5',
+      defaultModel: DEFAULT_SPEECH_SUMMARY_MODEL,
       defaultPrompt: DEFAULT_SPEECH_SUMMARY_PROMPT,
       minChars: SPEECH_SUMMARY_MIN_CHARS,
     });
+    assert.equal((await makeService({ serverModel: 'claude-opus-5-5' }).service.getStatus(1)).defaultModel, 'claude-opus-5-5');
     assert.equal((await makeService({ credentials: null }).service.getStatus(1)).available, false);
     assert.equal((await makeService({ allowed: false }).service.getStatus(1)).available, false);
+  });
+
+  it('caches the model list, a failure only briefly', async () => {
+    let answer: string[] | null = null;
+    const { service, clock, listCalls } = makeService({ listModels: async () => answer });
+    assert.deepEqual(await service.listModels(), []);
+    assert.deepEqual(await service.listModels(), []);
+    assert.equal(listCalls.count, 1);
+    // A failed or empty answer is asked again after a minute, not ten.
+    answer = ['claude-sonnet-5-5', 'claude-fable-5-dd-high', 'claude-haiku-5-5'];
+    clock.now += 61_000;
+    assert.deepEqual(await service.listModels(), ['claude-haiku-5-5', 'claude-sonnet-5-5']);
+    assert.equal(listCalls.count, 2);
+    answer = null;
+    clock.now += 9 * 60_000;
+    assert.deepEqual(await service.listModels(), ['claude-haiku-5-5', 'claude-sonnet-5-5']);
+    assert.equal(listCalls.count, 2);
+    clock.now += 2 * 60_000;
+    assert.deepEqual(await service.listModels(), []);
+    assert.equal(listCalls.count, 3);
+    // Without credentials the endpoint is not asked at all.
+    const noKey = makeService({ credentials: null });
+    assert.deepEqual(await noKey.service.listModels(), []);
+    assert.equal(noKey.listCalls.count, 0);
   });
 });
 
@@ -225,6 +306,7 @@ describe('speech summary routes', () => {
       assert.equal(tooLong.status, 413);
       const status = await (await fetch(`${base}/status`)).json() as { available: boolean };
       assert.equal(status.available, true);
+      assert.deepEqual(await (await fetch(`${base}/models`)).json(), { models: ['claude-haiku-5-5'] });
     });
   });
 

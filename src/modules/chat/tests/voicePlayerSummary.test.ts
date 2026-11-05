@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { api, synthesizeVoice } from '@/shared/api';
-import { resetSpeechSummaryStatusForTests } from '@/shared/speechSummary';
+import { loadSpeechSummaryModels, resetSpeechSummaryStatusForTests } from '@/shared/speechSummary';
 import { seedVoiceConfigCacheForTests } from '@/shared/voiceConfig';
 import { voiceId, voicePlayer } from '@/modules/chat/utils/voicePlayer';
 
@@ -9,7 +9,7 @@ import { voiceId, voicePlayer } from '@/modules/chat/utils/voicePlayer';
 
 vi.mock('@/shared/api', () => ({
   api: {
-    speechSummary: { status: vi.fn(), summarize: vi.fn() },
+    speechSummary: { status: vi.fn(), summarize: vi.fn(), models: vi.fn() },
     getVoiceSettings: vi.fn(),
   },
   synthesizeVoice: vi.fn(),
@@ -135,5 +135,25 @@ describe('voicePlayer summary', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(snapshot(LONG_REPLY)).toEqual({ state: 'idle', error: null });
     expect(synthesize).not.toHaveBeenCalled();
+  });
+});
+
+// GOLDJAXE fork (реестр §4.16-бис): the model picker's list.
+describe('loadSpeechSummaryModels', () => {
+  const models = vi.mocked(api.speechSummary.models);
+
+  it('returns the listed ids and drops anything else', async () => {
+    models.mockResolvedValueOnce(json({ models: ['claude-haiku-5-5', 7, 'claude-sonnet-5-5'] }));
+    expect(await loadSpeechSummaryModels()).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
+  });
+
+  it('is empty for an older server, an error or a failed request', async () => {
+    // An older server answers the path with the app's index.html.
+    models.mockResolvedValueOnce(new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } }));
+    expect(await loadSpeechSummaryModels()).toEqual([]);
+    models.mockResolvedValueOnce(json({ error: 'x' }, { status: 500 }));
+    expect(await loadSpeechSummaryModels()).toEqual([]);
+    models.mockRejectedValueOnce(new Error('offline'));
+    expect(await loadSpeechSummaryModels()).toEqual([]);
   });
 });

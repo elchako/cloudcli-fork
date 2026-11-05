@@ -136,11 +136,14 @@ Base URL браузер ходит напрямую (`/audio/speech`), без н
 Перед синтезом `prepareSpokenText` (`src/shared/speechSummary.ts`) может
 подменить текст сводкой: `POST /api/speech-summary` (модуль
 `server/modules/speech-summary/`) пересказывает длинный ответ малой моделью
-Claude доступом пользователя, `GET /api/speech-summary/status` — для экрана
-настроек. Режим и инструкция — колонки `speech_summary`,
-`speech_summary_prompt` в `voice_settings`. Env: `CLOUDCLI_SPEECH_SUMMARY=off`
-— выключить на сервере, `CLOUDCLI_SPEECH_SUMMARY_MODEL` — модель. Транспорт к
-модели общий с ИИ-названиями — `server/shared/small-model.ts`
+Claude доступом пользователя (по умолчанию `claude-haiku-5-5`, effort low),
+`GET /api/speech-summary/status` и `GET /api/speech-summary/models` (модели
+Claude с `/v1/models` шлюза, кэш 10 мин) — для экрана настроек. Режим,
+инструкция и модель — колонки `speech_summary`, `speech_summary_prompt`,
+`speech_summary_model` в `voice_settings`. Env: `CLOUDCLI_SPEECH_SUMMARY=off`
+— выключить на сервере, `CLOUDCLI_SPEECH_SUMMARY_MODEL` — модель по умолчанию
+вместо Haiku 5.5 (выбор пользователя важнее). Транспорт к модели общий с
+ИИ-названиями — `server/shared/small-model.ts`
 ([сводка вслух](../fork/speech-summary.md)).
 
 ## Аутентификация

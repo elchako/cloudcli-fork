@@ -19,6 +19,8 @@ export type SpeechSummaryStatus = {
   available: boolean;
   enabled: boolean;
   model: string;
+  /** §4.16-бис; absent from a server before it. */
+  defaultModel?: string;
   defaultPrompt: string;
   minChars: number;
 };
@@ -45,6 +47,24 @@ export function loadSpeechSummaryStatus(): Promise<SpeechSummaryStatus | null> {
     });
   }
   return statusPromise;
+}
+
+/**
+ * GOLDJAXE fork (реестр §4.16-бис): Claude models the user's endpoint offers,
+ * for the settings picker. Empty on any failure — the picker then offers the
+ * default and the current choice only.
+ */
+export async function loadSpeechSummaryModels(): Promise<string[]> {
+  try {
+    const response = await api.speechSummary.models();
+    if (!response.ok || !(response.headers.get('content-type') || '').includes('application/json')) {
+      return [];
+    }
+    const body = await response.json() as { models?: unknown };
+    return Array.isArray(body.models) ? body.models.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 /** For tests: forget the cached server status. */

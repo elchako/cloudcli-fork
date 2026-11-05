@@ -32,12 +32,14 @@ export type VoiceConfig = {
   ttsModel: string;
   ttsVoice: string;
   ttsFormat: string;
-  // GOLDJAXE fork (реестр §4.16): read-aloud summary. '' = default (on), 'on'
-  // or 'off'; the instruction is '' for the built-in one. Strings on purpose:
+  // GOLDJAXE fork (реестр §4.16, §4.16-бис): read-aloud summary. '' = default
+  // (on), 'on' or 'off'; the instruction is '' for the built-in one, the model
+  // '' for the server's choice. Strings on purpose:
   // the cache and the save path here handle string fields only. Never sent as
   // x-voice-* headers — the server reads them from the database.
   speechSummary: string;
   speechSummaryPrompt: string;
+  speechSummaryModel: string;
 };
 
 /**
@@ -58,6 +60,7 @@ export const VOICE_CONFIG_DEFAULTS: VoiceConfig = {
   ttsFormat: '',
   speechSummary: '',
   speechSummaryPrompt: '',
+  speechSummaryModel: '',
 };
 
 // Synchronous view used by the request builders in `shared/api`. `apiKey` is
@@ -109,6 +112,7 @@ function applyServerVoice(voice: Record<string, unknown> | null | undefined): vo
     ttsFormat: readString('ttsFormat'),
     speechSummary: readString('speechSummary'),
     speechSummaryPrompt: readString('speechSummaryPrompt'),
+    speechSummaryModel: readString('speechSummaryModel'),
   };
 }
 
@@ -138,9 +142,15 @@ export function hydrateVoiceConfig(): Promise<void> {
 
       if (legacy && serverIsEmpty) {
         // One-time migration: push the local setup up, then stop keeping the
-        // secret in browser storage.
-        await api.updateVoiceSettings(legacy);
-        cachedConfig = { ...legacy, apiKey: '' };
+        // secret in browser storage. GOLDJAXE fork (реестр §4.16-бис): the
+        // legacy store predates the summary fields, so its blanks are not sent
+        // — they would wipe the summary settings already on the server.
+        const legacyVoice: Partial<VoiceConfig> = { ...legacy };
+        delete legacyVoice.speechSummary;
+        delete legacyVoice.speechSummaryPrompt;
+        delete legacyVoice.speechSummaryModel;
+        await api.updateVoiceSettings(legacyVoice);
+        cachedConfig = { ...cachedConfig, ...legacyVoice, apiKey: '' };
         cachedHasApiKey = Boolean(legacy.apiKey);
       }
 

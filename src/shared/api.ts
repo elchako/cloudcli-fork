@@ -655,6 +655,7 @@ export const api = {
   // made by the server with the user's own model access.
   speechSummary: {
     status: () => get('/api/speech-summary/status'),
+    models: () => get('/api/speech-summary/models'),
     summarize: (text: string, options: ApiRequestOptions = {}) => post('/api/speech-summary', { text }, options),
   },
 

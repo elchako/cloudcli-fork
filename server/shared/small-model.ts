@@ -5,16 +5,17 @@ import { readFile } from 'node:fs/promises';
 import { readObjectRecord, readOptionalString } from '@/shared/utils.js';
 
 /**
- * GOLDJAXE fork (реестр §4.6, §4.16): one-shot calls to a small Claude model.
+ * GOLDJAXE fork (реестр §4.6, §4.16, §4.16-бис): one-shot calls to a small
+ * Claude model.
  *
  * Shared by the sidebar session titles and the read-aloud summary. Both need
  * the same thing: the credentials Claude Code itself uses, a model id, and a
  * plain Messages API request that survives gateways (CLIProxyAPI among them)
  * which reject a request without extended thinking.
  *
- * Callers own their policy — prompt, token budget, temperature, timeout,
- * queueing — so this module stays a thin transport and never logs request
- * or response text.
+ * Callers own their policy — prompt, token budget, temperature, effort,
+ * timeout, queueing — so this module stays a thin transport and never logs
+ * request or response text.
  */
 
 const DEFAULT_SMALL_MODEL = 'claude-haiku-4-5-20251001';
@@ -97,13 +98,34 @@ export type SmallModelRequest = {
   model: string;
   system: string;
   messages: SmallModelMessage[];
-  /** Answer budget. With thinking the request adds `thinkingBudget` on top. */
+  /** Answer budget. With a thinking budget the request adds it on top; adaptive
+   * thinking of newer models is counted inside this limit. */
   maxTokens: number;
   /** Omitted when thinking is on: the API rejects a non-default temperature then. */
   temperature?: number;
-  /** Set on the retry a gateway forces; the answer still gets `maxTokens`. */
+  /** Legacy extended thinking (models before 4.6) on the retry a gateway forces;
+   * the answer still gets `maxTokens`. */
   thinkingBudget?: number;
+  /** §4.16-бис: `{type:'adaptive'}` — the thinking form of 4.6+ and 5.x
+   * models (4.7+ and 5.x reject `budget_tokens`). */
+  adaptiveThinking?: boolean;
+  /** §4.16-бис: `output_config.effort` — how much the model may think (4.6+
+   * and 5.x only). */
+  effort?: 'low' | 'medium' | 'high';
 };
+
+/**
+ * GOLDJAXE fork (реестр §4.16-бис): true for models that think adaptively and
+ * take `effort` — Claude 4.6 and later and the 5.x family, Fable included, also
+ * behind a gateway or cloud prefix (`anthropic/…`, `us.anthropic.…`). Older ones
+ * (Haiku 4.5, 3.x) use a token budget instead and reject both
+ * `{type:'adaptive'}` and `output_config.effort`. The gateway's disguised
+ * non-Claude models (`claude-fable-5-dd-*`) are not Claude and get neither.
+ */
+export function isAdaptiveThinkingModel(model: string): boolean {
+  return /(?:^|[/.])claude-(?:haiku|sonnet|opus|fable)-(?:4-[6-9]|[5-9])(?:\b|-)/.test(model)
+    && !/-dd-/.test(model);
+}
 
 export type SmallModelOutcome =
   | { status: 'ok'; text: string; stopReason: string | null }
@@ -114,7 +136,8 @@ export type SmallModelOutcome =
  * POSTs one Messages API request. Never throws: network errors, timeouts,
  * aborts and non-2xx answers come back as `failed` (with a reason safe to
  * log — no request or response text), and the gateway's thinking demand as
- * `needs-thinking` so the caller can retry with a budget.
+ * `needs-thinking` so the caller can retry with thinking on (a budget or, for
+ * newer models, adaptive).
  */
 export async function postSmallModelRequest(
   credentials: SmallModelCredentials,
@@ -127,7 +150,7 @@ export async function postSmallModelRequest(
   options.signal?.addEventListener('abort', onAbort, { once: true });
   if (options.signal?.aborted) controller.abort();
 
-  const withThinking = typeof request.thinkingBudget === 'number';
+  const withThinking = typeof request.thinkingBudget === 'number' || request.adaptiveThinking === true;
 
   try {
     const response = await fetch(`${credentials.baseUrl}/v1/messages`, {
@@ -144,15 +167,18 @@ export async function postSmallModelRequest(
         model: request.model,
         system: request.system,
         messages: request.messages,
-        ...(withThinking
-          ? {
-              max_tokens: request.maxTokens + (request.thinkingBudget as number),
-              thinking: { type: 'enabled', budget_tokens: request.thinkingBudget },
-            }
-          : {
-              max_tokens: request.maxTokens,
-              ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
-            }),
+        ...(request.adaptiveThinking
+          ? { max_tokens: request.maxTokens, thinking: { type: 'adaptive' } }
+          : withThinking
+            ? {
+                max_tokens: request.maxTokens + (request.thinkingBudget as number),
+                thinking: { type: 'enabled', budget_tokens: request.thinkingBudget },
+              }
+            : {
+                max_tokens: request.maxTokens,
+                ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
+              }),
+        ...(request.effort ? { output_config: { effort: request.effort } } : {}),
       }),
     });
 
@@ -188,5 +214,40 @@ export async function postSmallModelRequest(
   } finally {
     clearTimeout(timeout);
     options.signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+/**
+ * GOLDJAXE fork (реестр §4.16-бис): model ids the configured endpoint offers
+ * (`GET /v1/models`), or null when it could not be asked. Same credentials and
+ * headers as the Messages calls; no secrets or ids are logged.
+ */
+export async function listSmallModels(
+  credentials: SmallModelCredentials,
+  options: { timeoutMs: number },
+): Promise<string[] | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+  try {
+    const response = await fetch(`${credentials.baseUrl}/v1/models?limit=1000`, {
+      signal: controller.signal,
+      headers: {
+        'anthropic-version': '2023-06-01',
+        ...(credentials.isApiKey
+          ? { 'x-api-key': credentials.token }
+          : { authorization: `Bearer ${credentials.token}` }),
+      },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = (await response.json()) as { data?: { id?: unknown }[] };
+    return (payload.data ?? [])
+      .map((entry) => entry?.id)
+      .filter((id): id is string => typeof id === 'string');
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
