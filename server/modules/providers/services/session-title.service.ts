@@ -1,8 +1,9 @@
-import os from 'node:os';
-import path from 'node:path';
-import { readFile } from 'node:fs/promises';
-
-import { readObjectRecord, readOptionalString } from '@/shared/utils.js';
+import {
+  postSmallModelRequest,
+  resolveSmallModel,
+  resolveSmallModelCredentials,
+  type SmallModelCredentials,
+} from '@/shared/small-model.js';
 
 /**
  * Generates short, scannable sidebar titles for sessions.
@@ -32,7 +33,7 @@ const REQUEST_TIMEOUT_MS = 12000;
  * produce one short line, and `max_tokens` must stay above the budget.
  */
 const THINKING_BUDGET_TOKENS = 1024;
-const THINKING_MAX_TOKENS = THINKING_BUDGET_TOKENS + 256;
+const THINKING_ANSWER_TOKENS = 256;
 
 /**
  * Serializes title requests.
@@ -51,9 +52,6 @@ function enqueueTitleRequest<T>(task: () => Promise<T>): Promise<T> {
   titleRequestQueue = result.catch(() => undefined);
   return result;
 }
-
-const DEFAULT_TITLE_MODEL = 'claude-haiku-4-5-20251001';
-const DEFAULT_API_BASE_URL = 'https://api.anthropic.com';
 
 /**
  * The prompt must produce a title for ANY first message, not just well-formed
@@ -107,68 +105,6 @@ function buildSystemPrompt(previousTitle: string | undefined): string {
     TITLE_SYSTEM_PROMPT,
     `- Прежний заголовок «${previousTitle}» не подошёл: предложи другой, сформулированный иначе.`,
   ].join('\n');
-}
-
-type TitleCredentials = {
-  token: string;
-  baseUrl: string;
-  /** Anthropic gateways accept the token either as x-api-key or as a bearer. */
-  isApiKey: boolean;
-};
-
-/** Reads the `env` block of ~/.claude/settings.json, mirroring Claude Code. */
-async function loadClaudeSettingsEnv(): Promise<Record<string, unknown>> {
-  try {
-    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-    const content = await readFile(settingsPath, 'utf8');
-    const settings = readObjectRecord(JSON.parse(content));
-    return readObjectRecord(settings?.env) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Resolves API credentials in the same priority order Claude Code itself uses.
- *
- * OAuth subscription logins are deliberately not used here: that token is not
- * valid for direct Messages API calls, so a session titled through it would
- * fail on every request instead of falling back cleanly.
- */
-async function resolveCredentials(): Promise<TitleCredentials | null> {
-  const settingsEnv = await loadClaudeSettingsEnv();
-
-  const baseUrl = (
-    process.env.ANTHROPIC_BASE_URL?.trim() ||
-    readOptionalString(settingsEnv.ANTHROPIC_BASE_URL) ||
-    DEFAULT_API_BASE_URL
-  ).replace(/\/+$/, '');
-
-  const apiKey =
-    process.env.ANTHROPIC_API_KEY?.trim() || readOptionalString(settingsEnv.ANTHROPIC_API_KEY);
-  if (apiKey) {
-    return { token: apiKey, baseUrl, isApiKey: true };
-  }
-
-  const authToken =
-    process.env.ANTHROPIC_AUTH_TOKEN?.trim() || readOptionalString(settingsEnv.ANTHROPIC_AUTH_TOKEN);
-  if (authToken) {
-    return { token: authToken, baseUrl, isApiKey: false };
-  }
-
-  return null;
-}
-
-async function resolveTitleModel(): Promise<string> {
-  const settingsEnv = await loadClaudeSettingsEnv();
-
-  return (
-    process.env.CLOUDCLI_SESSION_TITLE_MODEL?.trim() ||
-    readOptionalString(settingsEnv.CLOUDCLI_SESSION_TITLE_MODEL) ||
-    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?.trim() ||
-    readOptionalString(settingsEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL) ||
-    DEFAULT_TITLE_MODEL
-  );
 }
 
 /** True unless the operator explicitly turned AI titles off. */
@@ -229,90 +165,55 @@ function sanitizeModelTitle(rawTitle: string): string | null {
   return title.length > MAX_TITLE_LENGTH ? buildFallbackTitle(title) : title;
 }
 
-/** True for the gateway error that demands extended thinking be enabled. */
-function requiresThinking(errorBody: string): boolean {
-  return /thinking.*(?:to be enabled|is required)|requires\s+`?thinking/i.test(errorBody);
-}
-
 type TitleRequestOutcome =
   | { status: 'ok'; title: string | null }
   | { status: 'needs-thinking' }
   | { status: 'failed' };
 
 async function postTitleRequest(
-  credentials: TitleCredentials,
+  credentials: SmallModelCredentials,
   model: string,
   prompt: string,
   withThinking: boolean,
   previousTitle: string | undefined,
 ): Promise<TitleRequestOutcome> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const outcome = await postSmallModelRequest(
+    credentials,
+    {
+      model,
+      system: buildSystemPrompt(previousTitle),
+      messages: [{ role: 'user', content: prompt.slice(0, MAX_PROMPT_CHARS) }],
+      ...(withThinking
+        ? { maxTokens: THINKING_ANSWER_TOKENS, thinkingBudget: THINKING_BUDGET_TOKENS }
+        : { maxTokens: 64, temperature: previousTitle ? REGENERATE_TEMPERATURE : 0 }),
+    },
+    { timeoutMs: REQUEST_TIMEOUT_MS },
+  );
 
-  try {
-    const response = await fetch(`${credentials.baseUrl}/v1/messages`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'content-type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        ...(credentials.isApiKey
-          ? { 'x-api-key': credentials.token }
-          : { authorization: `Bearer ${credentials.token}` }),
-      },
-      body: JSON.stringify({
-        model,
-        system: buildSystemPrompt(previousTitle),
-        messages: [{ role: 'user', content: prompt.slice(0, MAX_PROMPT_CHARS) }],
-        ...(withThinking
-          ? {
-              // Thinking rejects a non-default temperature, so it is omitted here.
-              max_tokens: THINKING_MAX_TOKENS,
-              thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET_TOKENS },
-            }
-          : { max_tokens: 64, temperature: previousTitle ? REGENERATE_TEMPERATURE : 0 }),
-      }),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      if (!withThinking && response.status === 400 && requiresThinking(errorBody)) {
-        return { status: 'needs-thinking' };
-      }
-
-      console.warn(`Session title model returned HTTP ${response.status}; keeping the raw prompt`);
-      return { status: 'failed' };
-    }
-
-    const payload = (await response.json()) as {
-      content?: { type?: string; text?: string }[];
-    };
-    // Thinking blocks share the response with the answer; only text counts.
-    const text = payload.content
-      ?.filter((block) => block?.type === 'text' && typeof block.text === 'string')
-      .map((block) => block.text as string)
-      .join(' ');
-
-    return { status: 'ok', title: text ? sanitizeModelTitle(text) : null };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    console.warn(`Session title generation failed (${reason}); keeping the raw prompt`);
-    return { status: 'failed' };
-  } finally {
-    clearTimeout(timeout);
+  if (outcome.status === 'needs-thinking') {
+    return outcome;
   }
+  if (outcome.status === 'failed') {
+    if (outcome.reason.startsWith('HTTP ')) {
+      console.warn(`Session title model returned ${outcome.reason}; keeping the raw prompt`);
+    } else {
+      console.warn(`Session title generation failed (${outcome.reason}); keeping the raw prompt`);
+    }
+    return { status: 'failed' };
+  }
+  return { status: 'ok', title: outcome.text ? sanitizeModelTitle(outcome.text) : null };
 }
 
 async function requestModelTitle(
   prompt: string,
   previousTitle: string | undefined,
 ): Promise<string | null> {
-  const credentials = await resolveCredentials();
+  const credentials = await resolveSmallModelCredentials();
   if (!credentials) {
     return null;
   }
 
-  const model = await resolveTitleModel();
+  const model = await resolveSmallModel('CLOUDCLI_SESSION_TITLE_MODEL');
 
   return enqueueTitleRequest(async () => {
     const firstAttempt = await postTitleRequest(credentials, model, prompt, false, previousTitle);

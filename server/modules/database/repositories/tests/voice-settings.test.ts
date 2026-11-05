@@ -42,7 +42,8 @@ test('getVoiceSettings returns empty fields before anything is stored', async ()
   const { voiceSettingsDb } = await import('@/modules/database/repositories/voice-settings.js');
 
   assert.deepEqual(voiceSettingsDb.getVoiceSettings(1), {
-    baseUrl: '', sttModel: '', ttsModel: '', ttsVoice: '', ttsFormat: '', hasApiKey: false,
+    baseUrl: '', sttModel: '', ttsModel: '', ttsVoice: '', ttsFormat: '',
+    speechSummary: '', speechSummaryPrompt: '', hasApiKey: false,
   });
   assert.equal(voiceSettingsDb.getVoiceApiKey(1), null);
 });
@@ -136,4 +137,54 @@ test('whitespace-only values are normalized away rather than stored', async () =
   assert.equal(stored.ttsVoice, '');
   // A key of only spaces is not a key.
   assert.equal(stored.hasApiKey, false);
+});
+
+// GOLDJAXE fork (реестр §4.16): read-aloud summary settings.
+
+test('summary mode and instruction are stored, and a partial save keeps them', async () => {
+  const { voiceSettingsDb } = await import('@/modules/database/repositories/voice-settings.js');
+
+  const prompt = 'Перескажи на «вы».\n"Кавычки" и \\ слэш';
+  const stored = voiceSettingsDb.updateVoiceSettings(2, { speechSummary: 'off', speechSummaryPrompt: `  ${prompt}  ` });
+  assert.equal(stored.speechSummary, 'off');
+  assert.equal(stored.speechSummaryPrompt, prompt);
+
+  // An older tab saving only the voice must not reset the summary settings.
+  const afterVoice = voiceSettingsDb.updateVoiceSettings(2, { ttsVoice: 'ru-RU-SvetlanaNeural' });
+  assert.equal(afterVoice.speechSummary, 'off');
+  assert.equal(afterVoice.speechSummaryPrompt, prompt);
+
+  // '' returns both to the defaults.
+  const reset = voiceSettingsDb.updateVoiceSettings(2, { speechSummary: '', speechSummaryPrompt: '' });
+  assert.equal(reset.speechSummary, '');
+  assert.equal(reset.speechSummaryPrompt, '');
+  assert.equal(voiceSettingsDb.getVoiceSettings(2).ttsVoice, 'ru-RU-SvetlanaNeural');
+});
+
+test('a bad summary mode or an over-long instruction is refused, not clipped', async () => {
+  const { voiceSettingsDb, SPEECH_SUMMARY_PROMPT_MAX_CHARS } = await import(
+    '@/modules/database/repositories/voice-settings.js'
+  );
+
+  voiceSettingsDb.updateVoiceSettings(2, { speechSummary: 'on', speechSummaryPrompt: 'Коротко.' });
+  assert.throws(
+    () => voiceSettingsDb.updateVoiceSettings(2, { speechSummary: 'always', ttsVoice: 'x' }),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+  );
+  assert.throws(
+    () => voiceSettingsDb.updateVoiceSettings(2, {
+      speechSummaryPrompt: 'я'.repeat(SPEECH_SUMMARY_PROMPT_MAX_CHARS + 1),
+    }),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+  );
+  // A refused save changes nothing, including the other fields it carried.
+  const kept = voiceSettingsDb.getVoiceSettings(2);
+  assert.equal(kept.speechSummary, 'on');
+  assert.equal(kept.speechSummaryPrompt, 'Коротко.');
+  assert.notEqual(kept.ttsVoice, 'x');
+  // Exactly at the limit is fine.
+  const atLimit = voiceSettingsDb.updateVoiceSettings(2, {
+    speechSummaryPrompt: 'я'.repeat(SPEECH_SUMMARY_PROMPT_MAX_CHARS),
+  });
+  assert.equal(atLimit.speechSummaryPrompt.length, SPEECH_SUMMARY_PROMPT_MAX_CHARS);
 });

@@ -422,6 +422,19 @@ const addProviderSessionIdMapping = (db: Database): void => {
  * to backfill from — the session stopped pointing at that file when the row
  * was created — so they keep a NULL and the delete path skips them.
  */
+/**
+ * GOLDJAXE fork (реестр §4.16): read-aloud summary settings.
+ *
+ * `speech_summary` is '' (default: on), 'on' or 'off'; `speech_summary_prompt`
+ * is the user's own instruction, '' meaning the built-in one. Existing rows get
+ * NULL, which reads as the defaults.
+ */
+const addVoiceSpeechSummaryColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'voice_settings').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary', 'TEXT');
+  addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary_prompt', 'TEXT');
+};
+
 const addSupersededTranscriptPathColumn = (db: Database): void => {
   const columnNames = getTableInfo(db, 'superseded_provider_sessions').map((column) => column.name);
   addColumnToTableIfNotExists(db, 'superseded_provider_sessions', columnNames, 'jsonl_path', 'TEXT');
@@ -539,6 +552,7 @@ export const runMigrations = (db: Database) => {
     db.exec(USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL);
     db.exec(USER_SETTINGS_TABLE_SCHEMA_SQL);
     db.exec(VOICE_SETTINGS_TABLE_SCHEMA_SQL);
+    addVoiceSpeechSummaryColumns(db);
     db.exec(VAPID_KEYS_TABLE_SCHEMA_SQL);
     db.exec(PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL);
     db.exec('CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id)');

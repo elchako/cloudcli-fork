@@ -1,3 +1,4 @@
+import { prepareSpokenText } from '@/shared/speechSummary';
 import { synthesizeVoice, voiceConfigSignature } from '@/shared/api';
 import type { VoicePlayState, VoiceSnapshot } from '@/shared/types';
 
@@ -200,7 +201,12 @@ class VoicePlayer {
         // GOLDJAXE fork (реестр §4.15): the request stays abortable until the
         // body is read, so stop() also cancels a stream that is still playing.
         try {
-          const res = await synthesizeVoice(content, controller.signal);
+          // GOLDJAXE fork (реестр §4.16): speak a short summary of a long reply
+          // when the user has it on; any failure speaks the reply itself. The
+          // same signal covers it, so «Стоп» also cancels a summary in progress.
+          const spoken = await prepareSpokenText(content, controller.signal);
+          if (myToken !== this.token) return;
+          const res = await synthesizeVoice(spoken, controller.signal);
           if (myToken !== this.token) return; // superseded by another play/stop
           if (!res.ok) throw new Error(await readErrorMessage(res));
           if (canStreamResponse(res)) {

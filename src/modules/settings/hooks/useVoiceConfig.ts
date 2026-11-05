@@ -75,5 +75,29 @@ export function useVoiceConfig() {
     });
   };
 
-  return { config, update, hasApiKey };
+  /**
+   * GOLDJAXE fork (реестр §4.16): saves a patch and reports the outcome, for
+   * fields whose rejection the user must see (the summary instruction has a
+   * length limit). The cache changes only after the server accepted the save.
+   */
+  const save = async (patch: Partial<VoiceConfig>): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const response = await api.updateVoiceSettings(patch);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+        return { ok: false, error: body?.error?.message || `HTTP ${response.status}` };
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    setConfig((prev) => {
+      const next = { ...prev, ...patch };
+      writeVoiceConfigCache(next);
+      emitVoiceConfigSync();
+      return next;
+    });
+    return { ok: true };
+  };
+
+  return { config, update, save, hasApiKey };
 }

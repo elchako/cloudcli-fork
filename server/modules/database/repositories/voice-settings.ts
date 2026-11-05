@@ -15,7 +15,18 @@
  */
 
 import { getConnection } from '@/modules/database/connection.js';
+import { AppError } from '@/shared/utils.js';
 import { openSecret, sealSecret } from '@/shared/secret-box.js';
+
+/**
+ * GOLDJAXE fork (реестр §4.16): read-aloud summary settings live next to the
+ * rest of the voice config. `speechSummary` is '' (default, on), 'on' or 'off';
+ * `speechSummaryPrompt` is the user's own instruction, '' for the built-in one.
+ */
+export const SPEECH_SUMMARY_MODES = ['', 'on', 'off'] as const;
+export type SpeechSummaryMode = (typeof SPEECH_SUMMARY_MODES)[number];
+/** An instruction is a system prompt, not a document. */
+export const SPEECH_SUMMARY_PROMPT_MAX_CHARS = 8000;
 
 /** Non-secret fields, safe to send to the browser. */
 export type VoiceSettingsPublic = {
@@ -24,6 +35,8 @@ export type VoiceSettingsPublic = {
   ttsModel: string;
   ttsVoice: string;
   ttsFormat: string;
+  speechSummary: SpeechSummaryMode;
+  speechSummaryPrompt: string;
   hasApiKey: boolean;
 };
 
@@ -34,6 +47,8 @@ export type VoiceSettingsInput = {
   ttsModel?: unknown;
   ttsVoice?: unknown;
   ttsFormat?: unknown;
+  speechSummary?: unknown;
+  speechSummaryPrompt?: unknown;
   apiKey?: unknown;
 };
 
@@ -44,6 +59,8 @@ type VoiceSettingsRow = {
   tts_voice: string | null;
   tts_format: string | null;
   api_key_encrypted: string | null;
+  speech_summary: string | null;
+  speech_summary_prompt: string | null;
 };
 
 const TEXT_FIELDS = ['baseUrl', 'sttModel', 'ttsModel', 'ttsVoice', 'ttsFormat'] as const;
@@ -67,6 +84,8 @@ const EMPTY_PUBLIC: VoiceSettingsPublic = {
   ttsModel: '',
   ttsVoice: '',
   ttsFormat: '',
+  speechSummary: '',
+  speechSummaryPrompt: '',
   hasApiKey: false,
 };
 
@@ -76,6 +95,44 @@ function normalizeText(value: unknown): string | undefined {
     return undefined;
   }
   return value.trim().slice(0, MAX_FIELD_LENGTH);
+}
+
+function readSpeechSummaryMode(value: string | null | undefined): SpeechSummaryMode {
+  return (SPEECH_SUMMARY_MODES as readonly string[]).includes(value ?? '') ? (value ?? '') as SpeechSummaryMode : '';
+}
+
+/**
+ * Validates the summary fields. Unlike the short text fields above they are
+ * not silently clipped: a mode outside the list or an instruction over the
+ * limit is a client error, and losing the tail of a prompt unnoticed would be
+ * worse than refusing it. Omitted (non-string) → keep what is stored.
+ */
+function normalizeSpeechSummary(input: VoiceSettingsInput): {
+  mode?: SpeechSummaryMode;
+  prompt?: string;
+} {
+  const out: { mode?: SpeechSummaryMode; prompt?: string } = {};
+  if (typeof input.speechSummary === 'string') {
+    const mode = input.speechSummary.trim();
+    if (!(SPEECH_SUMMARY_MODES as readonly string[]).includes(mode)) {
+      throw new AppError('speechSummary must be "", "on" or "off"', {
+        code: 'VOICE_SPEECH_SUMMARY_INVALID',
+        statusCode: 400,
+      });
+    }
+    out.mode = mode as SpeechSummaryMode;
+  }
+  if (typeof input.speechSummaryPrompt === 'string') {
+    const prompt = input.speechSummaryPrompt.trim();
+    if (prompt.length > SPEECH_SUMMARY_PROMPT_MAX_CHARS) {
+      throw new AppError(`The summary instruction is longer than ${SPEECH_SUMMARY_PROMPT_MAX_CHARS} characters`, {
+        code: 'VOICE_SPEECH_SUMMARY_PROMPT_TOO_LONG',
+        statusCode: 400,
+      });
+    }
+    out.prompt = prompt;
+  }
+  return out;
 }
 
 function rowToPublic(row: VoiceSettingsRow | undefined): VoiceSettingsPublic {
@@ -89,6 +146,8 @@ function rowToPublic(row: VoiceSettingsRow | undefined): VoiceSettingsPublic {
     ttsModel: row.tts_model ?? '',
     ttsVoice: row.tts_voice ?? '',
     ttsFormat: row.tts_format ?? '',
+    speechSummary: readSpeechSummaryMode(row.speech_summary),
+    speechSummaryPrompt: row.speech_summary_prompt ?? '',
     hasApiKey: Boolean(row.api_key_encrypted),
   };
 }
@@ -97,7 +156,8 @@ function selectRow(userId: number): VoiceSettingsRow | undefined {
   const db = getConnection();
   return db
     .prepare(
-      `SELECT base_url, stt_model, tts_model, tts_voice, tts_format, api_key_encrypted
+      `SELECT base_url, stt_model, tts_model, tts_voice, tts_format, api_key_encrypted,
+              speech_summary, speech_summary_prompt
        FROM voice_settings WHERE user_id = ?`,
     )
     .get(userId) as VoiceSettingsRow | undefined;
@@ -131,6 +191,8 @@ export const voiceSettingsDb = {
    */
   updateVoiceSettings(userId: number, input: VoiceSettingsInput): VoiceSettingsPublic {
     const db = getConnection();
+    // Validated before the transaction: a bad field rejects the whole save.
+    const summary = normalizeSpeechSummary(input);
 
     // Read-modify-write must be atomic: two concurrent saves that each read the
     // same base would otherwise let the later one drop the earlier one's fields.
@@ -144,7 +206,16 @@ export const voiceSettingsDb = {
         tts_voice: existing?.tts_voice ?? null,
         tts_format: existing?.tts_format ?? null,
         api_key_encrypted: existing?.api_key_encrypted ?? null,
+        speech_summary: existing?.speech_summary ?? null,
+        speech_summary_prompt: existing?.speech_summary_prompt ?? null,
       };
+
+      if (summary.mode !== undefined) {
+        next.speech_summary = summary.mode || null;
+      }
+      if (summary.prompt !== undefined) {
+        next.speech_summary_prompt = summary.prompt || null;
+      }
 
       for (const field of TEXT_FIELDS) {
         const value = normalizeText(input[field]);
@@ -162,8 +233,9 @@ export const voiceSettingsDb = {
 
       db.prepare(
         `INSERT INTO voice_settings
-           (user_id, base_url, stt_model, tts_model, tts_voice, tts_format, api_key_encrypted, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+           (user_id, base_url, stt_model, tts_model, tts_voice, tts_format, api_key_encrypted,
+            speech_summary, speech_summary_prompt, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
          ON CONFLICT(user_id) DO UPDATE SET
            base_url = excluded.base_url,
            stt_model = excluded.stt_model,
@@ -171,6 +243,8 @@ export const voiceSettingsDb = {
            tts_voice = excluded.tts_voice,
            tts_format = excluded.tts_format,
            api_key_encrypted = excluded.api_key_encrypted,
+           speech_summary = excluded.speech_summary,
+           speech_summary_prompt = excluded.speech_summary_prompt,
            updated_at = CURRENT_TIMESTAMP`,
       ).run(
         userId,
@@ -180,6 +254,8 @@ export const voiceSettingsDb = {
         next.tts_voice,
         next.tts_format,
         next.api_key_encrypted,
+        next.speech_summary,
+        next.speech_summary_prompt,
       );
 
       return rowToPublic(next);

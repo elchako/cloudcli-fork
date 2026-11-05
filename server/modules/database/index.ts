@@ -26,5 +26,11 @@ export { userPreferencesDb } from '@/modules/database/repositories/user-preferen
 export { vapidKeysDb } from '@/modules/database/repositories/vapid-keys.js';
 // voiceSettingsDb: per-user STT/TTS config; the apiKey is stored encrypted.
 export { voiceSettingsDb } from '@/modules/database/repositories/voice-settings.js';
+// GOLDJAXE fork (реестр §4.16): limits and modes of the read-aloud summary settings.
+export {
+  SPEECH_SUMMARY_MODES,
+  SPEECH_SUMMARY_PROMPT_MAX_CHARS,
+  type SpeechSummaryMode,
+} from '@/modules/database/repositories/voice-settings.js';
 export { scheduledMessagesDb } from './repositories/scheduled-messages.db.js';
 export type { ScheduledMessageRow, ScheduledMessageStatus } from './repositories/scheduled-messages.db.js';

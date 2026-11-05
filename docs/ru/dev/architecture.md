@@ -133,6 +133,16 @@ Base URL браузер ходит напрямую (`/audio/speech`), без н
 кэшируется по тексту и настройкам голоса (до 24 записей).
 Бэкенд холдинга — diktor с Edge TTS ([озвучка](../fork/voice.md)).
 
+Перед синтезом `prepareSpokenText` (`src/shared/speechSummary.ts`) может
+подменить текст сводкой: `POST /api/speech-summary` (модуль
+`server/modules/speech-summary/`) пересказывает длинный ответ малой моделью
+Claude доступом пользователя, `GET /api/speech-summary/status` — для экрана
+настроек. Режим и инструкция — колонки `speech_summary`,
+`speech_summary_prompt` в `voice_settings`. Env: `CLOUDCLI_SPEECH_SUMMARY=off`
+— выключить на сервере, `CLOUDCLI_SPEECH_SUMMARY_MODEL` — модель. Транспорт к
+модели общий с ИИ-названиями — `server/shared/small-model.ts`
+([сводка вслух](../fork/speech-summary.md)).
+
 ## Аутентификация
 
 JWT (`JWT_SECRET` в БД, таблица `app_config`), payload `{userId, username}`.

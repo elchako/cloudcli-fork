@@ -884,5 +884,21 @@
     "teamManagementDescription": "Multiple users, role-based access, and shared projects for your team.",
     "licensed": "Licensed under AGPL-3.0",
     "proCta": "Available with CloudCLI Pro"
+  },
+  "speechSummary": {
+    "title": "Spoken summary",
+    "description": "Before reading a reply aloud, a small model retells it briefly: the outcome and what you need to decide. The full reply stays on screen.",
+    "enable": "Read a summary instead of the full reply",
+    "enableDescription": "Retold by {{model}} with this CloudCLI's own model access. Short replies and any failure are read in full.",
+    "enableDescriptionNoModel": "Retold by a small Claude model with this CloudCLI's own model access. Short replies and any failure are read in full.",
+    "unavailable": "Summary is not available on this server: CloudCLI has no API key for a small model (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN), or it is switched off. Replies are read in full.",
+    "prompt": "Summary instruction",
+    "usingDefault": "The built-in instruction is in use.",
+    "usingOwn": "Your own instruction is in use.",
+    "save": "Save instruction",
+    "reset": "Restore built-in",
+    "saved": "Saved",
+    "resetDone": "The built-in instruction is in use",
+    "note": "Safety rules are added to any instruction: the reply is retold, not answered, and requests to you stay requests. For Codex, Cursor and GPT sessions the reply text also goes to the Claude model."
   }
 }

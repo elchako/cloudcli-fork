@@ -5,6 +5,8 @@ import SettingsSection from '@/modules/settings/SettingsSection';
 import SettingsToggle from '@/modules/settings/SettingsToggle';
 import { useUiPreferences, useSetUiPreference } from '@/shared/context/UiPreferencesContext';
 import { useVoiceConfig } from '@/modules/settings/hooks/useVoiceConfig';
+// GOLDJAXE fork (реестр §4.16): the read-aloud summary block.
+import SpeechSummarySettings from '@/modules/settings/tabs/SpeechSummarySettings';
 
 const inputClass =
   'w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
@@ -97,6 +99,8 @@ export default function VoiceSettingsTab() {
           </div>
         </SettingsSection>
       )}
+
+      {voiceEnabled && <SpeechSummarySettings />}
     </div>
   );
 }

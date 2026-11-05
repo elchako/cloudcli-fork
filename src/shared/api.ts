@@ -651,6 +651,13 @@ export const api = {
     tts: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/tts', { text }, options),
   },
 
+  // GOLDJAXE fork (реестр §4.16): a short spoken summary before read-aloud,
+  // made by the server with the user's own model access.
+  speechSummary: {
+    status: () => get('/api/speech-summary/status'),
+    summarize: (text: string, options: ApiRequestOptions = {}) => post('/api/speech-summary', { text }, options),
+  },
+
   system: {
     update: () => post('/api/system/update'),
   },

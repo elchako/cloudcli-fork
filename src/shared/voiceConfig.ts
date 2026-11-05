@@ -32,6 +32,12 @@ export type VoiceConfig = {
   ttsModel: string;
   ttsVoice: string;
   ttsFormat: string;
+  // GOLDJAXE fork (реестр §4.16): read-aloud summary. '' = default (on), 'on'
+  // or 'off'; the instruction is '' for the built-in one. Strings on purpose:
+  // the cache and the save path here handle string fields only. Never sent as
+  // x-voice-* headers — the server reads them from the database.
+  speechSummary: string;
+  speechSummaryPrompt: string;
 };
 
 /**
@@ -50,6 +56,8 @@ export const VOICE_CONFIG_DEFAULTS: VoiceConfig = {
   ttsModel: '',
   ttsVoice: '',
   ttsFormat: '',
+  speechSummary: '',
+  speechSummaryPrompt: '',
 };
 
 // Synchronous view used by the request builders in `shared/api`. `apiKey` is
@@ -99,6 +107,8 @@ function applyServerVoice(voice: Record<string, unknown> | null | undefined): vo
     ttsModel: readString('ttsModel'),
     ttsVoice: readString('ttsVoice'),
     ttsFormat: readString('ttsFormat'),
+    speechSummary: readString('speechSummary'),
+    speechSummaryPrompt: readString('speechSummaryPrompt'),
   };
 }
 
