@@ -111,6 +111,40 @@ describe('voicePlayer streaming', () => {
     expect(synthesize).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps appending while play() waits for more audio', async () => {
+    // Chrome with Edge TTS: play() on a single 720-byte chunk resolves only once
+    // the next chunks are in. Awaiting it inside the loop hung forever.
+    const content = 'Первый кусок слишком короткий для старта';
+    let release: () => void = () => {};
+    vi.mocked(HTMLMediaElement.prototype.play).mockImplementation(
+      () => new Promise<void>((resolve) => { release = resolve; }),
+    );
+    synthesize.mockImplementation(async () => mp3Response([[1], [2], [3]]));
+
+    voicePlayer.toggle(content);
+    await vi.waitFor(() => expect(FakeMediaSource.last?.buffer?.appended).toHaveLength(3));
+    expect(snapshot(content).state).toBe('loading');
+    release();
+    await vi.waitFor(() => expect(snapshot(content).state).toBe('playing'));
+    await vi.waitFor(() => expect(createdBlobs).toHaveLength(1));
+  });
+
+  it('a failed play() aborts the download and shows the error at once', async () => {
+    const content = 'Браузер отказался играть';
+    let requestSignal: AbortSignal | undefined;
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new Error('play() was blocked'));
+    synthesize.mockImplementation(async (_text, signal) => {
+      requestSignal = signal;
+      return mp3Response([[1]], signal, true);
+    });
+
+    voicePlayer.toggle(content);
+    await vi.waitFor(() => expect(snapshot(content).error).toBe('play() was blocked'));
+    expect(snapshot(content).state).toBe('idle');
+    expect(requestSignal?.aborted).toBe(true);
+    expect(createdBlobs).toHaveLength(0);
+  });
+
   it('falls back to the whole file where MediaSource is missing', async () => {
     vi.stubGlobal('MediaSource', undefined);
     const content = 'Озвучка целым файлом без MediaSource';

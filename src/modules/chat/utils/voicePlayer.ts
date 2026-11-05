@@ -248,7 +248,7 @@ class VoicePlayer {
     URL.revokeObjectURL(streamUrl); // attached to the element; the URL itself is spent
     const reader = body.getReader();
     const chunks: Uint8Array<ArrayBuffer>[] = [];
-    let playing = false;
+    let started: Promise<void> | null = null;
     try {
       if (myToken !== this.token) return;
       const buffer = mediaSource.addSourceBuffer(STREAM_MIME);
@@ -260,21 +260,43 @@ class VoicePlayer {
         chunks.push(value);
         await appendChunk(buffer, value);
         if (myToken !== this.token) return;
-        if (!playing) {
-          playing = true;
-          await audio.play();
-          if (myToken !== this.token) return;
-          this.state = 'playing';
-          this.emit();
-        }
+        // play() is NOT awaited here: Chrome may not start until more than one
+        // chunk is buffered (Edge TTS sends 720-byte chunks), and only this loop
+        // appends the next ones — awaiting would hang forever.
+        if (!started) started = this.startPlayback(id, audio, myToken);
       }
     } finally {
       // Superseded mid-stream: drop the rest of the download.
       if (myToken !== this.token) void reader.cancel().catch(() => {});
     }
-    if (!playing) throw new Error('Read-aloud returned no audio');
+    if (!started) throw new Error('Read-aloud returned no audio');
     if (mediaSource.readyState === 'open') mediaSource.endOfStream();
+    // A short clip may start only once the stream is complete.
+    await started;
+    if (myToken !== this.token) return;
     this.cacheSet(id, URL.createObjectURL(new Blob(chunks, { type: STREAM_MIME })));
+  }
+
+  /**
+   * GOLDJAXE fork (реестр §4.15): starts the stream and settles without throwing.
+   * A failed play() ends this request at once: the download is aborted and the
+   * error shown, instead of waiting for the whole stream to finish. A play()
+   * rejected by stop() (pause → AbortError) belongs to an old token and is ignored.
+   */
+  private startPlayback(id: string, audio: HTMLAudioElement, myToken: number): Promise<void> {
+    return audio.play().then(
+      () => {
+        if (myToken !== this.token) return;
+        this.state = 'playing';
+        this.emit();
+      },
+      (error: unknown) => {
+        if (myToken !== this.token) return;
+        this.token++; // the streaming loop and the request stop with it
+        this.abortActive();
+        this.setError(id, error instanceof Error ? error.message : 'Read-aloud failed');
+      },
+    );
   }
 
   private cacheSet(id: string, url: string) {
