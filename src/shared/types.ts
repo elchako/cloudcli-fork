@@ -12,6 +12,8 @@ export type ProviderModelOption = {
   value: string;
   label: string;
   description?: string;
+  /** GOLDJAXE fork (реестр §22.1): owned_by API, отдельно от LLMProvider. */
+  catalogProvider?: string;
   recordId?: number;
   isCustom?: boolean;
   effort?: {

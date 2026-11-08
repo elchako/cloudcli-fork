@@ -38,6 +38,16 @@ test('каталог API допускает неизвестный ID и имя,
   assert.ok(!models.OPTIONS.some((m) => m.value === 'claude-fable-5-1[1m]'));
 });
 
+test('каталог передаёт owned_by как catalogProvider независимо от семейства модели', async () => {
+  const provider = new ClaudeProviderModels({ get: async () => ({ models: [
+    { ...row('claude-fixture'), catalogProvider: 'antigravity' },
+    { ...row('gemini-fixture'), catalogProvider: 'antigravity' },
+  ], source: 'api' }) });
+  const models = await provider.getSupportedModels();
+  assert.equal(models.OPTIONS[0].catalogProvider, undefined);
+  assert.deepEqual(models.OPTIONS.slice(1).map(m => m.catalogProvider), ['antigravity', 'antigravity']);
+});
+
 test('имя известной модели не приписывает 1M контекст ID без соответствующего суффикса', async () => {
   const provider = new ClaudeProviderModels({ get: async () => ({ models: [{ id: 'claude-opus-5-5', label: 'claude-opus-5-5' }], source: 'api' }) });
   const models = await provider.getSupportedModels();

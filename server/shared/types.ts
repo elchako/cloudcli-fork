@@ -75,6 +75,8 @@ export type ProviderModelOption = {
   value: string;
   label: string;
   description?: string;
+  /** GOLDJAXE fork (реестр §22.1): owned_by каталога API, не CLI-провайдер/маршрут. */
+  catalogProvider?: string;
   /** Stable SQLite row id used only by model-management actions. */
   recordId?: number;
   /** True for user-created rows; false for immutable CloudCLI defaults. */

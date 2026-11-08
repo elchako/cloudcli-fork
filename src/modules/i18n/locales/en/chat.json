@@ -228,6 +228,8 @@
     "model": "Model",
     "effortDefault": "Default",
     "effortAuto": "Auto",
+    "defaultModelGroup": "Default",
+    "unassignedModelGroup": "Provider not specified",
     "loadingModels": "Loading models…",
     "modelMenu": "Select model and reasoning effort",
     "permissionHeading": "How should {{provider}} actions be approved?",

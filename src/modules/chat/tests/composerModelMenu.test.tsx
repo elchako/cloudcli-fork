@@ -88,6 +88,27 @@ test('у модели без уровней effort нет выдуманного
   assert.equal(trigger.querySelector('span.shrink-0'), null);
 });
 
+test('меню группирует модели по провайдеру API и передаёт исходный ID после тача', () => {
+  const onSelectModel = vi.fn();
+  const { getByRole } = render(<ComposerModelMenu effort="high" effortOptions={[{ value: 'high' }]}
+    onSelectEffort={() => {}} model="gpt-fixture" modelsLoading={false} onSelectModel={onSelectModel}
+    modelOptions={[
+      { value: 'gpt-fixture', label: 'GPT Fixture', catalogProvider: 'openai' },
+      { value: 'gemini-fixture', label: 'Gemini Fixture', catalogProvider: 'antigravity' },
+      { value: 'claude-fixture', label: 'Claude Fixture', catalogProvider: 'antigravity' },
+    ]} />);
+  fireEvent.click(getByRole('button'));
+  fireEvent.click(getByRole('menuitem', { name: 'GPT Fixture' }));
+  const group = getByRole('group', { name: 'Antigravity' });
+  assert.ok(group.textContent?.includes('Gemini Fixture'));
+  assert.ok(group.textContent?.includes('Claude Fixture'));
+  assert.equal(group.textContent?.includes('GPT Fixture'), false);
+  const target = getByRole('menuitemradio', { name: 'Claude Fixture' });
+  fireEvent.pointerDown(target);
+  fireEvent.click(target);
+  assert.deepEqual(onSelectModel.mock.calls, [['claude-fixture']]);
+});
+
 test('модель выбирается в прежнем портальном меню после pointerdown', () => {
   const onSelectModel = vi.fn();
   const { getByRole, queryByRole } = renderMenu(MODELS[0].value, onSelectModel);

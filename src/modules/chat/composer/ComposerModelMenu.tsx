@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { ProviderModelOption } from '@/shared/types';
 import { DEFAULT_EFFORT_VALUE } from '@/shared/constants';
 import { useComposerMenuAnchor } from '@/modules/chat/hooks/useComposerMenuAnchor';
+import { groupModelsByCatalogProvider } from '@/shared/modelProviderGroups';
 import {
   ComposerMenuHeading,
   ComposerMenuItem,
@@ -75,6 +76,10 @@ function ComposerModelMenu({
     [model, modelOptions],
   );
   const modelLabel = selectedModelOption?.label || model;
+  const modelGroups = useMemo(() => groupModelsByCatalogProvider(modelOptions, {
+    default: t('composer.defaultModelGroup'),
+    unassigned: t('composer.unassignedModelGroup'),
+  }), [modelOptions, t]);
 
   const hasEffortSection = resolvedEffortOptions.length > 0;
   const hasModelSection = modelOptions.length > 0 || modelsLoading;
@@ -165,16 +170,21 @@ function ComposerModelMenu({
                       {t('composer.loadingModels', { defaultValue: 'Loading models…' })}
                     </p>
                   )}
-                  {modelOptions.map((option) => (
-                    <ComposerMenuItem
-                      key={option.value}
-                      label={option.label || option.value}
-                      isSelected={option.value === model}
-                      onSelect={() => {
-                        onSelectModel(option.value);
-                        setIsOpen(false);
-                      }}
-                    />
+                  {modelGroups.map((group) => (
+                    <div key={group.key} role="group" aria-label={group.name || undefined}>
+                      {group.name && <ComposerMenuHeading>{group.name}</ComposerMenuHeading>}
+                      {group.models.map((option) => (
+                        <ComposerMenuItem
+                          key={option.value}
+                          label={option.label || option.value}
+                          isSelected={option.value === model}
+                          onSelect={() => {
+                            onSelectModel(option.value);
+                            setIsOpen(false);
+                          }}
+                        />
+                      ))}
+                    </div>
                   ))}
                 </>
               )}

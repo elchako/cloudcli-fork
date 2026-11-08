@@ -17,6 +17,18 @@ test('для меню шлюза запрашиваются обычные ID б
   assert.deepEqual(await listApiModels(credentials, { timeoutMs: 1000, preferStandardIds: true }), [{ id: 'gpt-6.1-sol', label: 'gpt-6.1-sol' }]);
 });
 
+test('owned_by передаётся из API без угадывания провайдера по имени модели', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => json({ data: [
+    { id: 'claude-fixture', owned_by: 'antigravity' },
+    { id: 'gemini-fixture', owned_by: 'antigravity' },
+    { id: 'gpt-fixture', owned_by: 'new-vendor' },
+    { id: 'missing' }, { id: 'invalid', owned_by: 42 }, { id: 'blank', owned_by: ' ' },
+    { id: 'long', owned_by: 'x'.repeat(129) },
+  ] }));
+  const result = await listApiModels(credentials, { timeoutMs: 1000 });
+  assert.deepEqual(result?.map(m => m.catalogProvider), ['antigravity', 'antigravity', 'new-vendor', undefined, undefined, undefined, undefined]);
+});
+
 test('API, требующий Anthropic-заголовки, получает безопасный повтор в тот же endpoint', async (t) => {
   let calls = 0;
   t.mock.method(globalThis, 'fetch', async (input: unknown, init?: RequestInit) => {

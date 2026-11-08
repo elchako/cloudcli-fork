@@ -326,6 +326,8 @@ export class ClaudeProviderModels implements IProviderModels {
           ? (known.value === model.id ? known.label : known.label.replace(/\s*\(1M context\)/g, ''))
           : model.label,
         description: model.id,
+        // GOLDJAXE fork (реестр §22.1): не смешиваем CLI-провайдер и owned_by API.
+        ...(model.catalogProvider ? { catalogProvider: model.catalogProvider } : {}),
         ...(known?.effort ? { effort: structuredClone(known.effort) } : {}),
       };
     });

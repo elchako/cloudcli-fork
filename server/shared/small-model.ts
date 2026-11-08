@@ -230,7 +230,7 @@ export async function listSmallModels(
   return models?.map((model) => model.id) ?? null;
 }
 
-export type ApiModel = { id: string; label: string };
+export type ApiModel = { id: string; label: string; catalogProvider?: string };
 
 /**
  * GOLDJAXE fork (реестр §22): общий GET-каталог для меню и сводки. ID не
@@ -283,9 +283,13 @@ export async function listApiModels(
         if (!id) continue;
         lastId = id;
         if (!models.has(id)) {
+          // GOLDJAXE fork (реестр §22.1): только метка API, не угаданный бренд модели.
+          const owner = readOptionalString(entry?.owned_by);
+          const catalogProvider = owner && owner.length <= 128 ? owner : undefined;
           models.set(id, {
             id,
             label: readOptionalString(entry?.display_name) || readOptionalString(entry?.name) || id,
+            ...(catalogProvider ? { catalogProvider } : {}),
           });
         }
       }

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { Badge, Button, Input, LLMProviderLogo } from '@/shared/ui';
+import { groupModelsByCatalogProvider } from '@/shared/modelProviderGroups';
 import type {
   CustomProviderModelInput,
   LLMProvider,
@@ -92,6 +93,12 @@ export default function ModelLibraryPanel({
     () => options.filter((option) => !option.isCustom),
     [options],
   );
+  const groupingLabels = {
+    default: t('chat:composer.defaultModelGroup'),
+    unassigned: t('chat:composer.unassignedModelGroup'),
+  };
+  const predefinedGroups = groupModelsByCatalogProvider(predefinedModels, groupingLabels);
+  const customGroups = groupModelsByCatalogProvider(customModels, groupingLabels);
   // Levels a custom model of this provider may declare, weakest first, exactly
   // as the server validates them. They come with the catalog rather than from
   // its built-in models, whose effort metadata depends on which upstream
@@ -446,7 +453,10 @@ export default function ModelLibraryPanel({
               </div>
             ) : (
               <div className="space-y-2">
-                {customModels.map((option) => {
+                {customGroups.map((group) => (
+                  <div key={group.key} className="space-y-2" role="group" aria-label={group.name || undefined}>
+                    {group.name && <h3 className="px-1 text-xs font-semibold text-muted-foreground">{group.name}</h3>}
+                    {group.models.map((option) => {
                   const confirming = confirmDeleteRecordId === option.recordId;
                   const deleting = deletingRecordId === option.recordId;
                   return (
@@ -507,7 +517,9 @@ export default function ModelLibraryPanel({
                       )}
                     </div>
                   );
-                })}
+                    })}
+                  </div>
+                ))}
               </div>
             )}
           </section>
@@ -554,13 +566,18 @@ export default function ModelLibraryPanel({
               </div>
             ) : (
               <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/70">
-                {predefinedModels.map((option) => (
-                  <div key={option.recordId ?? option.value} className="flex items-center gap-3 border-b border-border/60 px-3 py-2.5 last:border-b-0">
-                    <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium text-foreground">{option.label}</p>
-                      <p className="truncate font-mono text-[10px] text-muted-foreground">{option.value}</p>
-                    </div>
+                {predefinedGroups.map((group) => (
+                  <div key={group.key} role="group" aria-label={group.name || undefined}>
+                    {group.name && <h3 className="border-b border-border/60 bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground">{group.name}</h3>}
+                    {group.models.map((option) => (
+                      <div key={option.recordId ?? option.value} className="flex items-center gap-3 border-b border-border/60 px-3 py-2.5 last:border-b-0">
+                        <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium text-foreground">{option.label}</p>
+                          <p className="truncate font-mono text-[10px] text-muted-foreground">{option.value}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>

@@ -25,6 +25,7 @@ import {
 import ModelGroupList, { type ModelGroup } from "@/modules/chat/composer/ModelGroupList";
 import ModelLibraryPanel from "@/modules/chat/modals/ModelLibraryPanel";
 import { writeSelectedProvider } from '@/shared/selectedProvider';
+import { groupModelsByCatalogProvider } from '@/shared/modelProviderGroups';
 
 const PROVIDER_META: { id: LLMProvider; name: string }[] = [
   { id: "claude", name: "Anthropic" },
@@ -121,15 +122,20 @@ export default function ProviderSelectionEmptyState({
     }
   }, []);
 
-  /** One collapsible branch per provider, in the order the picker lists them. */
+  // GOLDJAXE fork (реестр §22.1): owned_by задаёт группы внутри CLI-интеграции;
+  // Antigravity с Gemini/Claude по-прежнему запускается через Claude Code.
   const visibleProviderGroups = useMemo<ModelGroup[]>(
-    () => PROVIDER_META.map((meta) => ({
-      key: meta.id,
+    () => PROVIDER_META.flatMap((meta) => groupModelsByCatalogProvider(
+      providerModelCatalog[meta.id]?.OPTIONS ?? [],
+      { default: t('composer.defaultModelGroup'), unassigned: t('composer.unassignedModelGroup') },
+    ).map((group) => ({
+      key: group.name ? `${meta.id}:${group.key}` : meta.id,
       provider: meta.id,
-      name: meta.name,
-      models: providerModelCatalog[meta.id]?.OPTIONS ?? [],
-    })),
-    [providerModelCatalog],
+      name: group.name ? `${meta.id === 'claude' ? 'Claude Code' : meta.name} · ${group.name}` : meta.name,
+      models: group.models,
+      showProviderLogo: !group.name,
+    }))),
+    [providerModelCatalog, t],
   );
 
   /**

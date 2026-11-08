@@ -74,6 +74,14 @@ Anthropic-протокол. Ключ не передаётся в браузер
 объединяются в `provider-models.service.ts`, их имя/effort имеют приоритет при
 совпадении ID с API ([API-каталог](../fork/api-models.md)).
 
+Поле `owned_by` API передаётся в `OPTIONS[].catalogProvider` (необязательная
+строка до 128 символов). Общая `groupModelsByCatalogProvider` группирует меню,
+библиотеку и общий выбор моделей по этой метке, а не по префиксу ID. Например,
+Gemini и Claude с `owned_by=antigravity` остаются вместе. `LLMProvider` при выборе
+не меняется: API-группы внутри Claude Code запускаются через прежнюю интеграцию.
+Ручные описания того же ID наследуют метку только из текущего API, без записи в
+БД; при отсутствии метаданных сохраняется плоский список ([§22.1](../fork/api-models.md)).
+
 Выбранный `value` передаётся в `claude-agent-sdk` как `model` без замены ID.
 Исключение — GPT через CLIProxyAPI: уровень effort добавляется суффиксом
 (`gpt-6-astra(max)`), потому что шлюз игнорирует `output_config.effort`.

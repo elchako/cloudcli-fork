@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Layers } from "lucide-react";
 
 import type { LLMProvider, ProviderModelOption } from "@/shared/types";
 import { Badge, CommandGroup, CommandItem, LLMProviderLogo } from "@/shared/ui";
@@ -15,6 +15,8 @@ export type ModelGroup = {
   provider: LLMProvider;
   name: string;
   models: ProviderModelOption[];
+  /** GOLDJAXE fork (реестр §22.1): бренд CLI не выдаём за провайдера API. */
+  showProviderLogo?: boolean;
 };
 
 type ModelGroupListProps = {
@@ -94,8 +96,10 @@ export default function ModelGroupList({
                 ) : (
                   <ChevronDown className="h-3 w-3 shrink-0" />
                 )}
-                <LLMProviderLogo provider={group.provider} className="h-3.5 w-3.5 shrink-0" />
-                {group.name}
+                {group.showProviderLogo === false
+                  ? <Layers className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  : <LLMProviderLogo provider={group.provider} className="h-3.5 w-3.5 shrink-0" />}
+                <span className="min-w-0 truncate">{group.name}</span>
                 <span className="ml-auto text-[10px] font-normal normal-case tracking-normal text-muted-foreground">
                   {group.models.length}
                 </span>

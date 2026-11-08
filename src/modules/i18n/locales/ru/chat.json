@@ -1,7 +1,4 @@
 {
-  "composer": {
-    "effortAuto": "Авто"
-  },
   "codeBlock": {
     "copy": "Копировать",
     "copied": "Скопировано",
@@ -277,6 +274,9 @@
     "answeredBy": "Ответил {{model}}"
   },
   "composer": {
+    "effortAuto": "Авто",
+    "defaultModelGroup": "По умолчанию",
+    "unassignedModelGroup": "Провайдер не указан",
     "permissionHeading": "Как подтверждать действия {{provider}}?",
     "permissionCycleHint": "Нажмите Tab в поле ввода, чтобы переключить режим",
     "permissionTriggerLabel": "{{mode}}: {{heading}}",

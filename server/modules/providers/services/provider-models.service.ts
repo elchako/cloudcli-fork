@@ -109,11 +109,19 @@ const mergeProviderModels = (
   custom: CustomProviderModelRecord[],
   customModelsOnly: boolean,
 ): ProviderModelsDefinition => {
-  const customOptions = custom.map(toCustomProviderModelOption);
+  // GOLDJAXE fork (реестр §22.1): ручные имя/effort сохраняются, owned_by берётся
+  // из актуального API даже в режиме «только мои модели», но не хранится в БД.
+  const apiCatalog = predefined.SOURCE === 'api' || predefined.SOURCE === 'api-cache';
+  const ownerById = new Map(apiCatalog
+    ? predefined.OPTIONS.map((option) => [option.value, option.catalogProvider]) : []);
+  const customOptions = custom.map((record) => {
+    const option = toCustomProviderModelOption(record);
+    const catalogProvider = ownerById.get(option.value);
+    return catalogProvider ? { ...option, catalogProvider } : option;
+  });
   const listOnlyCustomModels = customModelsOnly && customOptions.length > 0;
   const builtInIds = new Set(predefined.OPTIONS.map((option) => option.value));
   // GOLDJAXE fork (реестр §22): автообнаружение не стирает ручные имя/effort.
-  const apiCatalog = predefined.SOURCE === 'api' || predefined.SOURCE === 'api-cache';
   const customById = new Map(customOptions.map((option) => [option.value, option]));
   return {
     ...(predefined.SOURCE ? { SOURCE: predefined.SOURCE } : {}),

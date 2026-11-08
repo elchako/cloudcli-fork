@@ -161,7 +161,7 @@ for (const source of ['api', 'api-cache'] as const) {
       id: 'same-api-model', model: 'Моё имя', effort: { values: ['low', 'high'], default: 'low' },
     });
     const { service } = createTestService({ catalog, modelCatalog: () => ({
-      OPTIONS: [{ value: 'default', label: 'Default' }, { value: manual.modelId, label: 'API label' }, { value: 'new-api-model', label: 'New' }],
+      OPTIONS: [{ value: 'default', label: 'Default' }, { value: manual.modelId, label: 'API label', catalogProvider: 'antigravity' }, { value: 'new-api-model', label: 'New' }],
       DEFAULT: 'default', SOURCE: source,
     }) });
     const models = await service.getProviderModels('claude');
@@ -170,9 +170,11 @@ for (const source of ['api', 'api-cache'] as const) {
     assert.equal(models.OPTIONS[1].label, 'Моё имя');
     assert.equal(models.OPTIONS[1].recordId, manual.recordId);
     assert.equal(models.OPTIONS[1].isCustom, true);
+    assert.equal(models.OPTIONS[1].catalogProvider, 'antigravity');
     assert.deepEqual(models.OPTIONS[1].effort?.values.map((e) => e.value), ['low', 'high']);
     const onlyMine = await service.setCustomModelsOnly('claude', true);
     assert.deepEqual(onlyMine.OPTIONS.map((m) => m.value), [manual.modelId]);
+    assert.equal(onlyMine.OPTIONS[0].catalogProvider, 'antigravity');
   });
 }
 

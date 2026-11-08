@@ -124,6 +124,21 @@ test('библиотека показывает имя и исходный ID н
   assert.ok(isShown('vendor/unknown-model'));
 });
 
+test('библиотека группирует Gemini и Claude одного провайдера отдельно от OpenAI', () => {
+  render(<ModelLibraryPanel initialProvider="claude" providerModelCatalog={{ claude: {
+    OPTIONS: [
+      { value: 'gpt-fixture', label: 'GPT Fixture', catalogProvider: 'openai' },
+      { value: 'gemini-fixture', label: 'Gemini Fixture', catalogProvider: 'antigravity' },
+      { value: 'claude-fixture', label: 'Claude Fixture', catalogProvider: 'antigravity' },
+    ], DEFAULT: 'gpt-fixture', SOURCE: 'api',
+  } }} actions={createActions(async () => {})} />);
+  const group = screen.getByRole('group', { name: 'Antigravity' });
+  assert.ok(group.textContent?.includes('Gemini Fixture'));
+  assert.ok(group.textContent?.includes('Claude Fixture'));
+  assert.equal(group.textContent?.includes('GPT Fixture'), false);
+  assert.ok(screen.getByRole('group', { name: 'OpenAI' }));
+});
+
 test('кнопка обновляет каталог выбранного провайдера и блокируется до ответа', async () => {
   let finish!: () => void;
   const refreshCatalog = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
@@ -358,6 +373,28 @@ test('a rejected toggle surfaces the server error and leaves the catalog alone',
     ['default', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
   );
   assert.equal(result.current.currentProviderModel, 'default');
+});
+
+test('в общем выборе группы API не меняют CLI-провайдера и доступны в поиске', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  Element.prototype.scrollIntoView = () => undefined;
+  const setProvider = vi.fn();
+  const setProviderModel = vi.fn();
+  render(<ProviderSelectionEmptyState selectedSession={null} currentSessionId={null} provider="claude"
+    setProvider={setProvider} textareaRef={{ current: null }}
+    providerModels={{ claude: 'gpt-fixture', codex: '', cursor: '', opencode: '' }} setProviderModel={setProviderModel}
+    providerModelCatalog={{ claude: { OPTIONS: [
+      { value: 'gpt-fixture', label: 'GPT Fixture', catalogProvider: 'openai' },
+      { value: 'gemini-fixture', label: 'Gemini Fixture', catalogProvider: 'antigravity' },
+      { value: 'claude-fixture', label: 'Claude Fixture', catalogProvider: 'antigravity' },
+    ], DEFAULT: 'gpt-fixture', SOURCE: 'api' } }} providerModelActions={createActions(async () => {})}
+    providerModelsLoading={false} tasksEnabled={false} isTaskMasterInstalled={null} setInput={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: /Click to change model/ }));
+  assert.ok(screen.getByRole('group', { name: /Claude Code · Antigravity/ }));
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Antigravity' } });
+  fireEvent.click(screen.getByRole('option', { name: /Claude Fixture/ }));
+  assert.deepEqual(setProvider.mock.calls, [['claude']]);
+  assert.deepEqual(setProviderModel.mock.calls, [['claude', 'claude-fixture']]);
 });
 
 test('the model picker says which providers list only your models', () => {
