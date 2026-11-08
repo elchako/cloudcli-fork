@@ -4,7 +4,7 @@ type: fork-change
 sections: [§3]
 tags: [настройки, user_settings, localstorage, user_preferences, синхронизация]
 description: "Per-user настройки в таблице user_settings (userSettingsSync.js) для того, что апстрим держит только в localStorage: allowlist ключей, граница с user_preferences апстрима, без секретов."
-updated: 2026-10-31
+updated: 2026-11-08
 ---
 
 # Настройки пользователя в БД
@@ -67,6 +67,16 @@ updated: 2026-10-31
   перезагрузку, тема не перебивается, модель из нашего блоба подхватывается.
   **Правило на будущее:** ключ, которым владеет `shared/userSettings`, в наш
   allowlist не добавлять.
+
+### Модели названий чатов: прямое хранение без localStorage (§4.9-тер)
+
+Не-секретный ключ `session-title-models` (`primaryModel`, `fallbackModel`) также
+хранится в `user_settings`, но через отдельный валидирующий
+`GET/PUT /api/settings/session-title-models`. Это серверная настройка генератора,
+а не legacy-настройка браузера: в `SYNCED_SETTINGS_KEYS` и `user_preferences`
+её нет. Частичный merge сохраняет остальные ключи, другой браузер читает ту же
+пару из БД. Политика каталога, резервирования и legacy — в
+[§4.9-тер](session-titles.md#49-тер-независимая-основная-и-резервная-модели-названий-2026-11-08).
 
 ## Связанные страницы
 

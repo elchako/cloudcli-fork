@@ -1,4 +1,5 @@
 import { AppError } from '@/shared/utils.js';
+import type { createSessionTitleModelsService } from '@/modules/providers/index.js';
 
 type ApiKeyRow = Record<string, unknown> & { api_key: string };
 type NotificationPreferences = Record<string, unknown> & {
@@ -38,6 +39,8 @@ type SettingsDependencies = {
     get(userId: number): unknown;
     update(userId: number, settings: unknown, merge: boolean): unknown;
   };
+  // GOLDJAXE fork (реестр §4.9-тер): отдельная политика служебных моделей.
+  sessionTitleModels: Pick<ReturnType<typeof createSessionTitleModelsService>, 'getStatus' | 'save'>;
   voiceSettings: {
     get(userId: number): unknown;
     getApiKey(userId: number): string | null;
@@ -163,6 +166,12 @@ export function createSettingsService(dependencies: SettingsDependencies) {
       // Partial merge by default so a client that changed one key does not wipe
       // the rest; the caller passes merge=false to replace the whole blob.
       return { success: true, settings: dependencies.userSettings.update(userId, settings ?? {}, merge) };
+    },
+    async getSessionTitleModels(userId: number) {
+      return { success: true, ...await dependencies.sessionTitleModels.getStatus(userId) };
+    },
+    async updateSessionTitleModels(userId: number, input: unknown) {
+      return { success: true, settings: await dependencies.sessionTitleModels.save(userId, input) };
     },
     getVoiceSettings(userId: number, revealApiKey = false) {
       // Default response carries the non-secret fields plus `hasApiKey`. The

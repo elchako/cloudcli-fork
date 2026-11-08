@@ -17,6 +17,10 @@ function dependencies(overrides: Partial<Dependencies> = {}): Dependencies {
     },
     pushSubscriptions: { save: () => undefined, remove: () => undefined },
     userSettings: { get: () => ({}), update: () => ({}) },
+    sessionTitleModels: {
+      getStatus: async () => ({ settings: { primaryModel: '', fallbackModel: '' }, models: [], legacyModel: null }),
+      save: async () => ({ primaryModel: 'primary', fallbackModel: 'fallback' }),
+    },
     voiceSettings: { get: () => ({}), getApiKey: () => null, update: () => ({}) },
     getVapidPublicKey: () => null,
     ...overrides,
@@ -70,6 +74,20 @@ test('updateUserSettings forwards the merge flag to the repository', () => {
 
   service.updateUserSettings(2, { theme: 'light' }, false);
   assert.equal(calls[1]?.merge, false);
+});
+
+test('настройки названий используют ID авторизованного пользователя и отдельный helper', async () => {
+  const calls: unknown[] = [];
+  const settings = { primaryModel: 'text-primary', fallbackModel: 'text-fallback' };
+  const service = createSettingsService(dependencies({
+    sessionTitleModels: {
+      getStatus: async (id) => { calls.push(['get', id]); return { settings, models: [], legacyModel: null }; },
+      save: async (id, input) => { calls.push(['save', id, input]); return settings; },
+    },
+  }));
+  assert.deepEqual(await service.getSessionTitleModels(7), { success: true, settings, models: [], legacyModel: null });
+  assert.deepEqual(await service.updateSessionTitleModels(7, settings), { success: true, settings });
+  assert.deepEqual(calls, [['get', 7], ['save', 7, settings]]);
 });
 
 test('getVoiceSettings withholds the apiKey unless it is explicitly requested', () => {

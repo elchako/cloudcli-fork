@@ -8,6 +8,7 @@ import SettingsCard from '@/modules/settings/SettingsCard';
 import SettingsRow from '@/modules/settings/SettingsRow';
 import SettingsSection from '@/modules/settings/SettingsSection';
 import SettingsToggle from '@/modules/settings/SettingsToggle';
+import SessionTitleModelSettings from '@/modules/settings/tabs/SessionTitleModelSettings';
 
 type AppearanceSettingsTabProps = {
   projectSortOrder: ProjectSortOrder;
@@ -94,6 +95,9 @@ export default function AppearanceSettingsTab({
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
+
+      {/* GOLDJAXE fork (реестр §4.9-тер): независимо от настроек голоса и модели чата. */}
+      <SessionTitleModelSettings />
 
       <SettingsSection title={t('appearanceSettings.codeEditor.title')}>
         <SettingsCard divided>

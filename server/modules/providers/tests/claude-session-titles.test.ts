@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, sessionsDb, userDb, userSettingsDb } from '@/modules/database/index.js';
 import { ClaudeSessionSynchronizer } from '@/modules/providers/list/claude/claude-session-synchronizer.provider.js';
+import { SESSION_TITLE_MODELS_KEY } from '@/modules/providers/services/session-title-models.service.js';
 
 /**
  * Titles for freshly created sessions.
@@ -50,6 +51,12 @@ async function withHarness(
   process.env.ANTHROPIC_API_KEY = 'test-key';
   process.env.ANTHROPIC_BASE_URL = 'https://gateway.test';
   await initializeDatabase();
+  // GOLDJAXE fork (реестр §4.9-тер): автоматика читает явную пару из БД,
+  // а не Haiku alias; GET каталога не считается генерацией заголовка.
+  const userId = Number(userDb.createUser('title-tester', 'test-hash').id);
+  userSettingsDb.updateSettings(userId, {
+    [SESSION_TITLE_MODELS_KEY]: { primaryModel: 'title-primary', fallbackModel: 'title-fallback' },
+  });
 
   const sessionId = '11111111-2222-3333-4444-555555555555';
   const projectPath = path.join(tempDirectory, 'project');
@@ -69,7 +76,12 @@ async function withHarness(
 
   let callIndex = 0;
   let startedRequests = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (input: unknown) => {
+    if (String(input).includes('/models')) {
+      return new Response(JSON.stringify({ data: [{ id: 'title-primary' }, { id: 'title-fallback' }] }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    }
     // Counted on entry, not on completion: a test that holds a request open
     // still needs to observe that it was started.
     const currentCall = callIndex++;
@@ -133,6 +145,18 @@ test('a newly indexed session gets a short title in the background', async () =>
   );
 });
 
+test('фоновое автопереименование использует резервную модель из сохранённой пары', async () => {
+  await withHarness(
+    async (callIndex) => callIndex === 0 ? null : SHORT_TITLE,
+    async ({ synchronizer, transcriptPath, sessionId, requests }) => {
+      await synchronizer.synchronizeFile(transcriptPath);
+      await waitFor(() => storedFullTitle(sessionId) !== '');
+      assert.equal(storedName(sessionId), SHORT_TITLE);
+      assert.equal(requests(), 2);
+    },
+  );
+});
+
 test('re-indexing retries titling when the previous pass has not answered yet', async () => {
   let releaseFirstCall: (() => void) | null = null;
   const firstCallGate = new Promise<void>((resolve) => {
@@ -146,6 +170,9 @@ test('re-indexing retries titling when the previous pass has not answered yet', 
         await firstCallGate;
         return null;
       }
+      // Теперь один раунд имеет и резервный запрос: он тоже должен упасть,
+      // иначе следующий проход уже не нужен и регрессия гонки не проверяется.
+      if (callIndex === 1) return null;
 
       return SHORT_TITLE;
     },

@@ -4,6 +4,12 @@ export { providerMcpService } from './services/mcp.service.js';
 export { providerCapabilitiesService } from './services/provider-capabilities.service.js';
 export { providerRuntimeService } from './services/provider-runtime.service.js';
 
+// GOLDJAXE fork (реестр §4.9-тер): одна политика моделей для генератора и Settings.
+export {
+  createSessionTitleModelsService,
+  sessionTitleModelsService,
+} from './services/session-title-models.service.js';
+
 // providerModelsService: used by Commands to list models and resolve the active session model.
 export { providerModelsService } from './services/provider-models.service.js';
 

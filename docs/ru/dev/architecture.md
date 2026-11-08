@@ -90,6 +90,21 @@ Gemini и Claude с `owned_by=antigravity` остаются вместе. `LLMPr
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` остаётся прежним
 ([GPT через шлюз](../fork/gpt-gateway.md)).
 
+## Модели для названий чатов
+
+`session-title-models.service.ts` хранит явную пару `primaryModel`/`fallbackModel`
+в `user_settings["session-title-models"]`. Авторизованные
+`GET/PUT /api/settings/session-title-models` обслуживают отдельную настройку
+во «Внешнем виде»; данные не дублируются в `userSettingsSync`/localStorage.
+Текстовые кандидаты берутся из `claudeApiModelCatalog`, распознаваемые image-ID
+отфильтрованы; цена неизвестна и не ранжируется. `session-title.service.ts`
+пробует основной и резервный ID, сохраняя один совместимый thinking retry,
+очередь, сырой fallback и защиту ручных имён. Минимальный effort передаётся только
+для подтверждённых метаданных/транспорта; неизвестным моделям уровни не выдумываются.
+Фоновые названия используют первого активного пользователя single-user инстанса,
+ручная регенерация — ID авторизованного пользователя
+([§4.9-тер](../fork/session-titles.md)).
+
 ## Runtime и версии CLI
 
 С upstream v1.37.6 `buildClaudeSdkEnv` сохраняет окружение хоста, включает

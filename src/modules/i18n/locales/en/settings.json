@@ -1,5 +1,27 @@
 {
   "title": "Settings",
+  "sessionTitles": {
+    "title": "Chat title model",
+    "description": "The primary model creates a short title. If it is unavailable or fails, the fallback model is tried. Your choices follow your account across devices.",
+    "primaryModel": "Primary model",
+    "fallbackModel": "Fallback model",
+    "choose": "Choose a text model",
+    "unavailableModel": "{{model}} — unavailable",
+    "effortHint": "Text models from the connected API only. The lowest confirmed effort is used; unknown models receive no effort setting. The API provides no prices, so you choose the models.",
+    "loading": "Loading settings and model catalog…",
+    "setupRequired": "Choose and save a primary and fallback model. If no configured models are available, the shortened first prompt remains the title.",
+    "legacy": "Until you save a pair, the previous model {{model}} is used while it remains in the API catalog.",
+    "catalogUnavailable": "The API catalog is unavailable. Saved models are kept; new choices are not available yet.",
+    "noModels": "The API catalog has no available text models. Check the connection and refresh the catalog in the model library.",
+    "missingSavedModel": "A saved model is no longer listed. The fallback replaces an unavailable primary; if neither is available, the shortened first prompt is kept.",
+    "save": "Save models",
+    "saving": "Saving…",
+    "saved": "Chat title models saved",
+    "loadError": "Could not load model settings. Try again.",
+    "saveError": "Could not save the models. Your choices are kept; try again.",
+    "modelUnavailable": "A selected model is no longer available. Refresh the catalog in the model library and choose another.",
+    "retry": "Try again"
+  },
   "tabs": {
     "account": "Account",
     "permissions": "Permissions",

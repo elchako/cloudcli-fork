@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { buildFallbackTitle, generateSessionTitle } from '@/modules/providers/services/session-title.service.js';
+import { sessionTitleModelsService } from '@/modules/providers/services/session-title-models.service.js';
 
 const LONG_PROMPT =
   'продолжаем дорабатывать боковую панель CloudCLI: выделение активного сеанса и короткие названия';
@@ -43,9 +44,13 @@ describe('session title service', () => {
     delete process.env.CLOUDCLI_SESSION_TITLES;
     delete process.env.CLOUDCLI_SESSION_TITLE_MODEL;
     delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    // GOLDJAXE fork (реестр §4.9-тер): политику каталога проверяем отдельно,
+    // здесь закрепляем реальный транспорт и ограниченный thinking retry.
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [{ model: 'title-primary' }]);
   });
 
   afterEach(() => {
+    mock.restoreAll();
     globalThis.fetch = originalFetch;
     process.env = { ...originalEnv };
   });
@@ -295,6 +300,112 @@ describe('session title service', () => {
     assert.equal(peakInFlight, 1, `expected serialized requests, saw ${peakInFlight} in flight`);
     assert.equal(results.length, 5);
     assert.ok(results.every((result) => result?.generated === true));
+  });
+
+  for (const failure of ['http', 'network', 'empty', 'explanation', 'truncated'] as const) {
+    it(`uses the configured fallback after ${failure} without repeating the primary ID`, async () => {
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+      process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'unavailable-haiku';
+      mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [
+        { model: 'title-primary' }, { model: 'title-fallback' },
+      ]);
+      const calls = stubFetch((_url, init) => {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        if (body.model === 'title-fallback') return textBlockResponse('Резервная модель — название');
+        if (failure === 'network') throw new Error('network down');
+        if (failure === 'http') return jsonResponse({ error: 'unavailable' }, 503);
+        if (failure === 'empty') return textBlockResponse('');
+        if (failure === 'truncated') return jsonResponse({ content: [{ type: 'text', text: 'Незаконченное' }], stop_reason: 'max_tokens' });
+        return textBlockResponse('Пояснение вместо заголовка '.repeat(10));
+      });
+
+      const result = await generateSessionTitle(LONG_PROMPT);
+      assert.equal(result?.title, 'Резервная модель — название');
+      assert.equal(result?.generated, true);
+      assert.deepEqual(calls.map((call) => JSON.parse(String(call.init.body)).model), ['title-primary', 'title-fallback']);
+    });
+  }
+
+  it('does not call the fallback after a successful primary request', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [
+      { model: 'title-primary' }, { model: 'title-fallback' },
+    ]);
+    const calls = stubFetch(() => textBlockResponse('Основная модель — название'));
+    assert.equal((await generateSessionTitle(LONG_PROMPT))?.generated, true);
+    assert.equal(calls.length, 1);
+  });
+
+  it('tries the fallback after exactly one compatibility thinking retry', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [
+      { model: 'title-primary' }, { model: 'title-primary' }, { model: 'title-fallback' },
+    ]);
+    const calls = stubFetch((_url, init) => {
+      const body = JSON.parse(String(init.body)) as { model: string; thinking?: unknown };
+      if (body.model === 'title-fallback') return textBlockResponse('Резервная модель — название');
+      return body.thinking ? jsonResponse({}, 503)
+        : jsonResponse({ error: { message: 'requires thinking to be enabled' } }, 400);
+    });
+    assert.equal((await generateSessionTitle(LONG_PROMPT))?.generated, true);
+    assert.deepEqual(calls.map((call) => JSON.parse(String(call.init.body)).model), ['title-primary', 'title-primary', 'title-fallback']);
+  });
+
+  it('does not loop over repeated IDs when both models fail', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [
+      { model: 'same' }, { model: 'same' },
+    ]);
+    const calls = stubFetch(() => jsonResponse({}, 500));
+    assert.equal((await generateSessionTitle(LONG_PROMPT))?.generated, false);
+    assert.equal(calls.length, 1);
+  });
+
+  it('sends a confirmed GPT effort through the existing model suffix transport', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [{ model: 'gpt-6.1-sol(low)' }]);
+    const calls = stubFetch(() => textBlockResponse('GPT — название чата'));
+    await generateSessionTitle(LONG_PROMPT);
+    const body = JSON.parse(String(calls[0]?.init.body));
+    assert.equal(body.model, 'gpt-6.1-sol(low)');
+    assert.equal(body.output_config, undefined);
+    assert.equal(body.thinking, undefined);
+  });
+
+  it('starts adaptive Claude with its confirmed minimum effort, without a doomed plain attempt', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [
+      { model: 'claude-sonnet-5-5', adaptiveThinking: true, effort: 'low' },
+    ]);
+    const calls = stubFetch(() => textBlockResponse('Claude — название чата'));
+    await generateSessionTitle(LONG_PROMPT);
+    const body = JSON.parse(String(calls[0]?.init.body));
+    assert.deepEqual(body.thinking, { type: 'adaptive' });
+    assert.deepEqual(body.output_config, { effort: 'low' });
+    assert.equal(body.temperature, undefined);
+    assert.equal(calls.length, 1);
+  });
+
+  it('keeps a raw title when no configured ID is available or the settings fail', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => []);
+    const calls = stubFetch(() => textBlockResponse('Не вызывать'));
+    assert.equal((await generateSessionTitle(LONG_PROMPT))?.generated, false);
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => { throw new Error('database unavailable'); });
+    assert.equal((await generateSessionTitle(LONG_PROMPT))?.title, buildFallbackTitle(LONG_PROMPT));
+    assert.equal(calls.length, 0);
+  });
+
+  it('uses the authenticated user selection for a manual regeneration', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    let selectedUser: number | undefined;
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async (userId?: number) => {
+      selectedUser = userId;
+      return [{ model: 'title-primary' }];
+    });
+    stubFetch(() => textBlockResponse('Модель пользователя — название'));
+    await generateSessionTitle(LONG_PROMPT, { userId: 42, previousTitle: 'Старое название' });
+    assert.equal(selectedUser, 42);
   });
 
   it('returns null for an empty prompt', async () => {

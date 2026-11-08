@@ -11,6 +11,7 @@ import {
   getPublicKey,
   notifyUserIfEnabled,
 } from '@/modules/notifications/index.js';
+import { sessionTitleModelsService } from '@/modules/providers/index.js';
 
 import { createSettingsRouter } from './settings.routes.js';
 import { createSettingsService } from './settings.service.js';
@@ -49,6 +50,8 @@ const settingsService = createSettingsService({
     get: (userId) => userSettingsDb.getSettings(userId),
     update: (userId, settings, merge) => userSettingsDb.updateSettings(userId, settings, merge),
   },
+  // GOLDJAXE fork (реестр §4.9-тер): API и генератор используют одну настройку.
+  sessionTitleModels: sessionTitleModelsService,
   voiceSettings: {
     get: (userId) => voiceSettingsDb.getVoiceSettings(userId),
     getApiKey: (userId) => voiceSettingsDb.getVoiceApiKey(userId),

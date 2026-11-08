@@ -1,9 +1,14 @@
 import {
+  isAdaptiveThinkingModel,
   postSmallModelRequest,
-  resolveSmallModel,
   resolveSmallModelCredentials,
   type SmallModelCredentials,
 } from '@/shared/small-model.js';
+import { decodeCliProxyModelId } from '@/modules/providers/list/claude/claude-api-models.js';
+import {
+  sessionTitleModelsService,
+  type SessionTitleModelRequest,
+} from '@/modules/providers/services/session-title-models.service.js';
 
 /**
  * Generates short, scannable sidebar titles for sessions.
@@ -172,20 +177,26 @@ type TitleRequestOutcome =
 
 async function postTitleRequest(
   credentials: SmallModelCredentials,
-  model: string,
+  model: SessionTitleModelRequest,
   prompt: string,
   withThinking: boolean,
   previousTitle: string | undefined,
 ): Promise<TitleRequestOutcome> {
+  // GOLDJAXE fork (реестр §4.9-тер): минимальный подтверждённый effort уже
+  // выбран helper'ом; retry добавляет только необходимые thinking-параметры.
+  const adaptiveThinking = model.adaptiveThinking
+    || (withThinking && isAdaptiveThinkingModel(decodeCliProxyModelId(model.model)));
   const outcome = await postSmallModelRequest(
     credentials,
     {
-      model,
+      ...model,
       system: buildSystemPrompt(previousTitle),
       messages: [{ role: 'user', content: prompt.slice(0, MAX_PROMPT_CHARS) }],
-      ...(withThinking
-        ? { maxTokens: THINKING_ANSWER_TOKENS, thinkingBudget: THINKING_BUDGET_TOKENS }
-        : { maxTokens: 64, temperature: previousTitle ? REGENERATE_TEMPERATURE : 0 }),
+      ...(adaptiveThinking
+        ? { maxTokens: THINKING_BUDGET_TOKENS, adaptiveThinking: true }
+        : withThinking
+          ? { maxTokens: THINKING_ANSWER_TOKENS, thinkingBudget: THINKING_BUDGET_TOKENS }
+          : { maxTokens: 64, temperature: previousTitle ? REGENERATE_TEMPERATURE : 0 }),
     },
     { timeoutMs: REQUEST_TIMEOUT_MS },
   );
@@ -194,40 +205,39 @@ async function postTitleRequest(
     return outcome;
   }
   if (outcome.status === 'failed') {
-    if (outcome.reason.startsWith('HTTP ')) {
-      console.warn(`Session title model returned ${outcome.reason}; keeping the raw prompt`);
-    } else {
-      console.warn(`Session title generation failed (${outcome.reason}); keeping the raw prompt`);
-    }
+    console.warn(`Не удалось сгенерировать название сеанса (${outcome.reason})`);
     return { status: 'failed' };
   }
-  return { status: 'ok', title: outcome.text ? sanitizeModelTitle(outcome.text) : null };
+  return { status: 'ok', title: outcome.stopReason !== 'max_tokens' && outcome.text ? sanitizeModelTitle(outcome.text) : null };
 }
 
 async function requestModelTitle(
   prompt: string,
   previousTitle: string | undefined,
+  userId: number | undefined,
 ): Promise<string | null> {
-  const credentials = await resolveSmallModelCredentials();
-  if (!credentials) {
-    return null;
-  }
-
-  const model = await resolveSmallModel('CLOUDCLI_SESSION_TITLE_MODEL');
-
   return enqueueTitleRequest(async () => {
-    const firstAttempt = await postTitleRequest(credentials, model, prompt, false, previousTitle);
-    if (firstAttempt.status === 'ok') {
-      return firstAttempt.title;
+    try {
+      const credentials = await resolveSmallModelCredentials();
+      if (!credentials) return null;
+      const candidates = await sessionTitleModelsService.resolveCandidates(userId);
+      // GOLDJAXE fork (реестр §4.9-тер): основная → резервная, каждый ID один
+      // раз в цепочке. Единственное исключение — совместимый thinking retry.
+      const attempted = new Set<string>();
+      for (const model of candidates) {
+        if (attempted.has(model.model)) continue;
+        attempted.add(model.model);
+        const first = await postTitleRequest(credentials, model, prompt, false, previousTitle);
+        if (first.status === 'ok' && first.title) return first.title;
+        if (first.status === 'needs-thinking') {
+          const retry = await postTitleRequest(credentials, model, prompt, true, previousTitle);
+          if (retry.status === 'ok' && retry.title) return retry.title;
+        }
+      }
+    } catch {
+      // Ошибка БД/каталога тоже не должна ломать индексацию или раскрывать настройки.
+      console.warn('Не удалось получить настройки модели названий сеансов');
     }
-
-    // Some gateways (CLIProxyAPI among them) reject plain requests and require
-    // extended thinking; retrying with it turns that hard failure into a title.
-    if (firstAttempt.status === 'needs-thinking') {
-      const retry = await postTitleRequest(credentials, model, prompt, true, previousTitle);
-      return retry.status === 'ok' ? retry.title : null;
-    }
-
     return null;
   });
 }
@@ -251,6 +261,8 @@ export type GenerateSessionTitleOptions = {
    * new label instead of the same deterministic one.
    */
   previousTitle?: string;
+  /** GOLDJAXE fork (реестр §4.9-тер): ручная генерация от имени пользователя. */
+  userId?: number;
 };
 
 /**
@@ -277,7 +289,7 @@ export async function generateSessionTitle(
   }
 
   const previousTitle = options.previousTitle?.replace(/\s+/g, ' ').trim() || undefined;
-  const modelTitle = await requestModelTitle(normalizedPrompt, previousTitle);
+  const modelTitle = await requestModelTitle(normalizedPrompt, previousTitle, options.userId);
   if (!modelTitle) {
     return { title: fallback, fullTitle, generated: false };
   }

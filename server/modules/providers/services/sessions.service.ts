@@ -805,6 +805,7 @@ export const sessionsService = {
    */
   async regenerateSessionTitleById(
     sessionId: string,
+    userId?: number,
   ): Promise<{ sessionId: string; summary: string; fullTitle: string; generated: boolean }> {
     const session =
       sessionsDb.getSessionById(sessionId) ?? sessionsDb.getSessionByProviderSessionId(sessionId);
@@ -838,6 +839,8 @@ export const sessionsService = {
     // same title again and the press looked like a no-op.
     const generated = await generateSessionTitle(sourcePrompt, {
       previousTitle: session.custom_name ?? undefined,
+      // GOLDJAXE fork (реестр §4.9-тер): явный выбор текущего пользователя.
+      userId,
     });
     if (!generated) {
       throw new AppError(`Session "${sessionId}" has no prompt to build a title from.`, {

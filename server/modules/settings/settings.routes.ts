@@ -46,6 +46,11 @@ export function createSettingsRouter(
   router.put('/user-settings', respond((req) => service.updateUserSettings(
     userId(req), req.body ?? {}, req.query.merge !== 'false',
   )));
+  // GOLDJAXE fork (реестр §4.9-тер): только не-секретные ID и API-каталог.
+  router.get('/session-title-models', respond((req) => service.getSessionTitleModels(userId(req))));
+  router.put('/session-title-models', respond((req) => service.updateSessionTitleModels(
+    userId(req), req.body,
+  )));
   router.get('/voice-settings', respond((req) => service.getVoiceSettings(
     userId(req), req.query.revealApiKey === 'true',
   )));

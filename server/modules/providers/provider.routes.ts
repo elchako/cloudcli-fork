@@ -1041,7 +1041,11 @@ router.post(
   '/sessions/:sessionId/regenerate-title',
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
-    const result = await sessionsService.regenerateSessionTitleById(sessionId);
+    // GOLDJAXE fork (реестр §4.9-тер): ручной запрос использует свою пару моделей.
+    const userId = Number((req as Request & { user?: { id?: number | string } }).user?.id);
+    const result = await sessionsService.regenerateSessionTitleById(
+      sessionId, Number.isSafeInteger(userId) && userId > 0 ? userId : undefined,
+    );
     res.json(createApiSuccessResponse(result));
   }),
 );
