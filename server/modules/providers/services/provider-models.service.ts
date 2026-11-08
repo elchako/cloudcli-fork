@@ -112,11 +112,17 @@ const mergeProviderModels = (
   const customOptions = custom.map(toCustomProviderModelOption);
   const listOnlyCustomModels = customModelsOnly && customOptions.length > 0;
   const builtInIds = new Set(predefined.OPTIONS.map((option) => option.value));
+  // GOLDJAXE fork (реестр §22): автообнаружение не стирает ручные имя/effort.
+  const apiCatalog = predefined.SOURCE === 'api' || predefined.SOURCE === 'api-cache';
+  const customById = new Map(customOptions.map((option) => [option.value, option]));
   return {
+    ...(predefined.SOURCE ? { SOURCE: predefined.SOURCE } : {}),
     OPTIONS: listOnlyCustomModels
       ? customOptions
       : [
-        ...predefined.OPTIONS.map((option) => ({ ...option, isCustom: false })),
+        ...predefined.OPTIONS.map((option) => (
+          (apiCatalog && customById.get(option.value)) || { ...option, isCustom: false }
+        )),
         ...customOptions.filter((option) => !builtInIds.has(option.value)),
       ],
     DEFAULT: listOnlyCustomModels ? customOptions[0].value : predefined.DEFAULT,
@@ -173,10 +179,10 @@ const isUniqueConstraintError = (error: unknown): boolean => (
  * Creates the provider model application service used by Providers routes,
  * Commands, and provider runtimes.
  *
- * Curated adapter definitions stay source-controlled and are merged at read
- * time with custom SQLite rows. This deliberately has no predefined-model
- * persistence, memory cache, disk cache, TTL, or provider-native discovery.
- * Tests inject a small custom-model store through the same boundary.
+ * Каталоги адаптеров объединяются с ручными строками SQLite при чтении.
+ * GOLDJAXE fork (реестр §22): обнаружение моделей API и его кэш принадлежат
+ * адаптеру Claude, не этому общему сервису. Остальные провайдеры не меняются.
+ * Тесты подменяют хранилище через ту же границу.
  */
 export const createProviderModelsService = (dependencies: ProviderModelsServiceDependencies = {}) => {
   const resolveProvider = dependencies.resolveProvider ?? providerRegistry.resolveProvider;
@@ -326,16 +332,17 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     recordId: number,
   ): Promise<{ model: ProviderModelOption; models: ProviderModelsDefinition }> => {
     const predefined = await resolveProvider(provider).models.getSupportedModels();
-    readCustomModel(provider, recordId);
-    // Sessions on the deleted model move to the default of the catalog left
-    // behind: the first remaining custom model (the new DEFAULT) while only
-    // custom models are listed, or the built-in default once none remain.
-    const fallbackModelId = mergeProviderModels(
+    const existing = readCustomModel(provider, recordId);
+    const remaining = mergeProviderModels(
       provider,
       predefined,
       catalog.listCustomProviderModels(provider).filter((record) => record.recordId !== recordId),
       isCustomModelsOnly(provider),
-    ).DEFAULT;
+    );
+    // GOLDJAXE fork (реестр §22): после удаления ручного описания модель API
+    // может оставаться доступной; сеансы тогда не переводим на другую модель.
+    const fallbackModelId = remaining.OPTIONS.some((option) => option.value === existing.modelId)
+      ? existing.modelId : remaining.DEFAULT;
     const removed = catalog.deleteCustomProviderModel(provider, recordId, fallbackModelId);
     if (!removed) {
       throw new AppError('Model not found.', {

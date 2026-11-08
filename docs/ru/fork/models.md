@@ -3,13 +3,18 @@ title: "Модели Claude и Kimi в каталоге"
 type: fork-change
 sections: [§1.1, §1.2, §1.4]
 tags: [модели, kimi, sonnet, opus, claude-models]
-description: "Kimi K3 [1m] с автоматическим адресом Moonshot, снятая запись Opus 5 и Sonnet 5.5 явным id вместо алиаса sonnet[1m]: что в каталоге моделей Claude наше и почему."
-updated: 2026-10-31
+description: "История запасного каталога Claude: Kimi K3, снятый Opus 5 и Sonnet 5.5. С §22 основной список приходит из подключённого API, а эти записи остаются fallback и метаданными совместимости."
+updated: 2026-11-08
 ---
 
 # Модели Claude и Kimi в каталоге
 
 > Разделы реестра §1.1, §1.2, §1.4. Часть [реестра правок форка](../fork-changes.md): номер § — постоянный адрес правки, по нему на эту страницу ссылаются код и коммиты.
+
+> **С 08.11.2026:** основной каталог при подключённом API динамический —
+> [§22](api-models.md). Ниже сохранена история наших статических записей;
+> `CLAUDE_PREDEFINED_MODELS` используется как fallback и известные метаданные.
+> Чтобы новая модель API появилась в выборе, редактировать массив не нужно.
 
 ## §1.1 Kimi K3 (1M контекст)
 
@@ -21,8 +26,8 @@ updated: 2026-10-31
 - **Файлы:** `server/modules/providers/list/claude/claude-models.provider.ts`
   (запись в `CLAUDE_FALLBACK_MODELS`), `.../claude-runtime.provider.ts`
   (хук env в `mapCliOptionsToSDK`), `.env.example` (переменные Kimi).
-- **Почему форк, не плагин:** список моделей захардкожен в ядре
-  (`getSupportedModels()` отключён upstream), плагином не расширить.
+- **Историческая причина форка:** до §22 список моделей был захардкожен в ядре
+  (`getSupportedModels()` отключён upstream), плагином было не расширить.
 
 ## §1.2 Opus 5 в списке моделей
 

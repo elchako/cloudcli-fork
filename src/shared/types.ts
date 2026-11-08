@@ -33,6 +33,8 @@ export type ProviderModelOption = {
 export type ProviderModelsDefinition = {
   OPTIONS: ProviderModelOption[];
   DEFAULT: string;
+  /** GOLDJAXE fork (реестр §22): без адреса API и credentials. */
+  SOURCE?: 'api' | 'api-cache' | 'fallback';
   EFFORT_LEVELS?: string[];
   CUSTOM_MODELS_ONLY?: boolean;
 };
@@ -62,6 +64,8 @@ export type ProviderModelActions = {
   remove(provider: LLMProvider, existing: ProviderModelOption): Promise<void>;
   /** Turns the provider's "use only my models" flag on or off. */
   setCustomModelsOnly(provider: LLMProvider, enabled: boolean): Promise<void>;
+  /** GOLDJAXE fork (реестр §22): явное перечитывание без TTL-кэша. */
+  refreshCatalog?(provider: LLMProvider): Promise<void>;
 };
 
 // ---------------------------

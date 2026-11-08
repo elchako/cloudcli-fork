@@ -6,6 +6,7 @@ import { providerCapabilitiesService } from '@/modules/providers/services/provid
 import { providerCliService } from '@/modules/providers/services/provider-cli.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
+import { claudeApiModelCatalog } from '@/modules/providers/list/claude/claude-api-models.js';
 import { providerTokenUsageService } from '@/modules/providers/services/provider-token-usage.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
@@ -669,6 +670,8 @@ router.get(
   '/:provider/models',
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
+    // GOLDJAXE fork (реестр §22): только явная кнопка обновления обходит TTL.
+    if (provider === 'claude' && req.query.refresh === '1') await claudeApiModelCatalog.refresh();
     const models = await providerModelsService.getProviderModels(provider);
     res.json(createApiSuccessResponse({ provider, models }));
   }),

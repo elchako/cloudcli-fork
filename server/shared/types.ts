@@ -94,6 +94,8 @@ export type ProviderModelOption = {
 export type ProviderModelsDefinition = {
   OPTIONS: ProviderModelOption[];
   DEFAULT: string;
+  /** GOLDJAXE fork (реестр §22): безопасный статус каталога, без credentials. */
+  SOURCE?: 'api' | 'api-cache' | 'fallback';
   /**
    * Reasoning-effort levels a custom entry of this catalog may declare, weakest
    * first; empty for providers without effort support. The Providers service

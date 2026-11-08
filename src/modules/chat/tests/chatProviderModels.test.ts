@@ -56,7 +56,78 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.resetModules();
+});
+
+const apiModelsResponse = (ids: string[]) => new Response(JSON.stringify({ success: true, data: { models: {
+  OPTIONS: ids.map((value) => ({ value, label: value })), DEFAULT: ids[0], SOURCE: 'api',
+} } }), { headers: { 'Content-Type': 'application/json' } });
+
+// GOLDJAXE fork (реестр §22): неизвестные ID и ручное обновление не требуют новой сборки.
+test('обновление API добавляет неизвестную модель, которую можно выбрать без подстановки ID', async () => {
+  const { api } = await import('@/shared/api');
+  const calls: Array<[string, boolean | undefined]> = [];
+  vi.spyOn(api.providers, 'models').mockImplementation(async (provider, refresh) => {
+    calls.push([provider, refresh]);
+    return apiModelsResponse(['default', ...(refresh ? ['vendor/new-api-model'] : [])]);
+  });
+  const { result } = await renderProviderState();
+  await waitFor(() => assert.equal(result.current.providerModelCatalog.claude?.SOURCE, 'api'));
+  await act(async () => { await result.current.providerModelActions.refreshCatalog!('claude'); });
+  assert.ok(result.current.providerModelCatalog.claude?.OPTIONS.some((m) => m.value === 'vendor/new-api-model'));
+  assert.deepEqual(calls.filter(([, refresh]) => refresh), [['claude', true]]);
+  await act(async () => { await result.current.selectProviderModel('claude', 'vendor/new-api-model'); });
+  assert.equal(result.current.providerModels.claude, 'vendor/new-api-model');
+  assert.equal(localStorage.getItem('claude-model'), 'vendor/new-api-model');
+});
+
+test('поздняя начальная загрузка не перезаписывает свежий API-каталог и не теряет другой провайдер', async () => {
+  const { api } = await import('@/shared/api');
+  let release!: (response: Response) => void;
+  const old = new Promise<Response>((resolve) => { release = resolve; });
+  vi.spyOn(api.providers, 'models').mockImplementation(async (provider, refresh) => (
+    provider === 'claude' && !refresh ? old : apiModelsResponse(['default', `${provider}-fresh`])
+  ));
+  const { result } = await renderProviderState();
+  await act(async () => { await result.current.providerModelActions.refreshCatalog!('claude'); });
+  assert.equal(result.current.providerModelCatalog.claude?.OPTIONS[1].value, 'claude-fresh');
+  await act(async () => { release(apiModelsResponse(['default', 'obsolete'])); });
+  await waitFor(() => assert.equal(result.current.providerModelsLoading, false));
+  assert.equal(result.current.providerModelCatalog.claude?.OPTIONS[1].value, 'claude-fresh');
+  assert.equal(result.current.providerModelCatalog.codex?.OPTIONS[1].value, 'codex-fresh');
+});
+
+for (const customOnlyFlag of [false, true]) {
+  test(`холодный сбой API не заменяет сохранённый ID; флаг только своих без записей: ${customOnlyFlag}`, async () => {
+    localStorage.setItem('claude-model', 'vendor/remembered-api-model');
+    const { api } = await import('@/shared/api');
+    vi.spyOn(api.providers, 'models').mockImplementation(async () => new Response(JSON.stringify({ success: true, data: { models: {
+      OPTIONS: [{ value: 'default', label: 'Default' }], DEFAULT: 'default', SOURCE: 'fallback', CUSTOM_MODELS_ONLY: customOnlyFlag,
+    } } })));
+    const { result } = await renderProviderState();
+    await waitFor(() => assert.equal(result.current.providerModelCatalog.claude?.SOURCE, 'fallback'));
+    assert.equal(result.current.providerModels.claude, 'vendor/remembered-api-model');
+    assert.equal(result.current.currentProviderModel, 'vendor/remembered-api-model');
+    assert.equal(localStorage.getItem('claude-model'), 'vendor/remembered-api-model');
+  });
+}
+
+test('сбой ручного обновления сохраняет список и выбранную модель', async () => {
+  const { api } = await import('@/shared/api');
+  vi.spyOn(api.providers, 'models').mockImplementation(async (_provider, refresh) => {
+    if (refresh) throw new Error('fixture refresh failure');
+    return apiModelsResponse(['default', 'saved-model']);
+  });
+  const { result } = await renderProviderState();
+  await waitFor(() => assert.equal(result.current.providerModelCatalog.claude?.OPTIONS.length, 2));
+  await act(async () => { await result.current.selectProviderModel('claude', 'saved-model'); });
+  const before = result.current.providerModelCatalog.claude;
+  await act(async () => {
+    await assert.rejects(result.current.providerModelActions.refreshCatalog!('claude'), /fixture refresh failure/);
+  });
+  assert.equal(result.current.providerModelCatalog.claude, before);
+  assert.equal(result.current.providerModels.claude, 'saved-model');
 });
 
 test('each provider gets its own model from its own storage key', async () => {

@@ -109,6 +109,25 @@ async function withContextWindowEnv(value: string | undefined, body: () => Promi
   }
 }
 
+for (const maskedUsage of [false, true]) {
+  test(`окно GPT сопоставляется между маской API и прямым ID; маска в modelUsage: ${maskedUsage}`, async () => {
+    const raw = 'gpt-6.1-sol';
+    const wrapped = `claude-fable-5-dd-${[...raw].reverse().join('')}`;
+    const mainModel = maskedUsage ? raw : wrapped;
+    const usageModel = maskedUsage ? wrapped : raw;
+    await withContextWindowEnv(undefined, async () => {
+      const sent = await runScripted(`api-mask-${maskedUsage}`, [
+        assistant('native-api-mask', mainModel),
+        result('native-api-mask', {
+          [`${usageModel}(max)`]: modelUsageEntry(930_000),
+          'claude-haiku-5-5': modelUsageEntry(200_000),
+        }),
+      ]);
+      assert.equal(tokenBudgets(sent).at(-1)?.total, 930_000);
+    });
+  });
+}
+
 test('the live budget reports the window the SDK measured for a [1m] model', async () => {
   await withContextWindowEnv(undefined, async () => {
     const nativeId = 'native-1m';

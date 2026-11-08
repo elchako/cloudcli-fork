@@ -170,6 +170,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [providerModelsLoading, setProviderModelsLoading] = useState(true);
 
   const providerModelsRequestIdRef = useRef(0);
+  const catalogRefreshIdsRef = useRef<Partial<Record<LLMProvider, number>>>({});
   const sessionSelectionLoadRequestIdRef = useRef(0);
   const sessionModelMutationIdRef = useRef(0);
   const sessionEffortMutationIdRef = useRef(0);
@@ -202,11 +203,13 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       // one (OpenCode shells out to its CLI) cannot hold back the others.
       await Promise.all(
         PROVIDERS.map(async (p) => {
+          const refreshId = catalogRefreshIdsRef.current[p] ?? 0;
           try {
             const response = await api.providers.models(p);
             const body = (await response.json()) as ProviderModelsApiResponse;
             const models = body.success ? body.data?.models : undefined;
-            if (!models || providerModelsRequestIdRef.current !== requestId) {
+            if (!models || providerModelsRequestIdRef.current !== requestId
+              || (catalogRefreshIdsRef.current[p] ?? 0) !== refreshId) {
               return;
             }
 
@@ -285,6 +288,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     def: ProviderModelsDefinition,
   ): string => {
     const stored = localStorage.getItem(storageKey);
+    // GOLDJAXE fork (реестр §22): холодный сбой каталога не означает, что
+    // выбранный ID удалён из API. Явный режим «только мои» остаётся сильнее.
+    const onlyCustom = def.CUSTOM_MODELS_ONLY && def.OPTIONS.some((option) => option.isCustom);
+    if (def.SOURCE === 'fallback' && !onlyCustom) return stored || current || def.DEFAULT;
     if (stored && def.OPTIONS.some((o) => o.value === stored)) {
       return stored;
     }
@@ -778,13 +785,15 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     const result = await readModelMutationResponse(response);
     applyProviderCatalog(targetProvider, result.models);
 
+    const replacement = result.models.OPTIONS.some((option) => option.value === existing.value)
+      ? existing.value : result.models.DEFAULT;
     if (providerModels[targetProvider] === existing.value) {
-      setStoredProviderModel(targetProvider, result.models.DEFAULT);
+      setStoredProviderModel(targetProvider, replacement);
     }
     if (provider === targetProvider && sessionModel === existing.value) {
       setSessionSelection((current) => current ? {
         ...current,
-        model: result.models.DEFAULT,
+        model: replacement,
       } : current);
     }
   }, [
@@ -814,12 +823,26 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     applyProviderCatalog(targetProvider, body.data.models);
   }, [applyProviderCatalog]);
 
+  // GOLDJAXE fork (реестр §22): свежий каталог одного провайдера не ждёт
+  // остальные CLI и не заменяется запоздалым начальным ответом.
+  const refreshCatalog = useCallback(async (targetProvider: LLMProvider) => {
+    const requestId = (catalogRefreshIdsRef.current[targetProvider] ?? 0) + 1;
+    catalogRefreshIdsRef.current[targetProvider] = requestId;
+    const response = await api.providers.models(targetProvider, true);
+    const body = (await response.json()) as ProviderModelsApiResponse;
+    if (!response.ok || !body.success || !body.data?.models) throw new Error('Не удалось обновить каталог моделей.');
+    if (catalogRefreshIdsRef.current[targetProvider] === requestId) {
+      applyProviderCatalog(targetProvider, body.data.models);
+    }
+  }, [applyProviderCatalog]);
+
   const providerModelActions = useMemo<ProviderModelActions>(() => ({
     create: createCustomModel,
     update: updateCustomModel,
     remove: removeCustomModel,
     setCustomModelsOnly,
-  }), [createCustomModel, removeCustomModel, setCustomModelsOnly, updateCustomModel]);
+    refreshCatalog,
+  }), [createCustomModel, refreshCatalog, removeCustomModel, setCustomModelsOnly, updateCustomModel]);
 
   return {
     provider,

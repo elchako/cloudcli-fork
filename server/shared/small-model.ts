@@ -226,25 +226,77 @@ export async function listSmallModels(
   credentials: SmallModelCredentials,
   options: { timeoutMs: number },
 ): Promise<string[] | null> {
+  const models = await listApiModels(credentials, options);
+  return models?.map((model) => model.id) ?? null;
+}
+
+export type ApiModel = { id: string; label: string };
+
+/**
+ * GOLDJAXE fork (реестр §22): общий GET-каталог для меню и сводки. ID не
+ * переписываются, ключ остаётся на сервере; пагинация идёт в тот же endpoint,
+ * а не по присланным API ссылкам. Один таймаут ограничивает весь обход.
+ */
+export async function listApiModels(
+  credentials: SmallModelCredentials,
+  options: { timeoutMs: number; preferStandardIds?: boolean },
+): Promise<ApiModel[] | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
   try {
-    const response = await fetch(`${credentials.baseUrl}/v1/models?limit=1000`, {
+    const base = credentials.baseUrl.replace(/\/+$/, '');
+    const url = new URL(`${base}${base.endsWith('/v1') ? '/models' : '/v1/models'}`);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    url.searchParams.set('limit', '1000');
+    const models = new Map<string, ApiModel>();
+    const cursors = new Set<string>();
+    // CLIProxyAPI меняет ID на маски при Anthropic-заголовке. Для меню
+    // запрашиваем обычный каталог Bearer; нативный Anthropic не зондируем.
+    let standardIds = options.preferStandardIds === true && url.origin !== DEFAULT_API_BASE_URL;
+    const requestPage = (standard: boolean) => fetch(url.toString(), {
       signal: controller.signal,
-      headers: {
+      redirect: 'error',
+      headers: standard ? { authorization: `Bearer ${credentials.token}` } : {
         'anthropic-version': '2023-06-01',
         ...(credentials.isApiKey
           ? { 'x-api-key': credentials.token }
           : { authorization: `Bearer ${credentials.token}` }),
       },
     });
-    if (!response.ok) {
-      return null;
+    for (let page = 0; page < 10; page++) {
+      let response = await requestPage(standardIds);
+      if (standardIds && [400, 401, 403, 404].includes(response.status)) {
+        await response.body?.cancel().catch(() => undefined);
+        standardIds = false;
+        response = await requestPage(false);
+      }
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        return null;
+      }
+      const payload = readObjectRecord(await response.json());
+      if (!Array.isArray(payload?.data)) return null;
+      let lastId = '';
+      for (const raw of payload.data) {
+        const entry = readObjectRecord(raw);
+        const id = readOptionalString(entry?.id);
+        if (!id) continue;
+        lastId = id;
+        if (!models.has(id)) {
+          models.set(id, {
+            id,
+            label: readOptionalString(entry?.display_name) || readOptionalString(entry?.name) || id,
+          });
+        }
+      }
+      if (payload.has_more !== true) return [...models.values()];
+      const cursor = readOptionalString(payload.last_id) || lastId;
+      if (!cursor || cursors.has(cursor)) return null;
+      cursors.add(cursor);
+      url.searchParams.set('after_id', cursor);
     }
-    const payload = (await response.json()) as { data?: { id?: unknown }[] };
-    return (payload.data ?? [])
-      .map((entry) => entry?.id)
-      .filter((id): id is string => typeof id === 'string');
+    // Не выдаём усечённую выборку за полный каталог при сломанной пагинации.
+    return null;
   } catch {
     return null;
   } finally {

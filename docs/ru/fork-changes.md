@@ -61,6 +61,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | [Модели Claude и Kimi в каталоге](fork/models.md) | Kimi K3 [1m] с авто-адресом Moonshot, снятый Opus 5, Sonnet 5.5 явным id | 1.1, 1.2, 1.4 |
 | [GPT через шлюз CLIProxyAPI](fork/gpt-gateway.md) | Effort суффиксом в id, окно контекста 930k и почему не 1M, окно при суффиксе | 1.3, 1.3-бис, 16.2 |
 | [Свои модели через библиотеку](fork/custom-models.md) | «Польза.ai» штатной библиотекой моделей, ключ только в шлюзе | 1.5 |
+| [Модели подключённого API](fork/api-models.md) | Обнаружение без правки кода, исходные ID, кэш и обновление, сохранность ручных моделей | 22 |
 
 ### Чат и панель ввода
 
@@ -199,6 +200,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | §19.4 | Выкатка и независимая проверка рестарта | — | [merge-v1.37.8](fork/merge-v1.37.8.md) |
 | §20 | Ключ подписи webhook через sealSecret | 🟡 | [webhook-notifications](fork/webhook-notifications.md) |
 | §21 | Виртуализация больших списков проектов без чистки истории | 🟡 | [sidebar-performance](fork/sidebar-performance.md) |
+| §22 | Динамический каталог моделей подключённого API | 🟡 | [api-models](fork/api-models.md) |
 
 ---
 

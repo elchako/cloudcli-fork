@@ -8,6 +8,7 @@ import {
   LockKeyhole,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
   X,
 } from 'lucide-react';
@@ -62,6 +63,8 @@ export default function ModelLibraryPanel({
   const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [refreshingProvider, setRefreshingProvider] = useState<LLMProvider | null>(null);
+  const [refreshErrors, setRefreshErrors] = useState<Partial<Record<LLMProvider, string>>>({});
   // Providers whose "use only my models" change is still saving. Their
   // checkbox cannot fire a second request before the server's catalog comes
   // back. Kept per provider: the user can switch tabs mid-request, and the
@@ -101,6 +104,22 @@ export default function ModelLibraryPanel({
   const builtInModelsHidden = customModelsOnly && customModels.length > 0;
   const savingCustomModelsOnly = customModelsOnlySavingProviders.includes(selectedProvider);
   const customModelsOnlyError = customModelsOnlyErrors[selectedProvider];
+  const catalogSource = providerModelCatalog[selectedProvider]?.SOURCE;
+  const isApiCatalog = catalogSource === 'api' || catalogSource === 'api-cache';
+
+  const refreshCatalog = async () => {
+    if (!actions.refreshCatalog) return;
+    const target = selectedProvider;
+    setRefreshingProvider(target);
+    setRefreshErrors((current) => ({ ...current, [target]: undefined }));
+    try {
+      await actions.refreshCatalog(target);
+    } catch {
+      setRefreshErrors((current) => ({ ...current, [target]: t('chat:modelLibrary.refreshModelsFailed') }));
+    } finally {
+      setRefreshingProvider(null);
+    }
+  };
 
   const resetForm = () => {
     setEditing(null);
@@ -495,14 +514,39 @@ export default function ModelLibraryPanel({
 
           <section>
             <div className="mb-2 flex items-center justify-between gap-3 px-1">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground">Built-in models</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">Maintained by CloudCLI and read-only</p>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground">
+                  {isApiCatalog ? t('chat:modelLibrary.apiModels') : 'Built-in models'}
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {catalogSource === 'fallback' ? t('chat:modelLibrary.apiModelsFallback')
+                    : catalogSource === 'api-cache' ? t('chat:modelLibrary.apiModelsCached')
+                      : isApiCatalog ? t('chat:modelLibrary.apiModelsDescription') : 'Maintained by CloudCLI and read-only'}
+                </p>
               </div>
-              {!builtInModelsHidden && (
-                <Badge variant="secondary" className="rounded-full text-[10px]">{predefinedModels.length}</Badge>
-              )}
+              <div className="flex shrink-0 items-center gap-2">
+                {!builtInModelsHidden && (
+                  <Badge variant="secondary" className="rounded-full text-[10px]">{predefinedModels.length}</Badge>
+                )}
+                {selectedProvider === 'claude' && actions.refreshCatalog && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    aria-label={t('chat:modelLibrary.refreshModels')}
+                    title={t('chat:modelLibrary.refreshModels')}
+                    disabled={refreshingProvider === selectedProvider}
+                    onClick={() => void refreshCatalog()}
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5${refreshingProvider === selectedProvider ? ' animate-spin' : ''}`} />
+                  </Button>
+                )}
+              </div>
             </div>
+            {refreshErrors[selectedProvider] && (
+              <p role="alert" className="mb-2 px-1 text-xs text-destructive">{refreshErrors[selectedProvider]}</p>
+            )}
             {builtInModelsHidden ? (
               <div className="flex items-center gap-2 rounded-2xl border border-dashed border-border bg-background/60 px-4 py-3 text-xs text-muted-foreground">
                 <EyeOff className="h-3.5 w-3.5 shrink-0" />

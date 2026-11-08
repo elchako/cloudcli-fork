@@ -58,20 +58,29 @@ updated: 2026-11-08
 
 ## Провайдер Claude и каталог моделей
 
-Значение выбранной модели (`value` из `CLAUDE_PREDEFINED_MODELS` в
-`server/modules/providers/list/claude/claude-models.provider.ts`) передаётся в
-`claude-agent-sdk` как `model` **напрямую**. Поэтому это должен быть алиас или
-ID, который понимает Claude Code (`sonnet`, `claude-opus-5-5`, суффикс `[1m]`
-для 1M-контекста). `getSupportedModels()` апстрим отключил, так что новые модели
-сами не появляются — их дописывают в массив вручную
-([модели](../fork/models.md)).
+С 2026-11-08 адаптер Claude читает `GET /v1/models` подключённого API теми же
+серверными credentials, что использует CLI (env → `~/.claude/settings.json`).
+`claude-api-models.ts` держит кэш 5 минут, объединяет одновременные обращения и
+отдаёт последний успешный список, пока обновляет его в фоне. `small-model.ts`
+обходит страницы в одном endpoint; для шлюзов сначала запрашивает обычные ID
+через Bearer без `anthropic-version`, затем при необходимости использует
+Anthropic-протокол. Ключ не передаётся в браузер и не копируется в БД.
 
-Исключение — GPT через шлюз CLIProxyAPI (`gpt-6-astra`, `gpt-6.1-sol`): шлюз
-игнорирует `effort`, поэтому выбранный уровень уходит суффиксом в id
-(`gpt-6-astra(max)`, `withGatewayEffortSuffix`); в БД и UI модель хранится без
-суффикса. Окно контекста этих моделей задаёт env
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` — подробно и почему не 1M —
-[GPT через шлюз](../fork/gpt-gateway.md).
+`GET /api/providers/claude/models?refresh=1` явно перечитывает каталог; обычный
+маршрут возвращает прежнюю структуру с необязательным `SOURCE`:
+`api` / `api-cache` / `fallback`. Кнопка обновления — в библиотеке моделей.
+`CLAUDE_PREDEFINED_MODELS` теперь запасной список и метаданные известных моделей,
+а не ограничение обнаружения; штатный SDK `default` сохранён. Ручные модели
+объединяются в `provider-models.service.ts`, их имя/effort имеют приоритет при
+совпадении ID с API ([API-каталог](../fork/api-models.md)).
+
+Выбранный `value` передаётся в `claude-agent-sdk` как `model` без замены ID.
+Исключение — GPT через CLIProxyAPI: уровень effort добавляется суффиксом
+(`gpt-6-astra(max)`), потому что шлюз игнорирует `output_config.effort`.
+Совместимость с масками `claude-fable-5-dd-*` сохранена для метаданных и
+сопоставления контекста. Старые сеансы не мигрируют на другую модель.
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` остаётся прежним
+([GPT через шлюз](../fork/gpt-gateway.md)).
 
 ## Runtime и версии CLI
 

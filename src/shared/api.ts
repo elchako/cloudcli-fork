@@ -436,7 +436,7 @@ export const api = {
       post(`/api/providers/${encodeURIComponent(provider)}/cli/update`),
     claudeSettingsPermissions: () => get('/api/providers/claude/settings-permissions'),
 
-    models: (provider: string) => get(`/api/providers/${provider}/models`),
+    models: (provider: string, refresh = false) => get(`/api/providers/${provider}/models${refresh ? '?refresh=1' : ''}`),
     createModel: (provider: string, input: unknown) =>
       post(`/api/providers/${provider}/models`, input),
     updateModel: (provider: string, recordId: string | number, input: unknown) =>

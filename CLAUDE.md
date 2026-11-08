@@ -63,9 +63,10 @@ H=$(mktemp -d); env -i PATH="$PATH" HOME="$H" DATABASE_PATH="$H/auth.db" \
   боевого инстанса (`DATABASE_PATH`, `SERVER_PORT`, `CLAUDE_CLI_PATH`): без
   `env -i` и своего `DATABASE_PATH` тест или сервер пишет в боевую
   `~/.cloudcli/auth.db`. Рабочие :3302 и :3301 не трогать.
-- **Каталог моделей захардкожен** (`CLAUDE_PREDEFINED_MODELS`). `value` уходит в
-  SDK как есть — алиас или ID, понятный Claude Code; у GPT шлюза — плюс суффикс
-  effort ([модели](docs/ru/fork/models.md), [GPT](docs/ru/fork/gpt-gateway.md)).
+- **Каталог подключённого API не дублировать в коде.** Для Claude источник —
+  серверный API-каталог; `CLAUDE_PREDEFINED_MODELS` — запасной список и известные
+  метаданные. `value` уходит в SDK без замены; у GPT шлюза добавляется effort
+  ([API-модели](docs/ru/fork/api-models.md), [GPT](docs/ru/fork/gpt-gateway.md)).
 - **Границы безопасности не ослаблять:**
   - вложение доходит до агента, только если лежит в `~/.cloudcli/assets` или в
     cwd рана (`isAllowedImageSourcePath`); не-картинки отдаются с

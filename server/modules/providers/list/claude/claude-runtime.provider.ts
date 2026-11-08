@@ -28,10 +28,12 @@ import {
 import {
   CLAUDE_PREDEFINED_MODELS,
   CLAUDE_ULTRACODE_EFFORT,
+  findClaudeModelOption,
   withGatewayEffortSuffix,
   withoutGatewayEffortSuffix
 } from '@/modules/providers/list/claude/claude-models.provider.js';
 import { resolveClaudeCodeExecutablePath } from '@/shared/claude-cli-path.js';
+import { decodeCliProxyModelId } from '@/modules/providers/list/claude/claude-api-models.js';
 import { askClaudeSideQuestion } from '@/modules/providers/list/claude/claude-side-question.provider.js';
 import {
   createImageGenerationMcpServer,
@@ -222,7 +224,10 @@ function resolveClaudeEffort(
   effort: unknown,
   modelsDefinition: ProviderModelsDefinition = CLAUDE_PREDEFINED_MODELS,
 ): string | undefined {
-  const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
+  // GOLDJAXE fork (реестр §22): старый ID не теряет метаданные effort,
+  // если API отдаёт его маску или сейчас не включает в каталог; доступ решает API.
+  const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model)
+    || findClaudeModelOption(model) || findClaudeModelOption(decodeCliProxyModelId(model));
   const allowedEfforts = selectedModel?.effort?.values
     ?.map((value) => value.value) || [];
   return typeof effort === 'string' && effort !== 'default' && allowedEfforts.includes(effort)
@@ -704,7 +709,8 @@ function readReportedContextWindow(sdkMessage: AnyRecord, mainModel: string | nu
       // Fork: a gateway GPT key also carries the `(effort)` suffix the
       // assistant rows lack (withGatewayEffortSuffix), and the CLI's own Haiku
       // side calls bill in the same turn, so the single-entry fallback misses it.
-      || withoutGatewayEffortSuffix(modelKey.replace(/\[[^\]]*\]$/, '')) === mainModel
+      || decodeCliProxyModelId(withoutGatewayEffortSuffix(modelKey.replace(/\[[^\]]*\]$/, '')))
+        === decodeCliProxyModelId(withoutGatewayEffortSuffix(mainModel || ''))
     )
   ));
   // A turn that billed a single model was served by it, whatever it is called.

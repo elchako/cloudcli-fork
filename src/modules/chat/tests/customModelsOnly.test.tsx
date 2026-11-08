@@ -115,6 +115,48 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test('библиотека показывает имя и исходный ID неизвестной модели API', () => {
+  render(<ModelLibraryPanel initialProvider="claude" providerModelCatalog={{ claude: {
+    OPTIONS: [{ value: 'vendor/unknown-model', label: 'API Display Name' }], DEFAULT: 'vendor/unknown-model', SOURCE: 'api',
+  } }} actions={createActions(async () => {})} />);
+  assert.ok(isShown('Connected API models'));
+  assert.ok(isShown('API Display Name'));
+  assert.ok(isShown('vendor/unknown-model'));
+});
+
+test('кнопка обновляет каталог выбранного провайдера и блокируется до ответа', async () => {
+  let finish!: () => void;
+  const refreshCatalog = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+  render(<ModelLibraryPanel initialProvider="claude" providerModelCatalog={{ claude: { ...MERGED_CATALOG, SOURCE: 'api' } }}
+    actions={{ ...createActions(async () => {}), refreshCatalog }} />);
+  const button = screen.getByRole('button', { name: 'Refresh models from API' }) as HTMLButtonElement;
+  fireEvent.click(button);
+  await waitFor(() => assert.equal(button.disabled, true));
+  assert.deepEqual(refreshCatalog.mock.calls, [['claude']]);
+  await act(async () => { finish(); });
+  await waitFor(() => assert.equal(button.disabled, false));
+});
+
+for (const [source, caption] of [
+  ['api-cache', 'Saved API catalog. Refresh to request the latest list.'],
+  ['fallback', 'API unavailable: showing the fallback catalog.'],
+] as const) {
+  test(`библиотека явно показывает состояние ${source}`, () => {
+    render(<ModelLibraryPanel initialProvider="claude" providerModelCatalog={{ claude: { ...MERGED_CATALOG, SOURCE: source } }}
+      actions={createActions(async () => {})} />);
+    assert.ok(isShown(caption));
+  });
+}
+
+test('ошибка обновления видна, но текущие модели остаются в библиотеке', async () => {
+  render(<ModelLibraryPanel initialProvider="claude" providerModelCatalog={{ claude: { ...MERGED_CATALOG, SOURCE: 'api' } }}
+    actions={{ ...createActions(async () => {}), refreshCatalog: async () => { throw new Error('fixture failure'); } }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models from API' }));
+  await screen.findByRole('alert');
+  assert.ok(isShown('Unable to refresh models. The current catalog was kept.'));
+  assert.ok(isShown('Gateway Sonnet'));
+});
+
 test('the model library toggles "use only my models" for the selected provider', async () => {
   const calls: Array<{ provider: LLMProvider; enabled: boolean }> = [];
   const actions = createActions(async (provider, enabled) => {

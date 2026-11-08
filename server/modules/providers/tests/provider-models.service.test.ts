@@ -128,6 +128,7 @@ const createTestService = (options: {
   settings?: ReturnType<typeof createSettingsStore>;
   activeModel?: (provider: LLMProvider, sessionId?: string) => string;
   onCatalogRead?: (provider: LLMProvider) => void;
+  modelCatalog?: (provider: LLMProvider) => ProviderModelsDefinition;
 } = {}) => {
   const catalog = options.catalog ?? createCatalogStore();
   const sessions = options.sessions ?? createSessionStore();
@@ -140,7 +141,7 @@ const createTestService = (options: {
       models: {
         getSupportedModels: async () => {
           options.onCatalogRead?.(provider);
-          return createModels(`${provider}-default`);
+          return options.modelCatalog?.(provider) ?? createModels(`${provider}-default`);
         },
         getCurrentActiveModel: async (sessionId) => createCurrentActiveModel(
           options.activeModel?.(provider, sessionId) ?? `${provider}-default`,
@@ -151,6 +152,42 @@ const createTestService = (options: {
 
   return { service, catalog, sessions, settings };
 };
+
+// GOLDJAXE fork (реестр §22): API не получает владение ручными записями пользователя.
+for (const source of ['api', 'api-cache'] as const) {
+  test(`каталог ${source} сохраняет ручное имя и effort при совпадении ID`, async () => {
+    const catalog = createCatalogStore();
+    const manual = catalog.createCustomProviderModel('claude', {
+      id: 'same-api-model', model: 'Моё имя', effort: { values: ['low', 'high'], default: 'low' },
+    });
+    const { service } = createTestService({ catalog, modelCatalog: () => ({
+      OPTIONS: [{ value: 'default', label: 'Default' }, { value: manual.modelId, label: 'API label' }, { value: 'new-api-model', label: 'New' }],
+      DEFAULT: 'default', SOURCE: source,
+    }) });
+    const models = await service.getProviderModels('claude');
+    assert.equal(models.SOURCE, source);
+    assert.deepEqual(models.OPTIONS.map((m) => m.value), ['default', manual.modelId, 'new-api-model']);
+    assert.equal(models.OPTIONS[1].label, 'Моё имя');
+    assert.equal(models.OPTIONS[1].recordId, manual.recordId);
+    assert.equal(models.OPTIONS[1].isCustom, true);
+    assert.deepEqual(models.OPTIONS[1].effort?.values.map((e) => e.value), ['low', 'high']);
+    const onlyMine = await service.setCustomModelsOnly('claude', true);
+    assert.deepEqual(onlyMine.OPTIONS.map((m) => m.value), [manual.modelId]);
+  });
+}
+
+test('удаление ручного описания не переключает сеансы с модели, оставшейся в API', async () => {
+  const catalog = createCatalogStore();
+  const manual = catalog.createCustomProviderModel('claude', { id: 'still-in-api', model: 'Моя модель' });
+  const { service } = createTestService({ catalog, modelCatalog: () => ({
+    OPTIONS: [{ value: 'default', label: 'Default' }, { value: manual.modelId, label: 'API model' }],
+    DEFAULT: 'default', SOURCE: 'api',
+  }) });
+  const result = await service.deleteCustomModel('claude', manual.recordId);
+  assert.deepEqual(catalog.deleteFallbacks, ['still-in-api']);
+  assert.equal(result.models.OPTIONS[1].isCustom, false);
+  assert.equal(result.models.OPTIONS[1].label, 'API model');
+});
 
 test('provider catalogs merge source-controlled defaults with custom persistence rows', async () => {
   const calls: LLMProvider[] = [];

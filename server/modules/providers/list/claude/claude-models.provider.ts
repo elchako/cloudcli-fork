@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { claudeApiModelCatalog, decodeCliProxyModelId } from '@/modules/providers/list/claude/claude-api-models.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderCurrentActiveModel,
@@ -185,8 +186,12 @@ export const findClaudeModelOption = (model: string | undefined | null): Provide
  * `output_config.effort` for it; the gateway strips the suffix and records the bare id in
  * the transcript. Every other model, and a GPT run without an explicit level, passes through.
  */
+const isGatewayGptModel = (model: string): boolean => (
+  decodeCliProxyModelId(model.replace(/\([^()]*\)$/, '')).startsWith('gpt-')
+);
+
 export const withGatewayEffortSuffix = (model: string, effort: string | undefined): string =>
-  effort && model.startsWith('gpt-') && !model.includes('(') ? `${model}(${effort})` : model;
+  effort && isGatewayGptModel(model) && !model.includes('(') ? `${model}(${effort})` : model;
 
 /**
  * Inverse of `withGatewayEffortSuffix`. The CLI keys `result.modelUsage` by the id it
@@ -194,7 +199,7 @@ export const withGatewayEffortSuffix = (model: string, effort: string | undefine
  * answered under, so matching the two needs the suffix dropped.
  */
 export const withoutGatewayEffortSuffix = (model: string): string =>
-  model.startsWith('gpt-') ? model.replace(/\([^()]*\)$/, '') : model;
+  isGatewayGptModel(model) ? model.replace(/\([^()]*\)$/, '') : model;
 
 type ClaudeInitEvent = {
   sessionId?: string;
@@ -302,19 +307,35 @@ const readClaudeSessionModelFromJsonl = async (
 };
 
 export class ClaudeProviderModels implements IProviderModels {
+  constructor(private readonly apiCatalog: Pick<typeof claudeApiModelCatalog, 'get'> = claudeApiModelCatalog) {}
+
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    // claude creates a new jsonl file as a separate session for this request.
-    // As a result, it lists the workspace where this is invoked when it shouldn't.
-    //
-    // Disabled for now:
-    // const queryInstance = query({
-    //   prompt: 'Get supported models',
-    //   options: buildClaudeQueryOptions(),
-    // });
-    // const supportedModels = await queryInstance.supportedModels();
-    // queryInstance.close();
-    // return buildClaudeModelsDefinition(supportedModels);
-    return CLAUDE_PREDEFINED_MODELS;
+    // GOLDJAXE fork (реестр §22): без запуска CLI и служебного сеанса;
+    // подключённый API — источник списка, статический набор только запасной.
+    const catalog = await this.apiCatalog.get();
+    if (!catalog.models) {
+      return catalog.source ? { ...CLAUDE_PREDEFINED_MODELS, SOURCE: catalog.source } : CLAUDE_PREDEFINED_MODELS;
+    }
+    const options = catalog.models.map((model): ProviderModelOption => {
+      const canonical = decodeCliProxyModelId(model.id);
+      const known = findClaudeModelOption(model.id) || findClaudeModelOption(canonical)
+        || findClaudeModelOption(`${canonical}[1m]`);
+      return {
+        value: model.id,
+        label: model.label === model.id && known
+          ? (known.value === model.id ? known.label : known.label.replace(/\s*\(1M context\)/g, ''))
+          : model.label,
+        description: model.id,
+        ...(known?.effort ? { effort: structuredClone(known.effort) } : {}),
+      };
+    });
+    // Сохраняем штатный SDK default, не выбирая вместо пользователя первую
+    // модель API. Реальные ID и порядок записей API не переписываем.
+    const defaultOption = findClaudeModelOption(CLAUDE_PREDEFINED_MODELS.DEFAULT);
+    if (defaultOption && !options.some((model) => model.value === defaultOption.value)) {
+      options.unshift(structuredClone(defaultOption));
+    }
+    return { OPTIONS: options, DEFAULT: CLAUDE_PREDEFINED_MODELS.DEFAULT, SOURCE: catalog.source };
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {

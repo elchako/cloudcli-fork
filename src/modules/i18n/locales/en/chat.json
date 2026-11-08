@@ -495,6 +495,12 @@
     "close": "Close"
   },
   "modelLibrary": {
+    "apiModels": "Connected API models",
+    "apiModelsDescription": "Available from your connected API; IDs are passed through unchanged.",
+    "apiModelsCached": "Saved API catalog. Refresh to request the latest list.",
+    "apiModelsFallback": "API unavailable: showing the fallback catalog.",
+    "refreshModels": "Refresh models from API",
+    "refreshModelsFailed": "Unable to refresh models. The current catalog was kept.",
     "effortLevels": "Reasoning levels",
     "effortLevelsHint": "Select the reasoning-effort levels this model accepts. If none are selected, no effort level can be chosen for this model in the composer.",
     "effortSummary": "Reasoning: {{levels}}",

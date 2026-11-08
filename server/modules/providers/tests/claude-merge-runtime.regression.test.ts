@@ -8,7 +8,7 @@ import {
   IMAGE_GENERATION_MCP_SERVER_NAME,
   IMAGE_GENERATION_TOOL_ID,
 } from '@/modules/image-generation/index.js';
-import { CLAUDE_PREDEFINED_MODELS } from '@/modules/providers/list/claude/claude-models.provider.js';
+import { CLAUDE_PREDEFINED_MODELS, ClaudeProviderModels } from '@/modules/providers/list/claude/claude-models.provider.js';
 import {
   queryClaudeSDK,
   steerClaudeSDKSession,
@@ -33,7 +33,7 @@ async function withEnv(values: NodeJS.ProcessEnv, run: () => Promise<void>): Pro
   }
 }
 
-async function runScripted(options: AnyRecord, steerOptions?: AnyRecord) {
+async function runScripted(options: AnyRecord, steerOptions?: AnyRecord, modelsDefinition = CLAUDE_PREDEFINED_MODELS) {
   const sent: unknown[] = [];
   const stdin: AnyRecord[] = [];
   let sdkOptions: AnyRecord = {};
@@ -43,7 +43,7 @@ async function runScripted(options: AnyRecord, steerOptions?: AnyRecord) {
   const context: ProviderRuntimeContext = {
     resolveProviderSessionId: () => nativeId,
     resolveResumeModel: async () => undefined,
-    getProviderModels: async () => CLAUDE_PREDEFINED_MODELS as never,
+    getProviderModels: async () => modelsDefinition as never,
     normalizeMessage: () => [],
     isProviderInstalled: async () => true,
     createQuery: ({ prompt, options: resolvedOptions }) => {
@@ -77,6 +77,24 @@ async function runScripted(options: AnyRecord, steerOptions?: AnyRecord) {
   assert.equal(kinds.filter((kind) => kind === 'complete').length, 1);
   return { sdkOptions, stdin, steered };
 }
+
+test('каталог API сохраняет effort и 930k для нового маскированного и старого прямого ID GPT', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'claude-api-runtime-'));
+  const wrapped = `claude-fable-5-dd-${[...'gpt-6.1-sol'].reverse().join('')}`;
+  try {
+    const definition = await new ClaudeProviderModels({ get: async () => ({ models: [{ id: wrapped, label: 'API Sol' }], source: 'api' }) }).getSupportedModels();
+    await withEnv({ CLOUDCLI_IMAGE_GEN: 'off', CLAUDE_CODE_MAX_CONTEXT_TOKENS: '930000' }, async () => {
+      for (const model of [wrapped, 'gpt-6.1-sol']) {
+        for (const catalog of [definition, CLAUDE_PREDEFINED_MODELS]) {
+          const { sdkOptions } = await runScripted({ cwd, model, effort: 'max' }, undefined, catalog);
+          assert.equal(sdkOptions.model, `${model}(max)`);
+          assert.equal(sdkOptions.effort, 'max');
+          assert.equal(sdkOptions.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '930000');
+        }
+      }
+    });
+  } finally { await rm(cwd, { recursive: true, force: true }); }
+});
 
 test('image MCP, GPT effort и вложения работают вместе с upstream steering', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'claude-merge-runtime-'));
