@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import { claudeApiModelCatalog, decodeCliProxyModelId } from '@/modules/providers/list/claude/claude-api-models.js';
+import { knownGatewayModelReasoning } from '@/modules/providers/list/claude/claude-model-reasoning.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderCurrentActiveModel,
@@ -180,18 +181,26 @@ export const findClaudeModelOption = (model: string | undefined | null): Provide
   return CLAUDE_PREDEFINED_MODELS.OPTIONS.find((option) => option.value === normalizedModel) ?? null;
 };
 
-/**
- * Model id to hand the SDK for a catalog selection. A gateway GPT model carries its
- * reasoning level in the id (`gpt-6-astra(max)`), because CLIProxyAPI ignores
- * `output_config.effort` for it; the gateway strips the suffix and records the bare id in
- * the transcript. Every other model, and a GPT run without an explicit level, passes through.
+/** GOLDJAXE fork (реестр §22.2): SDK получает исходный ID с `(effort)` только
+ * для подтверждённого gateway-транспорта. Нативный SDK и Default не меняются.
  */
 const isGatewayGptModel = (model: string): boolean => (
   decodeCliProxyModelId(model.replace(/\([^()]*\)$/, '')).startsWith('gpt-')
 );
 
-export const withGatewayEffortSuffix = (model: string, effort: string | undefined): string =>
-  effort && isGatewayGptModel(model) && !model.includes('(') ? `${model}(${effort})` : model;
+export const withGatewayEffortSuffix = (
+  model: string, effort: string | undefined, catalog?: ProviderModelsDefinition,
+): string => {
+  const option = catalog?.OPTIONS.find(item => item.value === model);
+  const known = catalog ? null : knownGatewayModelReasoning(model);
+  if (option?.reasoningStatus === 'unsupported' || known?.reasoningStatus === 'unsupported') return model;
+  if (option && (!option.effort || !option.effort.values.some(value => value.value === effort))) return model;
+  const transport = option?.effort?.transport ?? known?.effort?.transport
+    ?? (isGatewayGptModel(model) ? 'model-suffix' : undefined);
+  // GOLDJAXE fork (реестр §22.2): Gemini/Claude Antigravity принимают такой же
+  // suffix. Для новых API-моделей транспорт задаётся capabilities, не именем.
+  return effort && transport === 'model-suffix' && !model.includes('(') ? `${model}(${effort})` : model;
+};
 
 /**
  * Inverse of `withGatewayEffortSuffix`. The CLI keys `result.modelUsage` by the id it
@@ -199,7 +208,7 @@ export const withGatewayEffortSuffix = (model: string, effort: string | undefine
  * answered under, so matching the two needs the suffix dropped.
  */
 export const withoutGatewayEffortSuffix = (model: string): string =>
-  isGatewayGptModel(model) ? model.replace(/\([^()]*\)$/, '') : model;
+  model.replace(/\((?:none|auto|minimal|low|medium|high|xhigh|max|ultra|thinking|\d+)\)$/, '');
 
 type ClaudeInitEvent = {
   sessionId?: string;
@@ -320,6 +329,18 @@ export class ClaudeProviderModels implements IProviderModels {
       const canonical = decodeCliProxyModelId(model.id);
       const known = findClaudeModelOption(model.id) || findClaudeModelOption(canonical)
         || findClaudeModelOption(`${canonical}[1m]`);
+      // GOLDJAXE fork (реестр §22.2): явные capabilities API первичны;
+      // проверенные метаданные — запасные, без добавления моделей в список.
+      const gatewayKnown = model.catalogProvider === 'antigravity' || model.catalogProvider === 'openai'
+        ? knownGatewayModelReasoning(canonical) : null;
+      const reasoning = model.effort ? { effort: {
+        ...structuredClone(model.effort),
+        ...(model.effort.transport || !gatewayKnown?.effort?.transport ? {}
+          : { transport: gatewayKnown.effort.transport }),
+      } }
+        : model.reasoningStatus ? { reasoningStatus: model.reasoningStatus }
+          : gatewayKnown
+            ?? (known?.effort ? { effort: structuredClone(known.effort) } : { reasoningStatus: 'unknown' as const });
       return {
         value: model.id,
         label: model.label === model.id && known
@@ -328,7 +349,7 @@ export class ClaudeProviderModels implements IProviderModels {
         description: model.id,
         // GOLDJAXE fork (реестр §22.1): не смешиваем CLI-провайдер и owned_by API.
         ...(model.catalogProvider ? { catalogProvider: model.catalogProvider } : {}),
-        ...(known?.effort ? { effort: structuredClone(known.effort) } : {}),
+        ...reasoning,
       };
     });
     // Сохраняем штатный SDK default, не выбирая вместо пользователя первую

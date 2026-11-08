@@ -458,9 +458,15 @@ function mapCliOptionsToSDK(options: AnyRecord = {}) {
     effort,
     options.effortModels || CLAUDE_PREDEFINED_MODELS,
   );
-  applyClaudeEffort(sdkOptions, resolvedEffort);
-  // GPT via CLIProxyAPI takes its reasoning level from the model id, not from effort.
-  sdkOptions.model = withGatewayEffortSuffix(sdkOptions.model, resolvedEffort);
+  const gatewayModel = withGatewayEffortSuffix(sdkOptions.model, resolvedEffort, options.effortModels);
+  // GOLDJAXE fork (реестр §22.2): штатный effort SDK сохранён для совместимости.
+  // Дополнительные уровни шлюза (minimal/none/budget) идут только в suffix,
+  // иначе валидатор CLI отвергнет их до обращения к провайдеру.
+  if (gatewayModel === sdkOptions.model
+    || (resolvedEffort && ['low', 'medium', 'high', 'xhigh', 'max', CLAUDE_ULTRACODE_EFFORT].includes(resolvedEffort))) {
+    applyClaudeEffort(sdkOptions, resolvedEffort);
+  }
+  sdkOptions.model = gatewayModel;
 
   sdkOptions.systemPrompt = {
     type: 'preset',

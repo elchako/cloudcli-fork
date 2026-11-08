@@ -16,7 +16,10 @@ export type ProviderModelOption = {
   catalogProvider?: string;
   recordId?: number;
   isCustom?: boolean;
+  /** GOLDJAXE fork (реестр §22.2): состояние возможностей из серверного каталога. */
+  reasoningStatus?: 'unknown' | 'unsupported';
   effort?: {
+    transport?: 'sdk' | 'model-suffix';
     default?: string;
     values: {
       value: string;

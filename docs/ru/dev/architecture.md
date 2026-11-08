@@ -83,8 +83,14 @@ Gemini и Claude с `owned_by=antigravity` остаются вместе. `LLMPr
 БД; при отсутствии метаданных сохраняется плоский список ([§22.1](../fork/api-models.md)).
 
 Выбранный `value` передаётся в `claude-agent-sdk` как `model` без замены ID.
-Исключение — GPT через CLIProxyAPI: уровень effort добавляется суффиксом
-(`gpt-6-astra(max)`), потому что шлюз игнорирует `output_config.effort`.
+Исключение — подтверждённый gateway-транспорт effort: уровень добавляется
+суффиксом (`gpt-6-astra(max)`, `gemini-4-argon-high(low)`).
+`OPTIONS[].effort.transport` различает `sdk` и `model-suffix`; дополнительные
+уровни шлюза не передаются валидатору effort CLI. `reasoningStatus` различает
+`unknown` и `unsupported`. Явные `capabilities.reasoning`/`thinking.levels` API
+имеют приоритет; `claude-model-reasoning.ts` хранит только подтверждённые
+запасные метаданные, не список доступности. Синтетический Codex-client каталог
+не используется; неизвестным моделям уровни не выдумываются ([§22.2](../fork/api-models.md)).
 Совместимость с масками `claude-fable-5-dd-*` сохранена для метаданных и
 сопоставления контекста. Старые сеансы не мигрируют на другую модель.
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` остаётся прежним

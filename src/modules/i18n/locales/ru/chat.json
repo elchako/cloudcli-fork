@@ -275,6 +275,8 @@
   },
   "composer": {
     "effortAuto": "Авто",
+    "reasoningUnknown": "API не сообщил уровни рассуждений. Используется режим по умолчанию провайдера.",
+    "reasoningUnsupported": "У этой модели нет выбираемых уровней рассуждений.",
     "defaultModelGroup": "По умолчанию",
     "unassignedModelGroup": "Провайдер не указан",
     "permissionHeading": "Как подтверждать действия {{provider}}?",

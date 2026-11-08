@@ -4,7 +4,7 @@ type: fork-change
 sections: [§1.3, §1.3-бис, §16.2]
 tags: [модели, gpt, cliproxyapi, шлюз, effort, контекст, авто-сжатие]
 description: "GPT-6 Astra и GPT-6.1 Sol через шлюз CLIProxyAPI: effort суффиксом в id модели, окно контекста 930k через CLAUDE_CODE_MAX_CONTEXT_TOKENS (и почему не 1M), сопоставление окна при суффиксе effort."
-updated: 2026-10-31
+updated: 2026-11-08
 ---
 
 # GPT через шлюз CLIProxyAPI: effort и окно контекста
@@ -40,9 +40,11 @@ updated: 2026-10-31
   `readReportedContextWindow`, §16.2); тесты
   `server/modules/providers/tests/claude-models.test.ts`, последний тест в
   `claude-context-window.test.ts`.
-- **Мерж:** суффикс применяется только к id на `gpt-` без `(` — Claude/Kimi не
-  затрагиваются. Если upstream начнёт передавать effort иначе, сверить, что
-  суффикс по-прежнему ставится после `resolveClaudeEffort`.
+- **С §22.2:** тот же транспорт применяется к подтверждённым Gemini/Claude
+  Antigravity и моделям с явным `effort.transport=model-suffix` из API.
+  Источник уровней — реальные metadata registry, не Codex-client шаблоны;
+  нативный Claude не получает suffix ([§22.2](api-models.md)). При мерже
+  проверить валидацию модели/уровня до suffix и сопоставление окна контекста.
 
 ## §1.3-бис Окно контекста GPT шлюза — 930k через CLAUDE_CODE_MAX_CONTEXT_TOKENS
 

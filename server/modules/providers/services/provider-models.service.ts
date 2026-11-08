@@ -112,12 +112,17 @@ const mergeProviderModels = (
   // GOLDJAXE fork (реестр §22.1): ручные имя/effort сохраняются, owned_by берётся
   // из актуального API даже в режиме «только мои модели», но не хранится в БД.
   const apiCatalog = predefined.SOURCE === 'api' || predefined.SOURCE === 'api-cache';
-  const ownerById = new Map(apiCatalog
-    ? predefined.OPTIONS.map((option) => [option.value, option.catalogProvider]) : []);
+  const apiById = new Map(apiCatalog
+    ? predefined.OPTIONS.map((option) => [option.value, option]) : []);
   const customOptions = custom.map((record) => {
     const option = toCustomProviderModelOption(record);
-    const catalogProvider = ownerById.get(option.value);
-    return catalogProvider ? { ...option, catalogProvider } : option;
+    const discovered = apiById.get(option.value);
+    return { ...option,
+      ...(discovered?.catalogProvider ? { catalogProvider: discovered.catalogProvider } : {}),
+      // GOLDJAXE fork (реестр §22.2): ручные уровни не теряют транспорт шлюза.
+      ...(option.effort && discovered?.effort?.transport
+        ? { effort: { ...option.effort, transport: discovered.effort.transport } } : {}),
+    };
   });
   const listOnlyCustomModels = customModelsOnly && customOptions.length > 0;
   const builtInIds = new Set(predefined.OPTIONS.map((option) => option.value));

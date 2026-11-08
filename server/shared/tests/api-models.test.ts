@@ -17,6 +17,22 @@ test('для меню шлюза запрашиваются обычные ID б
   assert.deepEqual(await listApiModels(credentials, { timeoutMs: 1000, preferStandardIds: true }), [{ id: 'gpt-6.1-sol', label: 'gpt-6.1-sol' }]);
 });
 
+test('явные reasoning capabilities будущей модели сохраняются, шаблонные уровни игнорируются', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => json({ data: [
+    { id: 'future', capabilities: { reasoning: { levels: ['minimal', 'high'], default: 'minimal', transport: 'model-suffix' } } },
+    { id: 'registry', thinking: { levels: ['low', 'medium', 'high'] } },
+    { id: 'none', thinking: null, supported_reasoning_levels: [{ effort: 'high' }] },
+    { id: 'template', supported_reasoning_levels: [{ effort: 'high' }] },
+    { id: 'unsafe', capabilities: { reasoning: { levels: ['ultracode'], transport: 'model-suffix' } } },
+  ] }));
+  const result = await listApiModels(credentials, { timeoutMs: 1000 });
+  assert.deepEqual(result?.[0].effort, { transport: 'model-suffix', values: [{ value: 'minimal' }, { value: 'high' }], default: 'minimal' });
+  assert.deepEqual(result?.[1].effort?.values.map(v => v.value), ['low', 'medium', 'high']);
+  assert.equal(result?.[2].reasoningStatus, 'unsupported');
+  assert.equal(result?.[3].effort, undefined);
+  assert.equal(result?.[4].reasoningStatus, 'unknown');
+});
+
 test('owned_by передаётся из API без угадывания провайдера по имени модели', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => json({ data: [
     { id: 'claude-fixture', owned_by: 'antigravity' },

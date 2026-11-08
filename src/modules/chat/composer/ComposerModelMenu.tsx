@@ -94,7 +94,9 @@ function ComposerModelMenu({
   const ariaLabel = t('composer.modelMenu', {
     defaultValue: 'Select model and reasoning effort',
   });
-  const accessibleLabel = `${ariaLabel}: ${triggerLabel}${hasModelSection && hasEffortSection ? ` · ${effortLabel}` : ''}`;
+  const reasoningNotice = !hasEffortSection && selectedModelOption?.reasoningStatus
+    ? t(`composer.reasoning${selectedModelOption.reasoningStatus === 'unknown' ? 'Unknown' : 'Unsupported'}`) : '';
+  const accessibleLabel = `${ariaLabel}: ${triggerLabel}${hasModelSection && hasEffortSection ? ` · ${effortLabel}` : reasoningNotice ? ` · ${reasoningNotice}` : ''}`;
 
   return (
     <>
@@ -118,6 +120,9 @@ function ComposerModelMenu({
             · <span className="sm:hidden">{compactEffortLabel}</span>
             <span className="hidden capitalize sm:inline">{effortLabel}</span>
           </span>
+        )}
+        {!hasEffortSection && selectedModelOption?.reasoningStatus === 'unknown' && (
+          <span className="shrink-0 text-muted-foreground" aria-hidden="true">· ?</span>
         )}
       </button>
 
@@ -144,9 +149,15 @@ function ComposerModelMenu({
             </>
           )}
 
+          {reasoningNotice && (
+            <>
+              <ComposerMenuHeading>{t('composer.reasoning', { defaultValue: 'Reasoning' })}</ComposerMenuHeading>
+              <p className="max-w-64 px-2.5 py-1.5 text-xs text-muted-foreground">{reasoningNotice}</p>
+            </>
+          )}
           {hasModelSection && (
             <>
-              {hasEffortSection && <ComposerMenuSeparator />}
+              {(hasEffortSection || reasoningNotice) && <ComposerMenuSeparator />}
               <ComposerMenuItem
                 role="menuitem"
                 label={modelLabel}

@@ -228,6 +228,8 @@
     "model": "Model",
     "effortDefault": "Default",
     "effortAuto": "Auto",
+    "reasoningUnknown": "The API has not reported reasoning levels. The provider default is used.",
+    "reasoningUnsupported": "This model has no selectable reasoning levels.",
     "defaultModelGroup": "Default",
     "unassignedModelGroup": "Provider not specified",
     "loadingModels": "Loading models…",

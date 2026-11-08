@@ -1,7 +1,7 @@
 ---
 title: "Модели подключённого API"
 type: fork-change
-sections: [§22, §22.1]
+sections: [§22, §22.1, §22.2]
 tags: [модели, api, каталог, claude, cliproxyapi, кэш, effort]
 description: "Динамический каталог моделей Claude из подключённого API: исходные ID, группировка по owned_by без угадывания по имени, безопасный кэш, ручное обновление, совместимость с пользовательскими моделями и прежними сеансами."
 updated: 2026-11-08
@@ -9,7 +9,7 @@ updated: 2026-11-08
 
 # Модели подключённого API
 
-> Разделы реестра §22, §22.1. Часть [реестра правок форка](../fork-changes.md).
+> Разделы реестра §22, §22.1, §22.2. Часть [реестра правок форка](../fork-changes.md).
 
 ## Пользователю
 
@@ -113,6 +113,56 @@ updated: 2026-11-08
 - **При слиянии:** не смешивать `catalogProvider` с типом `LLMProvider` и
   не восстанавливать группировку по префиксу имени. Контракт расширен только
   необязательным полем, старые каталоги работают без него.
+
+## §22.2 Выбираемый effort, а не только подпись кнопки
+
+- **Слой:** server + frontend · **Столкновение:** 🟡 (типы каталога, mapper,
+  runtime, общий транспорт) · **PR:** не открыт. Шлюз не модифицируется.
+- **Симптом:** после исправления мобильной кнопки Gemini/новые GPT оставались
+  без выбора: mapper знал уровни только из прежних точных ID, runtime добавлял
+  `(effort)` лишь GPT. Наличие модели в discovery не означает знание её уровней.
+- **Известные метаданные:** `claude-model-reasoning.ts` содержит только
+  подтверждённые уровни registry CLIProxyAPI v8.0.58: Gemini Argon/Flash и
+  Claude Opus/Sonnet Antigravity — low/medium/high; перечисленные GPT 5.6/6/6.1 —
+  low/medium/high/xhigh/max; codex-auto-review — low/medium/high/xhigh.
+  Доступность и имена по-прежнему исключительно из API, эти metadata не добавляют
+  модели в список. Gateway-профили в mapper привязаны к `owned_by` openai/antigravity,
+  а не навязываются произвольному совместимому API. Реальный default неизвестен:
+  «Авто» остаётся решением провайдера, не синтетическим medium из client-каталога.
+- **Расширение API:** `capabilities.reasoning` может явно задать `supported`,
+  `levels` (строки или `{value, description}`), `default`, `transport`
+  (`sdk`/`model-suffix`). Также принимаются реальные `thinking.levels` registry;
+  `thinking:null` означает отсутствие reasoning. Эти данные первичны относительно
+  запасных metadata. Ограничения: до 16 уровней, 32 символа ID уровня, безопасный
+  алфавит; CLI-оркестрация ultracode не включается данными внешнего API.
+  `supported_reasoning_levels` из Codex-client шаблонов намеренно игнорируются.
+- **Транспорт:** `effort.transport` проходит в runtime; проверенный уровень
+  добавляется к исходному ID перед SDK: `gemini-4-argon-high(low)`. `-high`
+  в самом ID не запрещает выбрать low. Стандартный effort SDK сохранён, иные
+  уровни (minimal/none/числовой budget) остаются только в suffix. Native SDK и
+  Default не меняются; имя модели в БД остаётся без добавленного суффикса.
+  Ручное описание совпавшего ID наследует транспорт API, не теряя своих уровней.
+- **Неизвестные и image:** `reasoningStatus=unknown` не выдаётся за отсутствие
+  рассуждений — кнопка показывает `?`, меню объясняет отсутствие метаданных.
+  `unsupported` объясняется отдельно, без выдуманного low/high; GPT image
+  не получает шаблонные уровни. Новая модель с явными capabilities подключается
+  без правки UI; если API сведений не даёт и модель не известна, автоматического
+  угадывания уровней нет. Для неё нужны достоверные metadata, а не общий список.
+- **Проверка:** 1224 серверных теста (1223 успешно, 1 пропуск), 1276 клиентских;
+  typecheck/lint и полная сборка успешны, новых lint-предупреждений нет.
+  Из-за исчерпанного inotify сервера тесты watcher прогнаны с
+  `CHOKIDAR_USEPOLLING=true`, без изменения боевой конфигурации; worktree — вне
+  `/tmp`, чтобы тесты read-root не считали собственные fixtures разрешённым tmp.
+  SDK-тесты захватывают фактический model для low/high/Default и будущего minimal.
+  Браузер: 12 сочетаний 320/390/1024px, RU/EN, обеих тем, выбор настоящим тачем.
+  Живой шлюз ответил HTTP 200 на Argon(low), Argon(high), Sonnet(low); на одинаковый
+  короткий промт у Argon получили 5 и 139 output-токенов. Это smoke применения
+  параметра, не обещание фиксированной скорости/стоимости. Артефакты стенда —
+  `/tmp/cloudcli-effort-check/`; генерации локального UI-стенда — 0.
+- **Файлы:** `server/shared/{small-model,types}.ts`,
+  `server/modules/providers/list/claude/{claude-model-reasoning,claude-models.provider,claude-runtime.provider}.ts`,
+  `server/modules/providers/services/provider-models.service.ts`, `src/shared/types.ts`,
+  `src/modules/chat/composer/ComposerModelMenu.tsx`, EN/RU chat.json; тесты рядом.
 
 ## Контракт и файлы
 

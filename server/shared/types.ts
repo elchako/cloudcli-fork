@@ -81,7 +81,10 @@ export type ProviderModelOption = {
   recordId?: number;
   /** True for user-created rows; false for immutable CloudCLI defaults. */
   isCustom?: boolean;
+  /** GOLDJAXE fork (реестр §22.2): отсутствие метаданных не равно отсутствию reasoning. */
+  reasoningStatus?: 'unknown' | 'unsupported';
   effort?: {
+    transport?: 'sdk' | 'model-suffix';
     default?: string;
     values: {
       value: string;

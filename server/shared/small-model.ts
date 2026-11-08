@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 
+import type { ProviderModelOption } from '@/shared/types.js';
 import { readObjectRecord, readOptionalString } from '@/shared/utils.js';
 
 /**
@@ -230,7 +231,46 @@ export async function listSmallModels(
   return models?.map((model) => model.id) ?? null;
 }
 
-export type ApiModel = { id: string; label: string; catalogProvider?: string };
+export type ApiModel = { id: string; label: string; catalogProvider?: string }
+  & Pick<ProviderModelOption, 'effort' | 'reasoningStatus'>;
+
+/** GOLDJAXE fork (реестр §22.2): только явные capabilities, не синтетические
+ * supported_reasoning_levels из Codex-client шаблонов. Новые модели/провайдеры
+ * могут объявить capabilities.reasoning либо реальные registry thinking.levels.
+ */
+function readApiReasoning(entry: Record<string, unknown> | null): Pick<ProviderModelOption, 'effort' | 'reasoningStatus'> {
+  const declared = readObjectRecord(readObjectRecord(entry?.capabilities)?.reasoning);
+  const thinking = readObjectRecord(entry?.thinking);
+  if (declared?.supported === false || (entry && 'thinking' in entry && entry.thinking === null)) {
+    return { reasoningStatus: 'unsupported' };
+  }
+  const raw = declared?.levels ?? thinking?.levels;
+  if (raw === undefined) return {};
+  if (!Array.isArray(raw) || raw.length > 16) return { reasoningStatus: 'unknown' };
+  const values: NonNullable<ProviderModelOption['effort']>['values'] = [];
+  for (const item of raw) {
+    const record = readObjectRecord(item);
+    const value = typeof item === 'string' ? item : record?.value;
+    if (typeof value !== 'string' || !/^[a-z0-9_-]{1,32}$/.test(value) || value === 'ultracode') {
+      return { reasoningStatus: 'unknown' };
+    }
+    if (!values.some(option => option.value === value)) {
+      const description = readOptionalString(record?.description)?.slice(0, 500);
+      values.push({ value, ...(description ? { description } : {}) });
+    }
+  }
+  if (!values.length) return declared?.supported === false ? { reasoningStatus: 'unsupported' } : { reasoningStatus: 'unknown' };
+  const transport = declared?.transport === 'model-suffix' ? 'model-suffix'
+    : declared?.transport === 'sdk' ? 'sdk' : undefined;
+  // Effort CLI — конечный набор. Иные уровни допустимы лишь при явном suffix-транспорте.
+  if (transport !== 'model-suffix' && values.some(v => !['low', 'medium', 'high', 'xhigh', 'max'].includes(v.value))) {
+    return { reasoningStatus: 'unknown' };
+  }
+  const defaultValue = readOptionalString(declared?.default ?? thinking?.default);
+  return { effort: { ...(transport ? { transport } : {}), values,
+    ...(defaultValue && values.some(v => v.value === defaultValue) ? { default: defaultValue } : {}),
+  } };
+}
 
 /**
  * GOLDJAXE fork (реестр §22): общий GET-каталог для меню и сводки. ID не
@@ -290,6 +330,7 @@ export async function listApiModels(
             id,
             label: readOptionalString(entry?.display_name) || readOptionalString(entry?.name) || id,
             ...(catalogProvider ? { catalogProvider } : {}),
+            ...readApiReasoning(entry),
           });
         }
       }

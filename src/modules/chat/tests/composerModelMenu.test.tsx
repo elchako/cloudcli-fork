@@ -88,6 +88,18 @@ test('у модели без уровней effort нет выдуманного
   assert.equal(trigger.querySelector('span.shrink-0'), null);
 });
 
+test.each(['unknown', 'unsupported'] as const)('состояние %s объясняется, а не маскируется под доступные уровни', (reasoningStatus) => {
+  const { getByRole, getByText, queryByRole } = render(<ComposerModelMenu effort="default" effortOptions={[]} onSelectEffort={() => {}}
+    model="future" modelOptions={[{ value: 'future', label: 'Future', reasoningStatus }]} onSelectModel={() => {}} modelsLoading={false} />);
+  const button = getByRole('button');
+  assert.equal(button.textContent?.includes('?'), reasoningStatus === 'unknown');
+  fireEvent.click(button);
+  assert.ok(getByText(reasoningStatus === 'unknown'
+    ? 'The API has not reported reasoning levels. The provider default is used.'
+    : 'This model has no selectable reasoning levels.'));
+  assert.equal(queryByRole('menuitemradio', { name: 'low' }), null);
+});
+
 test('меню группирует модели по провайдеру API и передаёт исходный ID после тача', () => {
   const onSelectModel = vi.fn();
   const { getByRole } = render(<ComposerModelMenu effort="high" effortOptions={[{ value: 'high' }]}
