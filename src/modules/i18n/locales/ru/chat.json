@@ -1,4 +1,7 @@
 {
+  "composer": {
+    "effortAuto": "Авто"
+  },
   "codeBlock": {
     "copy": "Копировать",
     "copied": "Скопировано",

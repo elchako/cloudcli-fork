@@ -227,6 +227,7 @@
     "reasoning": "Reasoning",
     "model": "Model",
     "effortDefault": "Default",
+    "effortAuto": "Auto",
     "loadingModels": "Loading models…",
     "modelMenu": "Select model and reasoning effort",
     "permissionHeading": "How should {{provider}} actions be approved?",

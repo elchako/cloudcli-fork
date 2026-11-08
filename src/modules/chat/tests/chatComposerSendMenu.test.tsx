@@ -104,6 +104,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// GOLDJAXE fork (реестр §4.17): убрана только дублирующая кнопка, не список команд.
+test('нижняя кнопка команд отсутствует даже при непустом списке команд', () => {
+  const { container } = render(
+    <UiPreferencesProvider><ChatComposer {...props({ slashCommandsCount: 70 })} /></UiPreferencesProvider>,
+  );
+  assert.equal(container.querySelector('.lucide-message-square'), null);
+  assert.equal(screen.queryByText('70'), null);
+  assert.ok(screen.getByRole('button', { name: 'Attach files' }));
+  assert.ok(screen.getByRole('button', { name: 'Send' }));
+});
+
 test('idle: the plain send button, and no send menu', () => {
   render(<UiPreferencesProvider><ChatComposer {...props({})} /></UiPreferencesProvider>);
 

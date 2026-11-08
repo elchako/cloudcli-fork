@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import type { ProviderModelOption } from '@/shared/types';
 import { DEFAULT_EFFORT_VALUE } from '@/shared/constants';
@@ -14,6 +14,15 @@ import {
 } from '@/modules/chat/composer/ComposerMenuPrimitives';
 
 type EffortOption = NonNullable<ProviderModelOption['effort']>['values'][number];
+
+// GOLDJAXE fork (реестр §4.17): краткая подпись, не новый набор уровней модели.
+const COMPACT_EFFORT_LABELS: Record<string, string> = {
+  low: 'L',
+  medium: 'M',
+  high: 'H',
+  xhigh: 'XH',
+  max: 'Max',
+};
 
 type ComposerModelMenuProps = {
   effort: string;
@@ -74,11 +83,13 @@ function ComposerModelMenu({
   }
 
   const triggerLabel = hasModelSection ? modelLabel : effortLabel;
-  // Форк: на телефоне важнее имя модели, а не повторяющаяся приписка об окне контекста.
-  const compactTriggerLabel = triggerLabel.replace(/\s+\(1M context\)$/, '');
+  const compactEffortLabel = effort === DEFAULT_EFFORT_VALUE
+    ? t('composer.effortAuto', { defaultValue: 'Auto' })
+    : COMPACT_EFFORT_LABELS[effort] ?? effortLabel;
   const ariaLabel = t('composer.modelMenu', {
     defaultValue: 'Select model and reasoning effort',
   });
+  const accessibleLabel = `${ariaLabel}: ${triggerLabel}${hasModelSection && hasEffortSection ? ` · ${effortLabel}` : ''}`;
 
   return (
     <>
@@ -89,22 +100,19 @@ function ComposerModelMenu({
           updateAnchor();
           setIsOpen((current) => !current);
         }}
-        className="flex h-8 min-w-8 max-w-56 items-center justify-start gap-1 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        className="flex h-8 min-w-0 max-w-56 items-center justify-start gap-1 overflow-hidden rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        aria-label={`${ariaLabel}: ${triggerLabel}`}
-        title={`${ariaLabel}: ${triggerLabel}`}
+        aria-label={accessibleLabel}
+        title={accessibleLabel}
       >
-        {/* На узких телефонах значок лучше пары букв; длинные пользовательские имена сокращаются. */}
-        <Sparkles className="h-4 w-4 shrink-0 min-[360px]:hidden" aria-hidden="true" />
-        <span className="hidden truncate min-[360px]:inline">
-          {compactTriggerLabel}
-          {compactTriggerLabel !== triggerLabel && (
-            <span className="hidden sm:inline">{triggerLabel.slice(compactTriggerLabel.length)}</span>
-          )}
-        </span>
-        {hasModelSection && hasEffortSection && effort !== DEFAULT_EFFORT_VALUE && (
-          <span className="hidden shrink-0 capitalize text-muted-foreground sm:inline">· {effortLabel}</span>
+        {/* GOLDJAXE fork (реестр §4.17): сжимается только имя, effort виден и на телефоне. */}
+        <span className="min-w-0 truncate">{triggerLabel}</span>
+        {hasModelSection && hasEffortSection && (
+          <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+            · <span className="sm:hidden">{compactEffortLabel}</span>
+            <span className="hidden capitalize sm:inline">{effortLabel}</span>
+          </span>
         )}
       </button>
 
