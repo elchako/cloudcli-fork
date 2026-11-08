@@ -16,6 +16,22 @@ import type { ActiveSidebarRename, Project, SidebarProjectListProps, SidebarSess
 
 const recordedProjectRowProps: Record<string, unknown>[] = [];
 const recordedSessionRowProps: Record<string, unknown>[] = [];
+type VirtualListProps = {
+  data: Project[];
+  customScrollParent: HTMLElement;
+  computeItemKey: (index: number, project: Project) => string;
+  itemContent: (index: number, project: Project) => React.ReactNode;
+};
+const recordedVirtualLists: VirtualListProps[] = [];
+
+vi.mock('react-virtuoso', () => ({
+  Virtuoso: (props: VirtualListProps) => {
+    recordedVirtualLists.push(props);
+    return props.data.slice(0, 8).map((project, index) => (
+      <React.Fragment key={props.computeItemKey(index, project)}>{props.itemContent(index, project)}</React.Fragment>
+    ));
+  },
+}));
 
 vi.mock('@/modules/sidebar/SidebarProjectItem', () => ({
   default: (props: Record<string, unknown>) => {
@@ -122,6 +138,57 @@ const changedProps = (before: Record<string, unknown>, after: Record<string, unk
 beforeEach(() => {
   recordedProjectRowProps.length = 0;
   recordedSessionRowProps.length = 0;
+  recordedVirtualLists.length = 0;
+});
+
+// GOLDJAXE fork (реестр §21): проверяем границу виртуализации, не реализацию библиотеки.
+test('большой список передаёт все проекты виртуализатору, но рендерит только видимое окно', () => {
+  const projects = Array.from({ length: 500 }, (_, index) => makeProject(`p-${index}`, [`s-${index}`]));
+  const scrollParent = document.createElement('div');
+  const props = { ...listProps(null), projects, filteredProjects: projects, scrollParent };
+  const { rerender } = render(<SidebarProjectList {...props} />);
+  assert.equal(recordedVirtualLists.length, 1);
+  assert.equal(recordedVirtualLists[0].data, projects);
+  assert.equal(recordedVirtualLists[0].customScrollParent, scrollParent);
+  assert.equal(recordedProjectRowProps.length, 8);
+  assert.equal(recordedVirtualLists[0].computeItemKey(499, projects[499]), 'p-499');
+
+  recordedProjectRowProps.length = 0;
+  // Поиск по исходным данным находит и ранее не смонтированную строку.
+  rerender(<SidebarProjectList {...props} filteredProjects={[projects[499]]} />);
+  assert.equal(recordedProjectRowProps.length, 1);
+  assert.equal((recordedProjectRowProps[0].project as Project).projectId, 'p-499');
+});
+
+test('до привязки scroll-root большой список не монтируется целиком даже на один кадр', () => {
+  const projects = Array.from({ length: 500 }, (_, index) => makeProject(`p-${index}`, []));
+  const props = { ...listProps(null), projects, filteredProjects: projects };
+  const { rerender } = render(<SidebarProjectList {...props} scrollParent={null} />);
+  assert.equal(recordedProjectRowProps.length, 0);
+  assert.equal(recordedVirtualLists.length, 0);
+  rerender(<SidebarProjectList {...props} scrollParent={document.createElement('div')} />);
+  assert.equal(recordedProjectRowProps.length, 8);
+});
+
+test('маленький список остаётся обычным и без виртуального scroll-контейнера', () => {
+  render(<SidebarProjectList {...listProps(null)} scrollParent={document.createElement('div')} />);
+  assert.equal(recordedVirtualLists.length, 0);
+  assert.equal(recordedProjectRowProps.length, 2);
+});
+
+test('виртуальные строки сохраняют раскрытие, переименование и выбранные сессии', () => {
+  const projects = Array.from({ length: 100 }, (_, index) => makeProject(`p-${index}`, [`s-${index}`]));
+  render(<SidebarProjectList
+    {...listProps({ target: 'project', id: 'p-1', draft: 'Новое имя' }, { projectId: 'p-1', sessionIds: new Set(['s-1']) })}
+    projects={projects}
+    filteredProjects={projects}
+    scrollParent={document.createElement('div')}
+    isProjectExpanded={(id) => id === 'p-1'}
+  />);
+  assert.equal(recordedProjectRowProps[1].isExpanded, true);
+  assert.equal(recordedProjectRowProps[1].renameDraft, 'Новое имя');
+  assert.deepEqual(recordedProjectRowProps[1].selectedSessionIds, new Set(['s-1']));
+  assert.equal(recordedProjectRowProps[0].selectedSessionIds, null);
 });
 
 test('project expansion is resolved per project without dropping rows', () => {

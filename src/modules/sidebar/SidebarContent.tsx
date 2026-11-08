@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Activity, Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -183,6 +183,8 @@ export default function SidebarContent({
   const groupedArchivedSessions = groupArchivedSessionsByProject(archivedSessions);
   const visibleArchivedItemsCount = archivedProjects.length + archivedSessions.length;
   const isRenamingOnMobile = isMobile && projectListProps.activeRename !== null;
+  // GOLDJAXE fork (реестр §21): один существующий scroll-root и для больших списков.
+  const [projectScrollParent, setProjectScrollParent] = useState<HTMLDivElement | null>(null);
 
   return (
     <div
@@ -209,7 +211,7 @@ export default function SidebarContent({
         t={t}
       />
 
-      <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
+      <ScrollArea ref={setProjectScrollParent} className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
         {showConversationSearch ? (
           isSearching && !conversationResults ? (
             <div className="px-4 py-12 text-center md:py-8">
@@ -421,7 +423,7 @@ export default function SidebarContent({
                   {runningSessionsCount}
                 </span>
               </div>
-              <SidebarProjectList {...projectListProps} />
+              <SidebarProjectList {...projectListProps} scrollParent={projectScrollParent} />
             </div>
           )
         ) : searchMode === 'archived' ? (
@@ -681,7 +683,7 @@ export default function SidebarContent({
             </div>
           )
         ) : (
-          <SidebarProjectList {...projectListProps} />
+          <SidebarProjectList {...projectListProps} scrollParent={projectScrollParent} />
         )}
       </ScrollArea>
 

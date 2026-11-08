@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 
-import type { SidebarProjectListProps } from '@/shared/types';
+import type { Project, SidebarProjectListProps } from '@/shared/types';
 import { getPageTitle } from '@/shared/utils';
 import SidebarProjectItem from '@/modules/sidebar/SidebarProjectItem';
 import SidebarProjectsState from '@/modules/sidebar/SidebarProjectsState';
@@ -8,6 +9,7 @@ import SidebarProjectsState from '@/modules/sidebar/SidebarProjectsState';
 
 /** Rendered by SidebarContent to list the filtered projects, delegating each row to SidebarProjectItem. */
 export default function SidebarProjectList({
+  scrollParent,
   projects,
   filteredProjects,
   selectedProject,
@@ -54,7 +56,7 @@ export default function SidebarProjectList({
   onCancelSessionSelection,
   onDeleteSelectedSessions,
   t,
-}: SidebarProjectListProps) {
+}: SidebarProjectListProps & { scrollParent?: HTMLElement | null }) {
   const pageTitle = getPageTitle(selectedProject, selectedSession);
   const state = (
     <SidebarProjectsState
@@ -72,11 +74,7 @@ export default function SidebarProjectList({
 
   const showProjects = !isLoading && projects.length > 0 && filteredProjects.length > 0;
 
-  return (
-      <div className="pb-safe-area-inset-bottom md:space-y-1">
-        {!showProjects
-          ? state
-          : filteredProjects.map((project) => {
+  const renderProject = (project: Project) => {
               // Both renames are resolved here rather than inside the row, so
               // every other row is handed the same scalars on each keystroke and
               // its memo boundary holds.
@@ -146,7 +144,27 @@ export default function SidebarProjectList({
                 t={t}
               />
             );
-          })}
+  };
+
+  // GOLDJAXE fork (реестр §21): сотни закрытых проектов не должны создавать
+  // тысячи DOM-узлов при каждом возврате во вкладку. Высоты раскрытых групп
+  // измеряет Virtuoso; данные, порядок и состояние сессий остаются у контроллера.
+  const virtualized = filteredProjects.length > 60 && scrollParent !== undefined;
+  return (
+    <div className="pb-safe-area-inset-bottom md:space-y-1">
+      {!showProjects ? state : virtualized ? (
+        scrollParent && (
+          <Virtuoso
+            customScrollParent={scrollParent}
+            data={filteredProjects}
+            computeItemKey={(_index, project) => project.projectId}
+            increaseViewportBy={200}
+            itemContent={(_index, project) => (
+              <div className="md:pb-1">{renderProject(project)}</div>
+            )}
+          />
+        )
+      ) : filteredProjects.map(renderProject)}
     </div>
   );
 }

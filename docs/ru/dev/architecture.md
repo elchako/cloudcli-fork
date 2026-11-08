@@ -48,6 +48,14 @@ updated: 2026-11-08
 | `shared/` | Общий код сервера: `image-attachments.ts` (доставка вложений провайдерам), `secret-box.ts` (шифрование секретов) и др. |
 | `modules/providers/list/claude/claude-runtime.provider.ts` | Провайдер Claude Code: сборка промпта, опции SDK, стриминг (с v1.37.6 — TypeScript). |
 
+## Большие списки sidebar
+
+`SidebarProjectList` виртуализирует больше 60 проектов через `react-virtuoso`:
+видимое окно плюс 200px, переменная высота раскрытых групп, ключ `projectId`.
+`SidebarContent` передаёт внутренний scroll-root существующего `ScrollArea`.
+Данные, порядок, поиск и серверная пагинация не меняются; маленькие списки
+рендерятся как раньше. Причина и замеры — [производительность sidebar](../fork/sidebar-performance.md).
+
 ## Провайдер Claude и каталог моделей
 
 Значение выбранной модели (`value` из `CLAUDE_PREDEFINED_MODELS` в
