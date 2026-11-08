@@ -74,9 +74,9 @@ H=$(mktemp -d); env -i PATH="$PATH" HOME="$H" DATABASE_PATH="$H/auth.db" \
     ([файлы вне проекта](docs/ru/fork/file-viewer.md));
   - JWT в `?token=` для `<img>` и EventSource — штатно, не дыра.
 - **Секреты.** В `user_settings` — только не-секретные UI-настройки. Новый
-  секрет — через `sealSecret` (`server/shared/secret-box.ts`). Сейчас шифруется
-  только ключ голоса, `user_credentials` хранятся открытым текстом: не обещай
-  шифрования там, где его нет ([голос](docs/ru/fork/voice.md)).
+  секрет — через `sealSecret` (`server/shared/secret-box.ts`). Не обещай
+  шифрования всей `user_credentials`: защищены только явно указанные секреты
+  ([голос](docs/ru/fork/voice.md), [webhook](docs/ru/fork/webhook-notifications.md)).
 - **Ключи, которыми владеет апстрим (`user_preferences`), в наш allowlist
   `userSettingsSync` не добавлять** — два механизма на один ключ откатывают выбор
   пользователя ([настройки](docs/ru/fork/user-settings.md)).

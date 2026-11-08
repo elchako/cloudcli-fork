@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { beforeEach, test, vi } from 'vitest';
 
 import { Markdown } from '@/modules/chat/transcript/Markdown';
@@ -87,6 +87,18 @@ test('without a project an absolute path still goes to local-media', async () =>
 
   assert.equal(readFileBlob.mock.calls.length, 0);
   assert.equal(authenticatedFetch.mock.calls[0][0], '/api/assets/local-media?path=%2Ftmp%2Fshot.png');
+});
+
+test('ссылка с закодированной кириллицей открывает исходную картинку в лайтбоксе', async () => {
+  authenticatedFetch.mockResolvedValue(okBlob);
+  const path = '/tmp/Снимок экрана.png';
+  const view = renderInProject(`[Снимок](${encodeURI(path)}:12)`);
+
+  fireEvent.click(view.getByRole('link', { name: 'Снимок' }));
+
+  const image = await view.findByRole('img', { name: 'Снимок экрана.png' });
+  assert.equal(image.getAttribute('src'), OBJECT_URL);
+  assert.equal(authenticatedFetch.mock.calls[0][0], `/api/file-tree/projects/project-1/files/content?path=${encodeURIComponent(path)}`);
 });
 
 test('when every source refuses, the alt text is shown', async () => {

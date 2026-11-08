@@ -167,6 +167,7 @@ const render = (initialProps: Partial<Props> = {}) => {
       isLoading,
       processingSessions,
       canAbortSession: false,
+      supportsSteering: true,
       tokenBudget: null,
       sendMessage,
       scrollToBottom: () => undefined,
@@ -767,6 +768,74 @@ for (const switchDuring of ['upload', 'append'] as const) {
     });
   }
 }
+
+// GOLDJAXE fork (реестр §19.1): новые steer-ветки соблюдают владение черновиком.
+for (const returnBeforeUpload of [false, true]) {
+  test(`steer после A→B забирает только снимок A; возврат до загрузки: ${returnBeforeUpload}`, async () => {
+    const sent = new File(['sent'], 'sent.pdf', { type: 'application/pdf' });
+    const next = new File(['next'], 'next.txt', { type: 'text/plain' });
+    const inB = new File(['B'], 'b.png', { type: 'image/png' });
+    const { view, sendMessage } = render();
+    const upload = hold();
+    uploadGate = upload.gate;
+    await act(async () => {
+      view.result.current.setInput('steer from A');
+      view.result.current.setAttachedFiles([sent]);
+    });
+    act(() => { view.result.current.handleSendMenuChoice('steer'); });
+    await act(async () => {
+      view.result.current.setInput('next in A');
+      view.result.current.setAttachedFiles((current) => [...current, next]);
+    });
+    view.rerender({ session: SESSION_2, isLoading: true, model: 'model-1' });
+    await act(async () => {
+      view.result.current.setInput('draft in B');
+      view.result.current.setAttachedFiles([inB]);
+    });
+    if (returnBeforeUpload) {
+      view.rerender({ session: SESSION_1, isLoading: true, model: 'model-1' });
+    }
+    await act(async () => { upload.release(); });
+    await waitFor(() => assert.equal(sendMessage.mock.calls.length, 1));
+    const frame = sendMessage.mock.calls[0][0];
+    assert.equal(frame.type, 'chat.steer');
+    assert.equal(frame.sessionId, 'session-1');
+    assert.equal(frame.content, 'steer from A');
+    assert.deepEqual(frame.options.attachments, [{ name: 'sent.pdf', path: '/uploads/sent.pdf' }]);
+    view.rerender({ session: SESSION_1, isLoading: true, model: 'model-1' });
+    assert.equal(view.result.current.input, 'next in A');
+    assert.deepEqual(view.result.current.attachedFiles.map((file) => file.name), ['next.txt']);
+    view.rerender({ session: SESSION_2, isLoading: true, model: 'model-1' });
+    assert.equal(view.result.current.input, 'draft in B');
+    assert.deepEqual(view.result.current.attachedFiles.map((file) => file.name), ['b.png']);
+  });
+}
+
+test('отказ steer и очереди возвращает смешанные вложения ровно один раз, сохраняя новый черновик', async () => {
+  const image = new File(['image'], 'sent.png', { type: 'image/png' });
+  const document = new File(['document'], 'sent.pdf', { type: 'application/pdf' });
+  const next = new File(['next'], 'next.txt', { type: 'text/plain' });
+  const { view, sendMessage, errors } = render();
+  await act(async () => {
+    view.result.current.setInput('steered message');
+    view.result.current.setAttachedFiles([image, document]);
+  });
+  act(() => { view.result.current.handleSendMenuChoice('steer'); });
+  await waitFor(() => assert.equal(sendMessage.mock.calls.length, 1));
+  const frame = sendMessage.mock.calls[0][0];
+  await act(async () => {
+    view.result.current.setInput('next draft');
+    view.result.current.setAttachedFiles([next]);
+  });
+  refuseQueueing = true;
+  await act(async () => {
+    view.result.current.handleSteerOutcome('session-1', frame.messageId, 'refused');
+  });
+  await waitFor(() => assert.equal(errors.length, 1));
+  assert.equal(view.result.current.input, 'steered message\n\nnext draft');
+  assert.deepEqual(view.result.current.attachedFiles.map((file) => file.name), ['sent.png', 'sent.pdf', 'next.txt']);
+  assert.equal(queuedOnServer(), null);
+});
 
 for (const uploadFails of [false, true]) {
   for (const newDraftInA of [false, true]) {

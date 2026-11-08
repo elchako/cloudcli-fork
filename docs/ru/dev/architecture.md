@@ -3,7 +3,7 @@ title: Архитектура форка
 type: dev
 tags: [архитектура, карта-репозитория, провайдеры, claude-agent-sdk, авторизация, jwt, настройки, эндпоинты, голос, indexeddb]
 description: "Карта репозитория CloudCLI (src/ и server/), откуда берутся сессии и что хранит своя БД, провайдер Claude и каталог моделей, ключевые механизмы форка и их эндпоинты: версии CLI, библиотека моделей, генерация картинок, чтение вне проекта, навигатор, очередь надиктовок, авторизация, настройки и секреты."
-updated: 2026-11-05
+updated: 2026-11-08
 ---
 
 # Архитектура форка
@@ -74,6 +74,26 @@ ID, который понимает Claude Code (`sonnet`, `claude-opus-5-5`, с
 `POST /api/providers/:provider/cli/update`, во время работы провайдера оно
 запрещено. Это обновление самого CLI, не кода форка и не зависимостей SDK
 ([слияние v1.37.6](../fork/merge-v1.37.6.md)).
+
+## Управление выполняющимся ответом (v1.37.8)
+
+- `chat.steer` (`{ sessionId, messageId, content, options? }`) принимает уточнение
+  в уже работающий Claude-ран. Runtime добавляет сообщение с `priority: 'next'`
+  и включает `extraArgs: { 'replay-user-messages': null }`; подтверждение —
+  `chat_steer_accepted`, доставка подтверждается эхом пользовательского сообщения.
+- `chat.side_question` запускает побочный вопрос в отдельной сессии своего
+  провайдера; основной transcript не меняется. Удаление карточки —
+  `DELETE /api/providers/sessions/:sessionId/side-questions/:sideQuestionId`.
+  Клиент сверяется с `supportsSteering` / `supportsSideQuestions`
+  из матрицы возможностей, а не предполагает поддержку всеми провайдерами.
+- MCP elicitation приходит через SDK `onElicitation` и показывается отдельной
+  панелью разрешений. Его нельзя незаметно отклонять на сервере.
+- Состояние отправки — `useChatComposerState`, выбор — `ComposerSendMenu`.
+  Черновики/вложения по `draftScope` сохранены и для steer
+  ([сохранность вложений](../fork/attachments.md), [чат](../chat.md)).
+
+SDK Claude обновлён до 0.3.311, Codex CLI/SDK — 0.166.0. Это зависимости
+CloudCLI; ручной CLI updater по-прежнему отдельное действие.
 
 ## Пользовательские модели
 
@@ -146,6 +166,21 @@ Claude с `/v1/models` шлюза, кэш 10 мин) — для экрана н�
 ИИ-названиями — `server/shared/small-model.ts`
 ([сводка вслух](../fork/speech-summary.md)).
 
+## Браузер и уведомления (v1.37.8)
+
+Browser-панель upstream принимает ручные клики и ввод; MCP дополнен
+`browser_upload_file`. Это фоновые браузерные сессии CloudCLI, не видимый Chrome
+на рабочем столе: личный вход пользователя выполняется по прежнему правилу
+видимого Chrome/CDP.
+
+Опциональный канал уведомлений `webhook` хранит URL и состояние в
+`notification_channel_endpoints`. Маршруты: `GET`/`PUT`/`DELETE`
+`/api/notifications/webhook`, `POST`/`DELETE`
+`/api/notifications/webhook/secret`, `POST /api/notifications/webhook/test`.
+В форке ключ подписи шифруется через `sealSecret`; протокол подписи upstream не
+меняется. События не содержат текстов запросов и ответов. Без настроенного
+канала ничего не отправляется ([webhook](../fork/webhook-notifications.md)).
+
 ## Аутентификация
 
 JWT (`JWT_SECRET` в БД, таблица `app_config`), payload `{userId, username}`.
@@ -165,11 +200,11 @@ localStorage: модель и effort по провайдерам, режимы �
 файлов, ширину сайдбара, док и ручку быстрых настроек
 ([настройки в БД](../fork/user-settings.md)).
 
-Секреты в `user_settings` не пишутся. Ключ API голоса хранится отдельно и
-шифруется AES-256-GCM (`sealSecret` из `server/shared/secret-box.ts`; мастер-ключ
+Секреты в `user_settings` не пишутся. Ключ API голоса и ключ подписи webhook
+шифруются AES-256-GCM (`sealSecret` из `server/shared/secret-box.ts`; мастер-ключ
 лежит рядом с БД, так что от кражи диска это не защищает). Остальные значения
 `user_credentials` хранятся открытым текстом
-([голосовой ввод](../fork/voice.md)).
+([голосовой ввод](../fork/voice.md), [webhook](../fork/webhook-notifications.md)).
 
 ## Связанные страницы
 

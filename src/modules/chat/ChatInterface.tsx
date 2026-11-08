@@ -74,7 +74,7 @@ function ChatInterface({
   onShowAllTasks,
 }: ChatInterfaceProps) {
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
-  const { subscribe } = useWebSocket();
+  const { subscribe, isConnected } = useWebSocket();
   const { t } = useTranslation('chat');
   const processingSessions = useProcessingSessions();
   const {
@@ -126,6 +126,8 @@ function ChatInterface({
     resolvePermissionModeForProvider,
     supportsMessageEditing,
     supportsSessionForking,
+    supportsSideQuestions,
+    supportsSteering,
   } = useChatProviderState({
     selectedSession,
     selectedProject,
@@ -231,11 +233,14 @@ function ChatInterface({
     isDragActive,
     openAttachmentPicker,
     handleSubmit,
+    handleSendMenuChoice,
     backgroundSendPrompt,
     resolveBackgroundSendPrompt,
     queuedDraft,
     editQueuedDraft,
     deleteQueuedDraft,
+    pendingSteers,
+    handleSteerOutcome,
     handleVoiceTranscript,
     handleInputChange,
     handleKeyDown,
@@ -269,7 +274,9 @@ function ChatInterface({
     canAbortSession,
     tokenBudget,
     sendMessage,
+    isConnected,
     sendByCtrlEnter,
+    supportsSteering,
     onSessionProcessing,
     onSessionEstablished: handleSessionEstablished,
     onFileOpen,
@@ -279,6 +286,7 @@ function ChatInterface({
     setIsUserScrolledUp,
     setPendingPermissionRequests,
     resolvePermissionModeForProvider,
+    supportsSideQuestions,
   });
 
   // On WebSocket reconnect, request a bounded persisted-tail sync (deferred
@@ -318,6 +326,7 @@ function ChatInterface({
     onWebSocketReconnect: handleWebSocketReconnect,
     requestLatestMessages,
     sessionStore,
+    onSteerOutcome: handleSteerOutcome,
   });
 
   // Lets other modules (the quick settings Commands tab) hand text to the
@@ -573,6 +582,7 @@ function ChatInterface({
           activity={sessionActivity}
           isLoading={isProcessing}
           onAbortSession={handleAbortSession}
+          canAbortSession={canAbortSession}
           permissionMode={permissionMode}
           availablePermissionModes={availablePermissionModes}
           onSelectPermissionMode={selectPermissionMode}
@@ -602,6 +612,9 @@ function ChatInterface({
           onResolveBackgroundSendPrompt={resolveBackgroundSendPrompt}
           onEditQueuedDraft={editQueuedDraft}
           onDeleteQueuedDraft={deleteQueuedDraft}
+          onSendMenuChoice={handleSendMenuChoice}
+          supportsSteering={supportsSteering}
+          pendingSteers={pendingSteers}
           attachedFiles={attachedFiles}
           onRemoveAttachment={(index) =>
             setAttachedFiles((previous) =>
@@ -637,6 +650,8 @@ function ChatInterface({
           onInputFocusChange={handleInputFocusChange}
           placeholder={t('input.placeholder', { provider: selectedProviderLabel })}
           isTextareaExpanded={isTextareaExpanded}
+          sendByCtrlEnter={sendByCtrlEnter}
+          supportsSideQuestions={supportsSideQuestions}
         />
         </div>
       </div>
