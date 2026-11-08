@@ -1,0 +1,231 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { gzipSync } from 'node:zlib';
+
+import {
+  CLOUDCLI_AGENT_IDENTITY, SDK_AGENT_IDENTITY, createAntigravityTransport,
+  isAntigravityModel, neutralizeAntigravityIdentity,
+} from '@/modules/providers/list/claude/claude-antigravity-transport.js';
+import { queryClaudeSDK } from '@/modules/providers/list/claude/claude-runtime.provider.js';
+import { ClaudeSessionsProvider } from '@/modules/providers/list/claude/claude-sessions.provider.js';
+import type { AnyRecord, ProviderModelsDefinition, ProviderRuntimeContext } from '@/shared/types.js';
+
+const catalog: ProviderModelsDefinition = { DEFAULT: 'gemini-3.8-flash-high', OPTIONS: [
+  { value: 'gemini-3.8-flash-high', label: 'Flash', catalogProvider: 'antigravity' },
+  { value: 'claude-sonnet-5-5-high', label: 'Sonnet', catalogProvider: 'antigravity' },
+  { value: 'gpt-6.1-sol', label: 'GPT', catalogProvider: 'openai' },
+  { value: 'claude-opus-5-5', label: 'Native Claude', catalogProvider: 'anthropic' },
+] };
+const payload = () => ({ model: 'gemini-3.8-flash-high(high)', max_tokens: 128000, stream: true,
+  output_config: { effort: 'high' }, thinking: { type: 'adaptive' },
+  system: [{ type: 'text', text: 'x-anthropic-billing-header: fixture' },
+    { type: 'text', text: SDK_AGENT_IDENTITY, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: 'Keep safety policy, project rules and tool permissions unchanged.' }],
+  tools: [{ name: 'Read', input_schema: { type: 'object', properties: {} } }],
+  messages: [{ role: 'user', content: SDK_AGENT_IDENTITY }],
+});
+
+test('провайдер берётся из каталога, suffix и restore-модель распознаются без переименования', () => {
+  assert.equal(isAntigravityModel('gemini-3.8-flash-high(high)', catalog), true);
+  assert.equal(isAntigravityModel('claude-sonnet-5-5-high(low)', catalog), true);
+  assert.equal(isAntigravityModel('gpt-6.1-sol(high)', catalog), false);
+  assert.equal(isAntigravityModel('gemini-unknown', catalog), false);
+});
+
+test('меняется только точный system identity, все поля запроса и cache-control сохраняются', () => {
+  const original = payload();
+  const copy = structuredClone(original);
+  const actual = neutralizeAntigravityIdentity(original, catalog);
+  copy.system[1].text = CLOUDCLI_AGENT_IDENTITY;
+  assert.deepEqual(actual, copy);
+  assert.equal(original.system[1].text, SDK_AGENT_IDENTITY);
+  assert.equal(original.messages[0].content, SDK_AGENT_IDENTITY);
+});
+
+test('нативные Claude/GPT, произвольный текст и неизвестные модели проходят без изменений', () => {
+  for (const model of ['claude-opus-5-5', 'gpt-6.1-sol(high)', 'gemini-unknown']) {
+    const body = { ...payload(), model };
+    assert.equal(neutralizeAntigravityIdentity(body, catalog), body);
+  }
+  const body = { ...payload(), system: [{ type: 'text', text: `Quote: ${SDK_AGENT_IDENTITY}` }] };
+  assert.equal(neutralizeAntigravityIdentity(body, catalog), body);
+});
+
+test('legacy system string исправляется, в том числе в восстановленном запросе', () => {
+  const body = { ...payload(), system: SDK_AGENT_IDENTITY };
+  assert.deepEqual(neutralizeAntigravityIdentity(body, catalog), { ...body, system: CLOUDCLI_AGENT_IDENTITY });
+});
+
+test('настоящий HTTP сохраняет beta, авторизацию, SSE, исходный model и high; повторов нет', async (t) => {
+  const received: Array<{ url: string; headers: Record<string, unknown>; body: unknown }> = [];
+  const upstream = createServer(async (req, res) => {
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(chunk);
+    received.push({ url: req.url!, headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString()) });
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'X-Cpa-Trace-Id': 'fixture-trace' });
+    res.write('event: message_start\ndata: {"type":"message_start"}\n\n');
+    res.end('event: message_stop\ndata: {"type":"message_stop"}\n\n');
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => { upstream.closeAllConnections(); upstream.close(); });
+  const address = upstream.address(); assert.ok(address && typeof address !== 'string');
+  const adapter = await createAntigravityTransport(`http://127.0.0.1:${address.port}/provider`, catalog);
+  t.after(() => adapter.close());
+  const body = payload();
+  const response = await fetch(`${adapter.baseUrl}/v1/messages?beta=true`, { method: 'POST', headers: {
+    'Authorization': 'Bearer fixture-only', 'Content-Type': 'application/json',
+    'Anthropic-Version': '2023-06-01', 'Anthropic-Beta': 'fixture-beta',
+  }, body: JSON.stringify(body) });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('x-cpa-trace-id'), 'fixture-trace');
+  assert.ok((await response.text()).includes('message_stop'));
+  assert.equal(received.length, 1);
+  assert.equal(received[0].url, '/provider/v1/messages?beta=true');
+  assert.equal(received[0].headers.authorization, 'Bearer fixture-only');
+  assert.equal(received[0].headers['anthropic-beta'], 'fixture-beta');
+  const expected = payload(); expected.system[1].text = CLOUDCLI_AGENT_IDENTITY;
+  assert.deepEqual(received[0].body, expected);
+  const denied = await fetch(adapter.baseUrl.replace(/\/[^/]+$/, '') + '/v1/messages');
+  assert.equal(denied.status, 404);
+  assert.equal(received.length, 1);
+});
+
+test('429 и Retry-After отдаются без локальных повторов и скрытия upstream ошибки', async (t) => {
+  let count = 0;
+  const upstream = createServer(async (req, res) => {
+    for await (const _chunk of req) { /* дочитать запрос */ }
+    count++;
+    res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '120' });
+    res.end('{"error":{"message":"Individual quota reached"}}');
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => { upstream.closeAllConnections(); upstream.close(); });
+  const address = upstream.address(); assert.ok(address && typeof address !== 'string');
+  const adapter = await createAntigravityTransport(`http://127.0.0.1:${address.port}`, catalog);
+  t.after(() => adapter.close());
+  const response = await fetch(`${adapter.baseUrl}/v1/messages?beta=true`, { method: 'POST', body: JSON.stringify(payload()) });
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('retry-after'), '120');
+  const result = await response.json() as { error: { message: string } };
+  assert.equal(result.error.message, 'Individual quota reached');
+  assert.equal(count, 1);
+});
+
+test('сжатый SSE не получает неверные Content-Encoding/Length после fetch', async (t) => {
+  const stream = 'event: message_stop\ndata: {"type":"message_stop"}\n\n';
+  const compressed = gzipSync(stream);
+  const upstream = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Content-Encoding': 'gzip', 'Content-Length': compressed.length });
+    res.end(compressed);
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => { upstream.closeAllConnections(); upstream.close(); });
+  const address = upstream.address(); assert.ok(address && typeof address !== 'string');
+  const adapter = await createAntigravityTransport(`http://127.0.0.1:${address.port}`, catalog);
+  t.after(() => adapter.close());
+  const response = await fetch(`${adapter.baseUrl}/v1/models`);
+  assert.equal(response.headers.get('content-encoding'), null);
+  assert.equal(await response.text(), stream);
+});
+
+for (const scenario of [
+  { model: 'gemini-3.8-flash-high', owner: 'antigravity', resume: null },
+  { model: 'gemini-3.8-flash-high', owner: 'antigravity', resume: 'existing-native-id' },
+  { model: 'gpt-6.1-sol', owner: 'openai', resume: 'existing-native-id' },
+  { model: 'claude-opus-5-5', owner: 'anthropic', resume: null },
+  { model: 'gemini-3.8-flash-high', owner: 'antigravity', resume: null, fail: true },
+]) {
+  test(`runtime ${scenario.model}, resume=${scenario.resume}, fail=${Boolean(scenario.fail)}: ID/effort/preset/permissions не меняются`, async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'antigravity-runtime-'));
+    const previousBase = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:9';
+    let captured: AnyRecord | undefined;
+    const sessions = new ClaudeSessionsProvider({ getLiveRunStartTime: () => null });
+    const context: ProviderRuntimeContext = {
+      resolveProviderSessionId: () => scenario.resume,
+      resolveResumeModel: async () => scenario.model,
+      getProviderModels: async () => ({ DEFAULT: scenario.model, OPTIONS: [{ value: scenario.model,
+        label: scenario.model, catalogProvider: scenario.owner,
+        effort: { values: [{ value: 'high' }], ...(scenario.owner === 'antigravity' ? { transport: 'model-suffix' as const } : {}) },
+      }] }),
+      normalizeMessage: (raw, sessionId) => sessions.normalizeMessage(raw, sessionId),
+      isProviderInstalled: async () => true,
+      createQuery: ({ prompt, options }) => {
+        captured = options;
+        if (scenario.fail) throw new Error('Fixture SDK startup failure');
+        void (async () => { for await (const _message of prompt) { /* stdin */ } })();
+        return Object.assign((async function* () {
+          yield { type: 'result', subtype: 'success', session_id: scenario.resume || 'new-native', result: 'ok', duration_ms: 1, num_turns: 1 };
+        })(), { interrupt: async () => {} }) as never;
+      },
+    };
+    try {
+      await queryClaudeSDK('test', { sessionId: 'app-fixture', cwd, model: scenario.model, effort: 'high',
+        toolsSettings: { allowedTools: ['Read'], disallowedTools: ['Bash'], skipPermissions: false },
+      }, { send() {}, userId: null } as never, context);
+      assert.ok(captured);
+      assert.equal(captured.model, scenario.owner === 'anthropic' ? scenario.model : `${scenario.model}(high)`);
+      assert.equal(captured.effort, 'high');
+      assert.equal(captured.resume, scenario.resume || undefined);
+      assert.deepEqual(captured.systemPrompt, { type: 'preset', preset: 'claude_code' });
+      assert.deepEqual(captured.disallowedTools, ['Bash']);
+      assert.equal(typeof captured.canUseTool, 'function');
+      if (scenario.owner === 'antigravity') {
+        assert.notEqual(captured.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:9');
+        await assert.rejects(fetch(`${captured.env.ANTHROPIC_BASE_URL}/v1/models`), 'адаптер закрыт в finally');
+      } else assert.equal(captured.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:9');
+    } finally {
+      if (previousBase === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = previousBase;
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+}
+
+test('отмена входящего SDK stream отменяет единственный upstream запрос', async (t) => {
+  let count = 0;
+  let upstreamClosed!: () => void;
+  const closed = new Promise<void>(resolve => { upstreamClosed = resolve; });
+  const upstream = createServer(async (req, res) => {
+    for await (const _chunk of req) { /* дочитать тело */ }
+    count++;
+    res.once('close', upstreamClosed);
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.write('event: message_start\ndata: {"type":"message_start"}\n\n');
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => { upstream.closeAllConnections(); upstream.close(); });
+  const address = upstream.address(); assert.ok(address && typeof address !== 'string');
+  const adapter = await createAntigravityTransport(`http://127.0.0.1:${address.port}`, catalog);
+  t.after(() => adapter.close());
+  const controller = new AbortController();
+  const response = await fetch(`${adapter.baseUrl}/v1/messages`, { method: 'POST', body: JSON.stringify(payload()), signal: controller.signal });
+  const reader = response.body!.getReader();
+  await reader.read(); controller.abort();
+  await assert.rejects(reader.read());
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([closed, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Upstream was not cancelled')), 1500); })]);
+  } finally { clearTimeout(timeout); }
+  assert.equal(count, 1);
+});
+
+test('редирект не переносит ключ на другой endpoint, close освобождает listener', async (t) => {
+  let redirected = 0;
+  const upstream = createServer((req, res) => {
+    if (req.url === '/steal') { redirected++; res.end('unexpected'); return; }
+    res.writeHead(302, { Location: '/steal' }); res.end();
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => { upstream.closeAllConnections(); upstream.close(); });
+  const address = upstream.address(); assert.ok(address && typeof address !== 'string');
+  const adapter = await createAntigravityTransport(`http://127.0.0.1:${address.port}`, catalog);
+  const response = await fetch(`${adapter.baseUrl}/v1/models`, { headers: { Authorization: 'Bearer fixture' } });
+  assert.equal(response.status, 502);
+  assert.equal(redirected, 0);
+  await adapter.close();
+  await assert.rejects(fetch(`${adapter.baseUrl}/v1/models`));
+});

@@ -35,6 +35,8 @@ import {
 import { resolveClaudeCodeExecutablePath } from '@/shared/claude-cli-path.js';
 import { decodeCliProxyModelId } from '@/modules/providers/list/claude/claude-api-models.js';
 import { askClaudeSideQuestion } from '@/modules/providers/list/claude/claude-side-question.provider.js';
+import { createAntigravityTransport, isAntigravityModel } from '@/modules/providers/list/claude/claude-antigravity-transport.js';
+import { loadClaudeSettingsEnv } from '@/shared/small-model.js';
 import {
   createImageGenerationMcpServer,
   IMAGE_GENERATION_MCP_SERVER_NAME,
@@ -1215,6 +1217,7 @@ async function queryClaudeSDK(
   // Closes the held stdin stream so the CLI can wind down. Replaced once the
   // stream exists; the finally block calls it no matter how the run ends.
   let releasePromptStream: () => void = () => {};
+  let antigravityTransport: Awaited<ReturnType<typeof createAntigravityTransport>> | undefined;
   // Writes one more message to the held stdin stream (steering). Replaced
   // once the stream exists; refuses until then and after the release.
   let pushPromptMessage: (message: unknown) => boolean = () => false;
@@ -1372,6 +1375,18 @@ async function queryClaudeSDK(
       model: resolvedModel || options.model,
       effortModels,
     });
+
+    // GOLDJAXE fork (реестр §22.3): SDK всегда добавляет свою identity, даже
+    // с custom systemPrompt. Адаптер меняет только её в system-блоке конкретного
+    // Antigravity-запроса; исходный preset и snapshot при resume остаются целыми.
+    if (isAntigravityModel(sdkOptions.model, effortModels)) {
+      const configuredBase = sdkOptions.env?.ANTHROPIC_BASE_URL
+        || (await loadClaudeSettingsEnv()).ANTHROPIC_BASE_URL;
+      if (typeof configuredBase === 'string' && configuredBase.trim()) {
+        antigravityTransport = await createAntigravityTransport(configuredBase.trim(), effortModels);
+        sdkOptions.env = { ...sdkOptions.env, ANTHROPIC_BASE_URL: antigravityTransport.baseUrl };
+      }
+    }
 
     const mcpServers = await loadMcpConfig(options.cwd);
     if (mcpServers) {
@@ -1923,6 +1938,7 @@ async function queryClaudeSDK(
       steerFollowUpTimer = null;
     }
     releasePromptStream();
+    await antigravityTransport?.close();
   }
 }
 

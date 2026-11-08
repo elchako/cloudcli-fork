@@ -1,15 +1,15 @@
 ---
 title: "Модели подключённого API"
 type: fork-change
-sections: [§22, §22.1, §22.2]
+sections: [§22, §22.1, §22.2, §22.3]
 tags: [модели, api, каталог, claude, cliproxyapi, кэш, effort]
 description: "Динамический каталог моделей Claude из подключённого API: исходные ID, группировка по owned_by без угадывания по имени, безопасный кэш, ручное обновление, совместимость с пользовательскими моделями и прежними сеансами."
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # Модели подключённого API
 
-> Разделы реестра §22, §22.1, §22.2. Часть [реестра правок форка](../fork-changes.md).
+> Разделы реестра §22, §22.1, §22.2, §22.3. Часть [реестра правок форка](../fork-changes.md).
 
 ## Пользователю
 
@@ -163,6 +163,61 @@ updated: 2026-11-08
   `server/modules/providers/list/claude/{claude-model-reasoning,claude-models.provider,claude-runtime.provider}.ts`,
   `server/modules/providers/services/provider-models.service.ts`, `src/shared/types.ts`,
   `src/modules/chat/composer/ComposerModelMenu.tsx`, EN/RU chat.json; тесты рядом.
+
+## §22.3 SDK identity вызывает Antigravity 429: точечная совместимость
+
+- **Слой:** server · **Столкновение:** 🟡 (16 строк в lifecycle SDK, остальное
+  отдельный адаптер) · **PR:** не открыт, исправление форка.
+- **Причина, подтверждённая 08.11.2026 UTC:** `mapCliOptionsToSDK` выбирает
+  `systemPrompt: {type:'preset', preset:'claude_code'}`. Claude Code 2.1.319 /
+  Agent SDK 0.3.311 добавляет точную строку `You are a Claude agent, built on
+  Anthropic's Claude Agent SDK.`. С ней Gemini через Antigravity воспроизводимо
+  получает upstream `429 RESOURCE_EXHAUSTED`; внутреннюю политику Google по одному
+  тексту ошибки определить нельзя. Последующий cooldown — следствие, не диагноз.
+- **Сравнение:** короткий stream с тем же `gemini-3.8-flash-high(high)` — 200;
+  по отдельности добавленные `output_config.effort=high`, max_tokens=32000,
+  beta-заголовки и 309 исходных tools — 200. Один SDK system-блок на 62 байта —
+  429, нейтральный system сопоставимого объёма — 200. Исходный запрос ≈480 КБ
+  с 309 tools после замены только identity завершился полным SSE, HTTP 200.
+  Следовательно, suffix сам по себе и размер не являются причиной этого repro.
+- **Связь с доработкой effort:** preset не менялся в §22.2; его выбор по blame
+  существовал до сегодняшних правок. §22.2 действительно меняет модельный suffix
+  и передаёт стандартный SDK effort, но они сохраняются в успешном replay.
+- **Минимальное изменение поведения:** только точная отдельная identity в system
+  заменяется на `You are CloudCLI, an AI coding assistant.`; весь остальной preset,
+  cache-control, история, tools, model/effort/thinking и параметры остаются.
+  Custom systemPrompt сам по себе не помогает — CLI и к нему добавляет identity;
+  поэтому preset не заменяем и snapshot/транскрипт не переписываем.
+- **Транспорт:** loopback listener на случайном порту и закрытом случайном пути
+  создаётся только для Antigravity по данным каталога. Внутри рана также проверяется
+  провайдер каждого request.model, включая служебные запросы; Native Claude/GPT не
+  преобразуются. Цель — тот же настроенный API, допустимы только модели/messages/
+  count_tokens пути; JSON ограничен 64 МБ. Исходные auth/beta заголовки сохранены,
+  ключ не хранится и не логируется. Нет новых повторов или переключений моделей; 429/Retry-After
+  возвращаются как есть. SSE передаётся с backpressure/cancel, listener закрывается
+  в finally. Конфигурация CLIProxyAPI/OAuth/квоты не меняются.
+- **Проверки:** unit-тесты точечной замены и неизменности payload; HTTP/SSE,
+  gzip, beta/auth, отсутствие redirect/retry, закрытие listener, model/effort,
+  preset, permissions и resume. Реальный отдельный CloudCLI :3325 через
+  `chat.send` → настоящий Claude Code → шлюз: новый чат и изолированная копия
+  проблемной сессии получили ОК, HTTP 200, `message_stop`, `end_turn`.
+  Upstream model остался `gemini-3.8-flash-high(high)`, max_tokens=32000,
+  stream=true и effort=high. Исходный транскрипт проверен хешем и не изменён.
+- **Автотесты/сборка:** 1238 серверных (1237 успешно, 1 пропуск), 1276 клиентских;
+  typecheck/lint без ошибок, полная сборка успешна. Watcher-тесты изолированно
+  используют polling из-за лимита inotify хоста. Один первый клиентский прогон
+  упал на старом auth-refresh timing-тесте; отдельный повтор и весь прогон
+  с двумя workers успешны. Код auth не менялся. Перед принятым слиянием поверх
+  `d2d82718` повторены объединённые проверки: 1282 серверных (1281 успешно,
+  1 пропуск), 1300 клиентских; typecheck/lint и полная сборка — без ошибок.
+  Правки профилей картинок и резервной модели сводки соседней сессии сохранены.
+- **Ограничение:** Sonnet в момент проверки вернул локальный cooldown с последней
+  upstream ошибкой `Individual quota reached` и Retry-After ≈2 ч. Живой успех
+  Claude не подтверждён; блокировку не обходили и не сбрасывали.
+- **Файлы:** `server/modules/providers/list/claude/{claude-antigravity-transport,
+  claude-runtime.provider}.ts`, тест `server/modules/providers/tests/claude-antigravity-transport.test.ts`.
+  Безопасные сводки и приватные test-fixtures — `/tmp/cloudcli-gemini-diagnosis/`
+  (закрытый каталог), без публикации диалогов/секретов.
 
 ## Контракт и файлы
 

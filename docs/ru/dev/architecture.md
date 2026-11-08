@@ -96,6 +96,14 @@ Gemini и Claude с `owned_by=antigravity` остаются вместе. `LLMPr
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` остаётся прежним
 ([GPT через шлюз](../fork/gpt-gateway.md)).
 
+Для `catalogProvider=antigravity` SDK-ран получает закрытый loopback-транспорт
+`claude-antigravity-transport.ts`. Он заменяет только точную служебную SDK identity
+в system-блоке конкретного Antigravity-запроса на нейтральную identity CloudCLI.
+Нативный preset, история/snapshot, tools, model, effort и beta-параметры сохранены;
+другие модели проходят без преобразования. Ключ не хранится и не логируется,
+цель фиксирована исходным API endpoint, редиректы запрещены, SSE передаётся потоком.
+Listener закрывается в `queryClaudeSDK.finally` ([§22.3](../fork/api-models.md)).
+
 ## Модели для названий чатов
 
 `session-title-models.service.ts` хранит явную пару `primaryModel`/`fallbackModel`
