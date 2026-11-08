@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS voice_settings (
     speech_summary TEXT,
     speech_summary_prompt TEXT,
     speech_summary_model TEXT,
+    speech_summary_fallback_model TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
 import { getToolConfig } from '@/modules/chat/tools/configs/toolConfigs';
+import { i18n } from '@/modules/i18n';
 
 /**
  * The `generate_image` result is written for the model (file path, follow-up
@@ -33,6 +34,21 @@ test('the image card also reads content serialized as JSON text', () => {
     renderResult(JSON.stringify([{ type: 'text', text: RESULT_TEXT }])),
     '![golden axe icon](/api/assets/images/1-ab12cd34-generated.png)',
   );
+});
+
+test('карточка показывает запрошенные модель, режим, качество и время, не выдавая их за подтверждённые API', async () => {
+  await i18n.changeLanguage('ru');
+  const metadata = JSON.stringify({ model: 'gpt-image-2.6', profile: 'draft', quality: 'low', elapsedMs: 1250 });
+  const content = renderResult(`${RESULT_TEXT}\nImage settings: ${metadata}`);
+  assert.match(content, /Запрошено: gpt-image-2.6/);
+  assert.match(content, /Черновик/);
+  assert.match(content, /1.3 с/);
+  assert.doesNotMatch(content, /Saved to|To refine|Image settings:|Модель в ответе API/);
+});
+
+test('повреждённые метаданные и Markdown от API не попадают в карточку', () => {
+  const metadata = JSON.stringify({ model: '[bad](https://example.test)', profile: 'final', quality: 'high', elapsedMs: 10 });
+  assert.equal(renderResult(`${RESULT_TEXT}\nImage settings: ${metadata}`), '![golden axe icon](/api/assets/images/1-ab12cd34-generated.png)');
 });
 
 test('a result without an image line falls back to its text', () => {

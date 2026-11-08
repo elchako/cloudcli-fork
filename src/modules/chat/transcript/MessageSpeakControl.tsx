@@ -13,7 +13,7 @@ import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 const MessageSpeakControl = ({ content }: { content: string }) => {
   const { t } = useTranslation('chat');
   const available = useVoiceAvailable();
-  const { state, toggle, error } = useTts(() => content);
+  const { state, toggle, error, notice } = useTts(() => content);
 
   if (!available) return null;
 
@@ -22,6 +22,11 @@ const MessageSpeakControl = ({ content }: { content: string }) => {
 
   return (
     <span className="relative inline-flex">
+      {notice === 'summary-fallback' && !error && (
+        <span role="status" className="absolute bottom-full right-0 z-10 mb-2 w-56 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground shadow-lg">
+          {t('settings:speechSummary.fullTextNotice')}
+        </span>
+      )}
       {error && (
         <span className="absolute bottom-full left-1/2 z-10 mb-1 max-w-[240px] -translate-x-1/2 whitespace-normal rounded bg-red-600 px-2 py-1 text-center text-xs text-white shadow-lg">
           {error}

@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { buildImageToolResultText } from '@/modules/image-generation/image-generation.mcp.js';
-import { generateImage, resolveImageGateway } from '@/modules/image-generation/image-generation.service.js';
+import { generateImage as generateImageRequest, resolveImageGateway, type ImageGenerationRequest } from '@/modules/image-generation/image-generation.service.js';
+
+// Транспорт тестируем без сетевого каталога; политика профилей имеет отдельные тесты.
+const generateImage = (request: ImageGenerationRequest) => generateImageRequest(request, async () => ({
+  profile: request.profile ?? 'standard', model: process.env.CLOUDCLI_IMAGE_MODEL || 'gpt-image-2.6', quality: 'auto',
+}));
 
 // Keys are restored one by one: swapping `process.env` for a plain object would stop HOME
 // changes from reaching the real environment, and `os.homedir()` reads the real one.
@@ -94,7 +99,7 @@ describe('image generation service', () => {
     assert.deepEqual(await resolveImageGateway(), {
       baseUrl: 'https://gateway.test',
       token: 'settings-token',
-      model: 'gpt-image-2.5',
+      model: 'gpt-image-2.6',
     });
   });
 
@@ -109,7 +114,7 @@ describe('image generation service', () => {
     assert.equal(calls[0].url, 'https://gateway.test/v1/images/generations');
     assert.equal((calls[0].init.headers as Record<string, string>).Authorization, 'Bearer test-token');
     assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
-      model: 'gpt-image-2.5',
+      model: 'gpt-image-2.6',
       prompt: 'golden axe icon',
       n: 1,
       size: '1024x1024',
@@ -128,13 +133,43 @@ describe('image generation service', () => {
   it('uses the model from CLOUDCLI_IMAGE_MODEL when set', async () => {
     process.env.ANTHROPIC_BASE_URL = 'https://gateway.test';
     process.env.ANTHROPIC_AUTH_TOKEN = 'test-token';
-    process.env.CLOUDCLI_IMAGE_MODEL = 'gpt-image-2.5-flare';
+    process.env.CLOUDCLI_IMAGE_MODEL = 'gpt-image-2.6-flare';
     const calls = stubFetch(() => imageResponse());
 
     const image = await generateImage({ prompt: 'a red dot', cwd });
 
-    assert.equal(JSON.parse(String(calls[0].init.body)).model, 'gpt-image-2.5-flare');
-    assert.equal(image.model, 'gpt-image-2.5-flare');
+    assert.equal(JSON.parse(String(calls[0].init.body)).model, 'gpt-image-2.6-flare');
+    assert.equal(image.model, 'gpt-image-2.6-flare');
+  });
+
+  it('берёт профиль авторизованного пользователя перед каждым вызовом и показывает параметры результата', async () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://gateway.test/v1';
+    process.env.ANTHROPIC_AUTH_TOKEN = 'test-token';
+    const calls = stubFetch(() => jsonResponse({ data: [{ b64_json: PNG_BASE64 }], model: 'gpt-image-2.6-reported' }));
+    const seen: unknown[] = [];
+    const image = await generateImageRequest({ prompt: 'финальный баннер', profile: 'final', userId: 7, cwd }, async (id, profile) => {
+      seen.push(id, profile);
+      return { profile: 'final', model: 'gpt-image-2.6-sunburst', quality: 'high' };
+    });
+    assert.deepEqual(seen, [7, 'final']);
+    assert.equal(calls[0].url, 'https://gateway.test/v1/images/generations');
+    assert.equal(JSON.parse(String(calls[0].init.body)).model, 'gpt-image-2.6-sunburst');
+    assert.equal(JSON.parse(String(calls[0].init.body)).quality, 'high');
+    assert.equal(image.profile, 'final');
+    assert.equal(image.model, 'gpt-image-2.6-sunburst');
+    assert.equal(image.reportedModel, 'gpt-image-2.6-reported');
+    assert.equal(typeof image.elapsedMs, 'number');
+    assert.match(buildImageToolResultText(image, 'баннер'), /Image settings:.*"profile":"final"/);
+  });
+
+  it('недоступный профиль не запускает запрос к генератору или другую модель', async () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://gateway.test';
+    process.env.ANTHROPIC_AUTH_TOKEN = 'test-token';
+    const calls = stubFetch(() => imageResponse());
+    await assert.rejects(generateImageRequest({ prompt: 'баннер', cwd }, async () => {
+      throw new Error('Модель недоступна');
+    }), /недоступна/);
+    assert.equal(calls.length, 0);
   });
 
   it('sends project images to the edits endpoint as references', async () => {
@@ -148,7 +183,7 @@ describe('image generation service', () => {
     assert.equal(calls[0].url, 'https://gateway.test/v1/images/edits');
     const form = calls[0].init.body as FormData;
     assert.ok(form instanceof FormData);
-    assert.equal(form.get('model'), 'gpt-image-2.5');
+    assert.equal(form.get('model'), 'gpt-image-2.6');
     assert.equal(form.get('prompt'), 'make the background white');
     const images = form.getAll('image[]');
     assert.equal(images.length, 1);
@@ -172,6 +207,17 @@ describe('image generation service', () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
+  });
+
+  it('профили не ослабляют запрет референсов через симлинк наружу', async () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://gateway.test';
+    process.env.ANTHROPIC_AUTH_TOKEN = 'test-token';
+    const outside = path.join(home, 'outside.png');
+    await writeFile(outside, Buffer.from(PNG_BASE64, 'base64'));
+    await symlink(outside, path.join(cwd, 'link.png'));
+    const calls = stubFetch(() => imageResponse());
+    await assert.rejects(generateImage({ prompt: 'правка', inputImages: ['link.png'], profile: 'final', cwd }), /inside the project/);
+    assert.equal(calls.length, 0);
   });
 
   it('refuses a reference that is not a PNG, JPEG or WebP image', async () => {
@@ -209,7 +255,7 @@ describe('generate_image tool result', () => {
       {
         filePath: '/home/user/.cloudcli/assets/1-ab-generated.png',
         url: '/api/assets/images/1-ab-generated.png',
-        model: 'gpt-image-2.5',
+        model: 'gpt-image-2.6',
         size: '1254x1254',
       },
       'A [golden] axe\non navy',

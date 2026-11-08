@@ -32,7 +32,7 @@ export type VoiceConfig = {
   ttsModel: string;
   ttsVoice: string;
   ttsFormat: string;
-  // GOLDJAXE fork (реестр §4.16, §4.16-бис): read-aloud summary. '' = default
+  // GOLDJAXE fork (реестр §4.16, §4.16-бис, §4.16-тер): read-aloud summary. '' = default
   // (on), 'on' or 'off'; the instruction is '' for the built-in one, the model
   // '' for the server's choice. Strings on purpose:
   // the cache and the save path here handle string fields only. Never sent as
@@ -40,6 +40,7 @@ export type VoiceConfig = {
   speechSummary: string;
   speechSummaryPrompt: string;
   speechSummaryModel: string;
+  speechSummaryFallbackModel: string;
 };
 
 /**
@@ -61,6 +62,7 @@ export const VOICE_CONFIG_DEFAULTS: VoiceConfig = {
   speechSummary: '',
   speechSummaryPrompt: '',
   speechSummaryModel: '',
+  speechSummaryFallbackModel: '',
 };
 
 // Synchronous view used by the request builders in `shared/api`. `apiKey` is
@@ -113,6 +115,7 @@ function applyServerVoice(voice: Record<string, unknown> | null | undefined): vo
     speechSummary: readString('speechSummary'),
     speechSummaryPrompt: readString('speechSummaryPrompt'),
     speechSummaryModel: readString('speechSummaryModel'),
+    speechSummaryFallbackModel: readString('speechSummaryFallbackModel'),
   };
 }
 
@@ -149,6 +152,7 @@ export function hydrateVoiceConfig(): Promise<void> {
         delete legacyVoice.speechSummary;
         delete legacyVoice.speechSummaryPrompt;
         delete legacyVoice.speechSummaryModel;
+        delete legacyVoice.speechSummaryFallbackModel;
         await api.updateVoiceSettings(legacyVoice);
         cachedConfig = { ...cachedConfig, ...legacyVoice, apiKey: '' };
         cachedHasApiKey = Boolean(legacy.apiKey);

@@ -77,6 +77,8 @@ class VoicePlayer {
   private audio: HTMLAudioElement | null = null;
   private unlocked = false;
   private cache = new Map<string, string>(); // id -> blob URL (insertion order = LRU)
+  // GOLDJAXE fork (реестр §4.16-тер): повтор полного аудио тоже показывает уведомление.
+  private fullTextIds = new Set<string>();
   private currentId: string | null = null;
   private state: VoicePlayState = 'idle';
   private errorId: string | null = null;
@@ -101,7 +103,7 @@ class VoicePlayer {
     const state = this.currentId === id ? this.state : 'idle';
     const error = this.errorId === id ? this.errorMsg : null;
     if (state === 'idle' && error === null) return IDLE;
-    return { state, error };
+    return { state, error, ...(this.currentId === id && this.fullTextIds.has(id) ? { notice: 'summary-fallback' as const } : {}) };
   }
 
   private ensureAudio(): HTMLAudioElement {
@@ -145,6 +147,7 @@ class VoicePlayer {
     this.abortActive(); // and actually cancel the network request
     if (this.audio) this.audio.pause();
     this.state = 'idle';
+    if (this.currentId && !this.cache.has(this.currentId)) this.fullTextIds.delete(this.currentId);
     this.currentId = null;
     this.emit();
   }
@@ -164,6 +167,7 @@ class VoicePlayer {
   }
 
   private setError(id: string, msg: string) {
+    this.fullTextIds.delete(id);
     this.state = 'idle';
     this.currentId = id;
     this.errorId = id;
@@ -183,6 +187,7 @@ class VoicePlayer {
   private async play(id: string, content: string) {
     const audio = this.ensureAudio();
     audio.pause();
+    if (this.currentId && !this.cache.has(this.currentId)) this.fullTextIds.delete(this.currentId);
     this.currentId = id;
     this.errorId = null;
     this.errorMsg = null;
@@ -204,7 +209,12 @@ class VoicePlayer {
           // GOLDJAXE fork (реестр §4.16): speak a short summary of a long reply
           // when the user has it on; any failure speaks the reply itself. The
           // same signal covers it, so «Стоп» also cancels a summary in progress.
-          const spoken = await prepareSpokenText(content, controller.signal);
+          this.fullTextIds.delete(id);
+          const spoken = await prepareSpokenText(content, controller.signal, () => {
+            if (myToken !== this.token) return;
+            this.fullTextIds.add(id);
+            this.emit();
+          });
           if (myToken !== this.token) return;
           const res = await synthesizeVoice(spoken, controller.signal);
           if (myToken !== this.token) return; // superseded by another play/stop
@@ -312,6 +322,7 @@ class VoicePlayer {
       if (oldest === undefined) break;
       const oldUrl = this.cache.get(oldest);
       this.cache.delete(oldest);
+      this.fullTextIds.delete(oldest);
       if (oldUrl && oldUrl !== this.audio?.src) URL.revokeObjectURL(oldUrl);
     }
   }

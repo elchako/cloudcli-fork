@@ -211,6 +211,7 @@ describe('session title service', () => {
   });
 
   it('retries with extended thinking when the gateway demands it', async () => {
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [{ model: 'claude-haiku-4-5-20251001' }]);
     process.env.ANTHROPIC_AUTH_TOKEN = 'gateway-token';
     const calls = stubFetch((_url, init) => {
       const body = JSON.parse(String(init.body)) as { thinking?: unknown };
@@ -253,6 +254,7 @@ describe('session title service', () => {
   });
 
   it('gives up after the thinking retry also fails', async () => {
+    mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [{ model: 'claude-haiku-4-5-20251001' }]);
     process.env.ANTHROPIC_AUTH_TOKEN = 'gateway-token';
     const calls = stubFetch((_url, init) => {
       const body = JSON.parse(String(init.body)) as { thinking?: unknown };
@@ -339,7 +341,7 @@ describe('session title service', () => {
   it('tries the fallback after exactly one compatibility thinking retry', async () => {
     process.env.ANTHROPIC_API_KEY = 'test-key';
     mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [
-      { model: 'title-primary' }, { model: 'title-primary' }, { model: 'title-fallback' },
+      { model: 'claude-haiku-4-5-20251001' }, { model: 'claude-haiku-4-5-20251001' }, { model: 'title-fallback' },
     ]);
     const calls = stubFetch((_url, init) => {
       const body = JSON.parse(String(init.body)) as { model: string; thinking?: unknown };
@@ -348,8 +350,23 @@ describe('session title service', () => {
         : jsonResponse({ error: { message: 'requires thinking to be enabled' } }, 400);
     });
     assert.equal((await generateSessionTitle(LONG_PROMPT))?.generated, true);
-    assert.deepEqual(calls.map((call) => JSON.parse(String(call.init.body)).model), ['title-primary', 'title-primary', 'title-fallback']);
+    assert.deepEqual(calls.map((call) => JSON.parse(String(call.init.body)).model), ['claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001', 'title-fallback']);
   });
+
+  for (const primary of ['gpt-unknown', 'new-provider-text', `claude-fable-5-dd-${[...'gpt-6.1-sol'].reverse().join('')}`]) {
+    it(`не делает thinking retry для non-Claude ${primary}`, async () => {
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+      mock.method(sessionTitleModelsService, 'resolveCandidates', async () => [{ model: primary }, { model: 'title-fallback' }]);
+      const calls = stubFetch((_url, init) => {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return body.model === 'title-fallback' ? textBlockResponse('Резервная модель — название')
+          : jsonResponse({ error: { message: 'requires thinking to be enabled' } }, 400);
+      });
+      assert.equal((await generateSessionTitle(LONG_PROMPT))?.generated, true);
+      assert.deepEqual(calls.map((call) => JSON.parse(String(call.init.body)).model), [primary, 'title-fallback']);
+      assert.ok(calls.every((call) => JSON.parse(String(call.init.body)).thinking === undefined));
+    });
+  }
 
   it('does not loop over repeated IDs when both models fail', async () => {
     process.env.ANTHROPIC_API_KEY = 'test-key';

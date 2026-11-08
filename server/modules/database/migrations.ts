@@ -435,6 +435,8 @@ const addVoiceSpeechSummaryColumns = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary', 'TEXT');
   addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary_prompt', 'TEXT');
   addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary_model', 'TEXT');
+  // GOLDJAXE fork (реестр §4.16-тер): NULL = резерв не выбран, старый primary не трогаем.
+  addColumnToTableIfNotExists(db, 'voice_settings', columnNames, 'speech_summary_fallback_model', 'TEXT');
 };
 
 const addSupersededTranscriptPathColumn = (db: Database): void => {

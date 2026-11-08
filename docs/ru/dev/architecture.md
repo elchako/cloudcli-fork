@@ -3,7 +3,7 @@ title: Архитектура форка
 type: dev
 tags: [архитектура, карта-репозитория, провайдеры, claude-agent-sdk, авторизация, jwt, настройки, эндпоинты, голос, indexeddb]
 description: "Карта репозитория CloudCLI (src/ и server/), откуда берутся сессии и что хранит своя БД, провайдер Claude и каталог моделей, ключевые механизмы форка и их эндпоинты: версии CLI, библиотека моделей, генерация картинок, чтение вне проекта, навигатор, очередь надиктовок, авторизация, настройки и секреты."
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # Архитектура форка
@@ -155,9 +155,18 @@ CloudCLI; ручной CLI updater по-прежнему отдельное де
 каждый Claude-ран получает in-process MCP-инструмент
 `mcp__cloudcli-images__generate_image` (`server/modules/image-generation/`):
 `/v1/images/generations` и `/v1/images/edits` шлюза → PNG в `~/.cloudcli/assets`
-→ картинка в карточке инструмента. Флаги: `CLOUDCLI_IMAGE_GEN=off`,
-`CLOUDCLI_IMAGE_MODEL` (по умолчанию `gpt-image-2.5`)
-([генерация картинок](../fork/image-generation.md)).
+→ картинка в карточке инструмента с запрошенными моделью, режимом, качеством
+и временем. `image-generation-settings.service.ts` хранит в
+`user_settings["image-generation"]` три профиля `draft`/`standard`/`final`
+(модель GPT Image + quality) и `defaultProfile`. Авторизованные
+`GET/PUT /api/settings/image-generation`, `GET ?refresh=1` и
+`ImageGenerationSettings.tsx` обслуживают выбор из общего API-каталога.
+Профиль читается при каждом вызове инструмента; `userId` приходит из рана,
+не от модели. Маски CLIProxyAPI нормализуются в настоящие image-ID, неподдержанные
+семейства не обещаются. Ошибка не переключает модель автоматически.
+Флаги: `CLOUDCLI_IMAGE_GEN=off`, `CLOUDCLI_IMAGE_MODEL` — только default до
+сохранения, иначе `gpt-image-2.6`. Настройки работают без перезапуска
+([генерация картинок](../fork/image-generation.md), §13.3).
 
 ## Чтение файлов вне проекта
 
@@ -201,16 +210,27 @@ Base URL браузер ходит напрямую (`/audio/speech`), без н
 
 Перед синтезом `prepareSpokenText` (`src/shared/speechSummary.ts`) может
 подменить текст сводкой: `POST /api/speech-summary` (модуль
-`server/modules/speech-summary/`) пересказывает длинный ответ малой моделью
-Claude доступом пользователя (по умолчанию `claude-haiku-5-5`, effort low),
-`GET /api/speech-summary/status` и `GET /api/speech-summary/models` (модели
-Claude с `/v1/models` шлюза, кэш 10 мин) — для экрана настроек. Режим,
-инструкция и модель — колонки `speech_summary`, `speech_summary_prompt`,
-`speech_summary_model` в `voice_settings`. Env: `CLOUDCLI_SPEECH_SUMMARY=off`
-— выключить на сервере, `CLOUDCLI_SPEECH_SUMMARY_MODEL` — модель по умолчанию
-вместо Haiku 5.5 (выбор пользователя важнее). Транспорт к модели общий с
-ИИ-названиями — `server/shared/small-model.ts`
-([сводка вслух](../fork/speech-summary.md)).
+`server/modules/speech-summary/`) пересказывает длинный ответ основной, затем
+резервной текстовой моделью подключённого API. `GET /api/speech-summary/status`
+и `GET /api/speech-summary/models?refresh=1` обслуживают экран настроек.
+`models` сохраняет старый массив ID, `modelOptions`/`source` дают подписи и
+состояние общего `claudeApiModelCatalog`; ограничения Claude больше нет.
+Режим, инструкция, основная и резервная модели — `speech_summary`,
+`speech_summary_prompt`, `speech_summary_model`, `speech_summary_fallback_model`
+в `voice_settings`. Старый primary сохранён; резерв пуст до явного выбора.
+Общий дедлайн — 30 с, резерву оставлено 12 с; отмена не запускает резерв.
+Если сводка не получилась, TTS получает полный исходник, а
+`VoiceSnapshot.notice` показывает отдельное уведомление, включая replay-кэш.
+Env: `CLOUDCLI_SPEECH_SUMMARY=off` — выключить, `CLOUDCLI_SPEECH_SUMMARY_MODEL`
+— default вместо `claude-haiku-5-5` (собственный выбор важнее).
+Транспорт общий с ИИ-названиями — `small-model.ts`, политика каталога,
+подтверждённого effort и thinking retry — `background-models.ts`. Общие
+потребители получают каталог через лёгкий публичный
+`providers/model-catalog.ts`, не через `providers/index.ts`: общий barrel
+инициализирует registry/runtime и создаёт обратный ESM-цикл с инструментами.
+Lint разрешает этому entrypoint только три конкретные реализации каталога.
+Неизвестным моделям параметры рассуждений не угадываются
+([сводка вслух](../fork/speech-summary.md), §4.16-тер).
 
 ## Браузер и уведомления (v1.37.8)
 

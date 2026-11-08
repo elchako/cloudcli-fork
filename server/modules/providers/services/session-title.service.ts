@@ -4,6 +4,7 @@ import {
   resolveSmallModelCredentials,
   type SmallModelCredentials,
 } from '@/shared/small-model.js';
+import { isClaudeBackgroundModel } from '@/shared/background-models.js';
 import { decodeCliProxyModelId } from '@/modules/providers/list/claude/claude-api-models.js';
 import {
   sessionTitleModelsService,
@@ -229,7 +230,9 @@ async function requestModelTitle(
         attempted.add(model.model);
         const first = await postTitleRequest(credentials, model, prompt, false, previousTitle);
         if (first.status === 'ok' && first.title) return first.title;
-        if (first.status === 'needs-thinking') {
+        // GOLDJAXE fork (реестр §4.16-тер): non-Claude не получает выдуманный
+        // budget_tokens по ошибке шлюза; переходим к настроенному резерву.
+        if (first.status === 'needs-thinking' && isClaudeBackgroundModel(model.model)) {
           const retry = await postTitleRequest(credentials, model, prompt, true, previousTitle);
           if (retry.status === 'ok' && retry.title) return retry.title;
         }

@@ -1,18 +1,12 @@
 import { userDb, userSettingsDb } from '@/modules/database/index.js';
+import { claudeApiModelCatalog } from '@/modules/providers/list/claude/claude-api-models.js';
 import {
-  claudeApiModelCatalog,
-  decodeCliProxyModelId,
-} from '@/modules/providers/list/claude/claude-api-models.js';
-import {
-  findClaudeModelOption,
-  withGatewayEffortSuffix,
-} from '@/modules/providers/list/claude/claude-models.provider.js';
-import {
-  isAdaptiveThinkingModel,
-  resolveSmallModel,
-  type ApiModel,
-  type SmallModelRequest,
-} from '@/shared/small-model.js';
+  buildBackgroundModelRequest,
+  isBackgroundTextModel,
+} from '@/shared/background-models.js';
+import type { BackgroundModelRequest } from '@/shared/background-models.js';
+import { resolveSmallModel } from '@/shared/small-model.js';
+import type { ApiModel } from '@/shared/small-model.js';
 import { AppError } from '@/shared/utils.js';
 
 // GOLDJAXE fork (реестр §4.9-тер): отдельный не-секретный ключ, не user_preferences
@@ -24,7 +18,10 @@ export type SessionTitleModelSettings = {
   fallbackModel: string;
 };
 
-export type SessionTitleModelRequest = Pick<SmallModelRequest, 'model' | 'effort' | 'adaptiveThinking'>;
+export type SessionTitleModelRequest = BackgroundModelRequest;
+// Совместимость существующих импортов и тестов (§4.9-тер).
+export { buildBackgroundModelRequest as buildSessionTitleModelRequest, isBackgroundTextModel as isSessionTitleTextModel };
+const isSessionTitleTextModel = isBackgroundTextModel;
 
 type Dependencies = {
   readSettings(userId: number): Record<string, unknown>;
@@ -42,29 +39,6 @@ function modelId(value: unknown): string {
 
 function isValidModelId(value: string): boolean {
   return value.length > 0 && value.length <= 256 && !/[\s\u0000-\u001f\u007f]/u.test(value);
-}
-
-/** API не сообщает modality; исключаем распознаваемые генераторы и их маски. */
-export function isSessionTitleTextModel(model: Pick<ApiModel, 'id' | 'label'>): boolean {
-  const name = `${decodeCliProxyModelId(model.id)} ${model.label}`;
-  return isValidModelId(model.id)
-    && !/(?:image|imagen|dall[._ -]?e\b|flux|stable[._ -]?diffusion|sdxl|nano[._ -]?banana|midjourney)/i.test(name);
-}
-
-/** Только метаданные существующего серверного каталога, не шаблоны /models. */
-export function buildSessionTitleModelRequest(model: string): SessionTitleModelRequest {
-  const canonical = decodeCliProxyModelId(model);
-  const known = findClaudeModelOption(model) || findClaudeModelOption(canonical)
-    || findClaudeModelOption(`${canonical}[1m]`);
-  // В каталоге уровни идут от слабого к сильному; ultracode — режим CLI, не effort.
-  const effort = known?.effort?.values.find((option) => option.value !== 'ultracode')?.value;
-  const gatewayModel = withGatewayEffortSuffix(model, effort);
-  if (gatewayModel !== model) return { model: gatewayModel };
-  if (isAdaptiveThinkingModel(canonical) && (effort === 'low' || effort === 'medium' || effort === 'high')) {
-    return { model, adaptiveThinking: true, effort };
-  }
-  // Неизвестной модели не приписываем low/minimal/none и не угадываем транспорт.
-  return { model };
 }
 
 export function createSessionTitleModelsService(dependencies: Dependencies) {
@@ -138,7 +112,7 @@ export function createSessionTitleModelsService(dependencies: Dependencies) {
       const ids = [...new Set([settings.primaryModel, settings.fallbackModel, legacyModel ?? ''])];
       return ids.filter((id) => isSessionTitleTextModel({ id, label: id })
         && (models === null || models.some((model) => model.id === id)))
-        .map(buildSessionTitleModelRequest);
+        .map((id) => buildBackgroundModelRequest(id, models));
     },
   };
 }

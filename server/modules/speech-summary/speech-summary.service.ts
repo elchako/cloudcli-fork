@@ -1,8 +1,13 @@
 import {
-  isAdaptiveThinkingModel,
-  type SmallModelCredentials,
-  type SmallModelOutcome,
-  type SmallModelRequest,
+  backgroundThinkingRetry,
+  buildBackgroundModelRequest,
+  isBackgroundTextModel,
+} from '@/shared/background-models.js';
+import type {
+  ApiModel,
+  SmallModelCredentials,
+  SmallModelOutcome,
+  SmallModelRequest,
 } from '@/shared/small-model.js';
 
 /**
@@ -35,14 +40,11 @@ export const DEFAULT_SPEECH_SUMMARY_MODEL = 'claude-haiku-5-5';
 /** Newer models think adaptively and that thinking counts against this limit
  * (~200–800 tokens), so it is far above the ~700 a spoken summary needs. */
 const MAX_OUTPUT_TOKENS = 3000;
-/** Legacy extended thinking (models before 4.6) on a gateway that demands it. */
-const THINKING_BUDGET_TOKENS = 1024;
-/** Retelling is a light task: low effort kept accuracy and cut the wait by ~1.8 s. */
-const EFFORT = 'low';
-const REQUEST_TIMEOUT_MS = 30_000;
-/** Model list cache: a good answer for 10 minutes, a failure only for a minute. */
-const MODELS_TTL_MS = 10 * 60_000;
-const MODELS_FAILURE_TTL_MS = 60_000;
+// GOLDJAXE fork (реестр §4.16-тер): один бюджет на каталог, основную и резервную,
+// включая совместимый thinking-повтор. Медленная основная не съедает время резерва.
+export const SPEECH_SUMMARY_TOTAL_TIMEOUT_MS = 30_000;
+export const SPEECH_SUMMARY_FALLBACK_RESERVE_MS = 12_000;
+const CATALOG_TIMEOUT_MS = 3000;
 /** Concurrent summaries per server. A summary is user-triggered; more than a few
  * at once means a stuck client or abuse, and those read in full instead. */
 const MAX_CONCURRENT = 3;
@@ -142,18 +144,16 @@ export type SpeechSummaryUserSettings = {
   mode: string;
   /** The user's own instruction; '' for the built-in one. */
   prompt: string;
-  /** The user's own model; '' for the server's choice. */
+  /** Прежнее поле primary: '' по-прежнему означает выбор сервера. */
   model: string;
+  /** '' — резерв не настроен; никакой автоматической подстановки модели. */
+  fallbackModel?: string;
 };
 
-/** What the model picker offers: Claude Haiku, Sonnet, Opus and Fable, without
- * the 1M-context aliases — and without the gateway's disguised non-Claude models
- * (`claude-fable-5-dd-*`): the summary is tuned for Claude. */
-export function filterSummaryModels(ids: string[]): string[] {
-  return [...new Set(ids)]
-    .filter((id) => /^claude-(?:haiku|sonnet|opus|fable)-/.test(id) && !id.includes('[') && !/-dd-/.test(id))
-    .sort();
-}
+export type SpeechSummaryCatalog = {
+  models: ApiModel[] | null;
+  source?: 'api' | 'api-cache' | 'fallback';
+};
 
 export type SpeechSummaryResult =
   | { status: 'ok'; summary: string }
@@ -169,6 +169,7 @@ export type SpeechSummaryStatus = {
   enabled: boolean;
   /** The model this user's summaries go to. */
   model: string;
+  fallbackModel: string;
   /** What «стандартная» means here: the operator's env choice or Haiku 5.5. */
   defaultModel: string;
   defaultPrompt: string;
@@ -185,49 +186,58 @@ type Dependencies = {
     request: SmallModelRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<SmallModelOutcome>;
-  listModels?(credentials: SmallModelCredentials): Promise<string[] | null>;
+  getCatalog(force?: boolean): Promise<SpeechSummaryCatalog>;
   allowedByEnv?: () => boolean;
   log?: (message: string) => void;
   now?: () => number;
+  /** Короткие бюджеты для детерминированных тестов без настоящих API-запросов. */
+  totalTimeoutMs?: number;
+  fallbackReserveMs?: number;
 };
 
 export function createSpeechSummaryService(dependencies: Dependencies) {
   const allowedByEnv = dependencies.allowedByEnv ?? (() => isSpeechSummaryAllowedByEnv());
   const log = dependencies.log ?? ((message: string) => console.log(message));
   const now = dependencies.now ?? (() => Date.now());
+  const totalTimeoutMs = dependencies.totalTimeoutMs ?? SPEECH_SUMMARY_TOTAL_TIMEOUT_MS;
+  const fallbackReserveMs = dependencies.fallbackReserveMs ?? SPEECH_SUMMARY_FALLBACK_RESERVE_MS;
   let active = 0;
-  let modelsCache: { models: string[]; until: number } | null = null;
 
   const defaultModel = async () => (await dependencies.resolveServerModel()) || DEFAULT_SPEECH_SUMMARY_MODEL;
-  // The user's pick wins over the operator's env, which wins over Haiku 5.5.
+  // Прежний primary не переписывается при появлении резерва.
   const modelFor = async (settings: SpeechSummaryUserSettings) => settings.model.trim() || defaultModel();
+  const readSettings = (userId: number): SpeechSummaryUserSettings => {
+    try {
+      return dependencies.readUserSettings(userId);
+    } catch {
+      // Не отправляем ответ модели, если не удалось прочитать выключатель из БД.
+      return { mode: 'off', prompt: '', model: '', fallbackModel: '' };
+    }
+  };
 
   return {
     async getStatus(userId: number): Promise<SpeechSummaryStatus> {
-      const settings = dependencies.readUserSettings(userId);
+      const settings = readSettings(userId);
       const credentials = allowedByEnv() ? await dependencies.resolveCredentials() : null;
       return {
         available: Boolean(credentials),
         enabled: settings.mode !== 'off',
         model: await modelFor(settings),
+        fallbackModel: settings.fallbackModel?.trim() ?? '',
         defaultModel: await defaultModel(),
         defaultPrompt: DEFAULT_SPEECH_SUMMARY_PROMPT,
         minChars: SPEECH_SUMMARY_MIN_CHARS,
       };
     },
 
-    /** Claude models the user's endpoint offers, for the picker. Never throws. */
-    async listModels(): Promise<string[]> {
-      if (modelsCache && modelsCache.until > now()) {
-        return modelsCache.models;
+    /** Общий серверный каталог владеет кэшем и refresh, второй кэш не нужен. */
+    async listModels(force = false): Promise<SpeechSummaryCatalog> {
+      try {
+        const catalog = await dependencies.getCatalog(force);
+        return { ...catalog, models: catalog.models?.filter(isBackgroundTextModel) ?? null };
+      } catch {
+        return { models: null };
       }
-      const credentials = allowedByEnv() ? await dependencies.resolveCredentials() : null;
-      const ids = credentials && dependencies.listModels ? await dependencies.listModels(credentials) : null;
-      const models = filterSummaryModels(ids ?? []);
-      // Only a good, non-empty answer is kept long: one hiccup must not hide
-      // the list for ten minutes.
-      modelsCache = { models, until: now() + (models.length ? MODELS_TTL_MS : MODELS_FAILURE_TTL_MS) };
-      return models;
     },
 
     async summarize(userId: number, text: unknown, signal?: AbortSignal): Promise<SpeechSummaryResult> {
@@ -237,14 +247,19 @@ export function createSpeechSummaryService(dependencies: Dependencies) {
       if (text.length > SPEECH_SUMMARY_MAX_TEXT_CHARS) {
         return { status: 'too-long' };
       }
-      const settings = dependencies.readUserSettings(userId);
-      if (!allowedByEnv() || settings.mode === 'off') {
+      if (signal?.aborted) return { status: 'failed', reason: 'cancelled' };
+      if (!allowedByEnv()) return { status: 'skipped', reason: 'disabled' };
+      const settings = readSettings(userId);
+      if (settings.mode === 'off') {
         return { status: 'skipped', reason: 'disabled' };
       }
       if (text.trim().length < SPEECH_SUMMARY_MIN_CHARS) {
         return { status: 'skipped', reason: 'short' };
       }
-      const credentials = await dependencies.resolveCredentials();
+      const started = now();
+      const deadline = started + totalTimeoutMs;
+      const credentials = await withDeadline(() => dependencies.resolveCredentials(), deadline - now(), signal).catch(() => null);
+      if (signal?.aborted) return { status: 'failed', reason: 'cancelled' };
       if (!credentials) {
         return { status: 'skipped', reason: 'unavailable' };
       }
@@ -253,41 +268,57 @@ export function createSpeechSummaryService(dependencies: Dependencies) {
       }
 
       active += 1;
-      const started = Date.now();
       try {
-        const model = await modelFor(settings);
-        const adaptive = isAdaptiveThinkingModel(model);
+        const model = await withDeadline(() => modelFor(settings), deadline - now(), signal);
+        const fallback = settings.fallbackModel?.trim() ?? '';
+        const ids = [...new Set([model, fallback].filter(Boolean))];
+        // Ошибка GET-каталога не отменяет сохранённый выбор. Без метаданных effort
+        // не подставляется, а неизвестная модель не получает thinking-повтор.
+        const catalog = await withDeadline(() => dependencies.getCatalog(),
+          Math.min(CATALOG_TIMEOUT_MS, deadline - now()), signal).catch(() => ({ models: null }));
         const { system, user } = buildSpeechSummaryMessages(
           settings.prompt.trim() || DEFAULT_SPEECH_SUMMARY_PROMPT,
           text,
         );
-        // No temperature at all: Haiku/Sonnet 5.5 refuse a non-default one, and
-        // Opus 4.7+, Opus 5/5.5 and Sonnet 5 any sampling parameter — so a
-        // temperature would break those picks. Accuracy comes from the instruction.
-        const base = {
-          model, system, messages: [{ role: 'user' as const, content: user }], maxTokens: MAX_OUTPUT_TOKENS,
-          ...(adaptive ? { effort: EFFORT } as const : {}),
-        };
-        const options = { timeoutMs: REQUEST_TIMEOUT_MS, signal };
-
-        let outcome = await dependencies.request(credentials, base, options);
-        if (outcome.status === 'needs-thinking') {
-          // Gateways such as CLIProxyAPI may refuse a plain request. Newer models
-          // take adaptive thinking (a token budget is a 400 for them), older
-          // ones the budget form.
-          outcome = await dependencies.request(
-            credentials,
-            adaptive ? { ...base, adaptiveThinking: true } : { ...base, thinkingBudget: THINKING_BUDGET_TOKENS },
-            options,
-          );
+        let result: SpeechSummaryResult = { status: 'failed', reason: 'unavailable' };
+        for (const [index, id] of ids.entries()) {
+          if (signal?.aborted) return { status: 'failed', reason: 'cancelled' };
+          const entry = catalog.models?.find((item) => item.id === id);
+          if (!isBackgroundTextModel(entry ?? { id, label: id }) || (catalog.models !== null && !entry)) {
+            result = { status: 'failed', reason: 'model-unavailable' };
+            continue;
+          }
+          const attemptDeadline = index === 0 && ids.length > 1
+            ? deadline - Math.min(fallbackReserveMs, totalTimeoutMs / 2) : deadline;
+          const base: SmallModelRequest = {
+            ...buildBackgroundModelRequest(id, catalog.models),
+            system, messages: [{ role: 'user', content: user }], maxTokens: MAX_OUTPUT_TOKENS,
+          };
+          const request = async (body: SmallModelRequest): Promise<SmallModelOutcome> => {
+            const timeoutMs = attemptDeadline - now();
+            try {
+              return await withDeadline((attemptSignal) => dependencies.request(credentials, body, {
+                timeoutMs, signal: attemptSignal,
+              }), timeoutMs, signal);
+            } catch (error) {
+              return { status: 'failed', reason: signal?.aborted ? 'cancelled'
+                : error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'request-error' };
+            }
+          };
+          let outcome = await request(base);
+          const retry = outcome.status === 'needs-thinking' ? backgroundThinkingRetry(base) : null;
+          if (retry && !signal?.aborted && now() < attemptDeadline) outcome = await request(retry);
+          result = toResult(outcome);
+          // Только служебные метрики, без исходного текста и ответа модели.
+          log(`Speech summary: ${result.status}${result.status === 'failed' ? ` (${result.reason})` : ''}, `
+            + `${id}, ${text.length} → ${result.status === 'ok' ? result.summary.length : 0} chars, `
+            + `${now() - started} ms`);
+          if (result.status === 'ok' || signal?.aborted
+            || (result.status === 'failed' && result.reason === 'cancelled')) return result;
         }
-
-        const result = toResult(outcome);
-        // Lengths and timing only: the reply and the summary are the user's data.
-        log(`Speech summary: ${result.status}${result.status === 'failed' ? ` (${result.reason})` : ''}, `
-          + `${model}, ${text.length} → ${result.status === 'ok' ? result.summary.length : 0} chars, `
-          + `${Date.now() - started} ms`);
         return result;
+      } catch {
+        return { status: 'failed', reason: signal?.aborted ? 'cancelled' : 'timeout' };
       } finally {
         active -= 1;
       }
@@ -310,7 +341,48 @@ function toResult(outcome: SmallModelOutcome): SpeechSummaryResult {
     return { status: 'failed', reason: outcome.stopReason === 'max_tokens' ? 'truncated' : `stop: ${outcome.stopReason}` };
   }
   const summary = outcome.text.trim();
-  return summary ? { status: 'ok', summary } : { status: 'failed', reason: 'empty' };
+  if (!summary) return { status: 'failed', reason: 'empty' };
+  // Проверяем форму, не пытаясь эвристически оценить смысл или стоимость модели.
+  // JSON, код, thinking-разметка и многотысячный «пересказ» непригодны для речи.
+  if (summary.length > 6000 || !/\p{L}/u.test(summary)
+    || /^(?:\{|\[)|```|<\/?(?:think|thinking|analysis|answer|summary)\b/i.test(summary)) {
+    return { status: 'failed', reason: 'unusable' };
+  }
+  return { status: 'ok', summary };
+}
+
+/** Таймаут прерывает транспорт и ограничивает ожидание даже подменённого Promise,
+ * который не реагирует на AbortSignal. Отмена пользователя не становится fallback. */
+async function withDeadline<T>(run: (signal: AbortSignal) => Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort = () => {};
+  const stopped = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      controller.abort();
+      reject(new DOMException('cancelled', 'AbortError'));
+    };
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+    timer = setTimeout(() => {
+      // Сначала фиксируем именно timeout: транспорт может синхронно вернуть
+      // cancelled при abort дочернего signal, но это не пользовательский «Стоп».
+      reject(new DOMException('timeout', 'TimeoutError'));
+      controller.abort();
+    }, Math.max(0, timeoutMs));
+  });
+  try {
+    if (controller.signal.aborted) return await stopped;
+    if (timeoutMs <= 0) throw new DOMException('timeout', 'TimeoutError');
+    return await Promise.race([run(controller.signal), stopped]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+    controller.abort();
+  }
 }
 
 export type SpeechSummaryService = ReturnType<typeof createSpeechSummaryService>;

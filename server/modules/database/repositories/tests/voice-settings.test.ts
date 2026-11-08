@@ -46,7 +46,7 @@ test('getVoiceSettings returns empty fields before anything is stored', async ()
 
   assert.deepEqual(voiceSettingsDb.getVoiceSettings(1), {
     baseUrl: '', sttModel: '', ttsModel: '', ttsVoice: '', ttsFormat: '',
-    speechSummary: '', speechSummaryPrompt: '', speechSummaryModel: '', hasApiKey: false,
+    speechSummary: '', speechSummaryPrompt: '', speechSummaryModel: '', speechSummaryFallbackModel: '', hasApiKey: false,
   });
   assert.equal(voiceSettingsDb.getVoiceApiKey(1), null);
 });
@@ -209,7 +209,7 @@ test('the summary model is stored, kept by other saves and checked for format on
     'anthropic/claude-opus-5-5@2026[1m]',
   );
 
-  for (const bad of ['claude haiku', 'модель', 'a'.repeat(201), 'x;DROP', '<script>']) {
+  for (const bad of ['claude haiku', 'модель', 'a'.repeat(257), 'x;DROP', '<script>']) {
     assert.throws(
       () => voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: bad }),
       (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
@@ -217,8 +217,41 @@ test('the summary model is stored, kept by other saves and checked for format on
     );
   }
   assert.equal(voiceSettingsDb.getVoiceSettings(3).speechSummaryModel, 'anthropic/claude-opus-5-5@2026[1m]');
-  assert.equal(voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: 'a'.repeat(200) }).speechSummaryModel.length, 200);
+  assert.equal(voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: 'a'.repeat(256) }).speechSummaryModel.length, 256);
 
   // '' returns to the server's choice.
   assert.equal(voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: '' }).speechSummaryModel, '');
+});
+
+test('резервная модель сохраняется независимо и не стирает primary, prompt, режим и TTS', async () => {
+  const { voiceSettingsDb } = await import('@/modules/database/repositories/voice-settings.js');
+  voiceSettingsDb.updateVoiceSettings(3, {
+    speechSummary: 'off', speechSummaryPrompt: 'Своя инструкция.', speechSummaryModel: 'claude-sonnet-5-5',
+    ttsModel: 'edge-tts', ttsVoice: 'ru-RU-SvetlanaNeural', apiKey: 'voice-only-key',
+  });
+  const saved = voiceSettingsDb.updateVoiceSettings(3, { speechSummaryFallbackModel: ' gpt-6.1-sol(low) ' });
+  assert.equal(saved.speechSummaryFallbackModel, 'gpt-6.1-sol(low)');
+  assert.equal(saved.speechSummaryModel, 'claude-sonnet-5-5');
+  assert.equal(saved.speechSummaryPrompt, 'Своя инструкция.');
+  assert.equal(saved.speechSummary, 'off');
+  assert.equal(saved.ttsModel, 'edge-tts');
+  assert.equal(saved.ttsVoice, 'ru-RU-SvetlanaNeural');
+  assert.equal(voiceSettingsDb.getVoiceApiKey(3), 'voice-only-key');
+  assert.equal(voiceSettingsDb.updateVoiceSettings(3, { ttsVoice: 'nova' }).speechSummaryFallbackModel, saved.speechSummaryFallbackModel);
+  for (const bad of ['bad id', 'x'.repeat(257), '<script>']) {
+    assert.throws(() => voiceSettingsDb.updateVoiceSettings(3, { speechSummaryFallbackModel: bad, speechSummaryModel: 'new-primary' }),
+      (error: unknown) => (error as { statusCode?: number }).statusCode === 400);
+  }
+  assert.equal(voiceSettingsDb.getVoiceSettings(3).speechSummaryModel, 'claude-sonnet-5-5');
+  assert.equal(voiceSettingsDb.updateVoiceSettings(3, { speechSummaryFallbackModel: '' }).speechSummaryFallbackModel, '');
+});
+
+test('основная и резервная модели переживают новое подключение к БД', async () => {
+  const { voiceSettingsDb } = await import('@/modules/database/repositories/voice-settings.js');
+  const { closeConnection } = await import('@/modules/database/connection.js');
+  voiceSettingsDb.updateVoiceSettings(3, { speechSummaryModel: 'gpt-6.1-sol', speechSummaryFallbackModel: 'claude-sonnet-5-5' });
+  closeConnection();
+  const restored = voiceSettingsDb.getVoiceSettings(3);
+  assert.equal(restored.speechSummaryModel, 'gpt-6.1-sol');
+  assert.equal(restored.speechSummaryFallbackModel, 'claude-sonnet-5-5');
 });

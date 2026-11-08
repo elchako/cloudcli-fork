@@ -32,6 +32,7 @@ test('the migration adds the summary columns to an existing voice_settings table
   db.exec('ALTER TABLE voice_settings DROP COLUMN speech_summary');
   db.exec('ALTER TABLE voice_settings DROP COLUMN speech_summary_prompt');
   db.exec('ALTER TABLE voice_settings DROP COLUMN speech_summary_model');
+  db.exec('ALTER TABLE voice_settings DROP COLUMN speech_summary_fallback_model');
   db.prepare("INSERT INTO users (id, username, password_hash) VALUES (1, 'tester', 'x')").run();
   db.prepare("INSERT INTO voice_settings (user_id, base_url, tts_voice) VALUES (1, 'https://voice.example.test/v1', 'nova')").run();
 
@@ -44,6 +45,7 @@ test('the migration adds the summary columns to an existing voice_settings table
   assert.ok(columns.includes('speech_summary'));
   assert.ok(columns.includes('speech_summary_prompt'));
   assert.ok(columns.includes('speech_summary_model'));
+  assert.ok(columns.includes('speech_summary_fallback_model'));
 
   const { voiceSettingsDb } = await import('@/modules/database/repositories/voice-settings.js');
   const stored = voiceSettingsDb.getVoiceSettings(1);
@@ -52,4 +54,17 @@ test('the migration adds the summary columns to an existing voice_settings table
   assert.equal(stored.speechSummary, '');
   assert.equal(stored.speechSummaryPrompt, '');
   assert.equal(stored.speechSummaryModel, '');
+  assert.equal(stored.speechSummaryFallbackModel, '');
+
+  // Обновление с версии §4.16-бис: primary/инструкция/выключатель уже заполнены.
+  voiceSettingsDb.updateVoiceSettings(1, { speechSummary: 'off', speechSummaryPrompt: 'Своя.', speechSummaryModel: 'gpt-6.1-sol' });
+  db.exec('ALTER TABLE voice_settings DROP COLUMN speech_summary_fallback_model');
+  await initializeDatabase();
+  await initializeDatabase(); // миграция идемпотентна
+  const migrated = voiceSettingsDb.getVoiceSettings(1);
+  assert.equal(migrated.speechSummaryModel, 'gpt-6.1-sol');
+  assert.equal(migrated.speechSummaryPrompt, 'Своя.');
+  assert.equal(migrated.speechSummary, 'off');
+  assert.equal(migrated.speechSummaryFallbackModel, '');
+  assert.equal(migrated.ttsVoice, 'nova');
 });

@@ -3,6 +3,9 @@
  * Defines display behavior for all tool types 
  */
 
+import { i18n } from '@/modules/i18n';
+import { IMAGE_PROFILE_IDS, IMAGE_QUALITY_IDS } from '@/shared/imageGeneration';
+
 export type ToolDisplayConfig = {
   input: {
     type: 'one-line' | 'collapsible' | 'plan' | 'hidden';
@@ -125,14 +128,31 @@ function readMcpResultText(result: any): string {
     .join('\n');
 }
 
-/**
- * Keeps only the markdown image line of a `generate_image` result: the rest of
- * the text is guidance for the model, not for the user.
- */
+/** GOLDJAXE fork (реестр §13.3): показываем картинку и проверенные метаданные,
+ * но не внутренние инструкции или произвольный Markdown из ответа API. */
 function extractGeneratedImageMarkdown(result: any): string {
   const text = readMcpResultText(result);
   const imageLine = /!\[[^\]]*\]\(\/api\/assets\/images\/[^)\s]+\)/.exec(text);
-  return imageLine ? imageLine[0] : text;
+  if (!imageLine) return text;
+  const raw = /^Image settings: (.{1,2048})$/m.exec(text)?.[1];
+  if (!raw) return imageLine[0];
+  try {
+    const metadata = JSON.parse(raw);
+    const validModel = (value: unknown): value is string => typeof value === 'string'
+      && value.length <= 256 && /^[a-zA-Z0-9._/-]+$/.test(value);
+    if (!validModel(metadata?.model) || !IMAGE_PROFILE_IDS.includes(metadata.profile)
+      || !IMAGE_QUALITY_IDS.includes(metadata.quality) || typeof metadata.elapsedMs !== 'number'
+      || !Number.isFinite(metadata.elapsedMs) || metadata.elapsedMs < 0) return imageLine[0];
+    const caption = i18n.t('settings:imageGeneration.result', {
+      model: metadata.model, profile: i18n.t(`settings:imageGeneration.profiles.${metadata.profile}`),
+      quality: metadata.quality, seconds: (metadata.elapsedMs / 1000).toFixed(1),
+    });
+    const reported = validModel(metadata.reportedModel)
+      ? ` ${i18n.t('settings:imageGeneration.reportedModel', { model: metadata.reportedModel })}` : '';
+    return `${imageLine[0]}\n\n${caption}${reported}`;
+  } catch {
+    return imageLine[0];
+  }
 }
 
 export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {

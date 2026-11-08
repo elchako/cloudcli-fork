@@ -10,6 +10,11 @@ export {
   sessionTitleModelsService,
 } from './services/session-title-models.service.js';
 
+// GOLDJAXE fork (реестр §4.16-тер): каталог и проверенные метаданные фоновых задач.
+export { claudeApiModelCatalog, decodeCliProxyModelId } from './list/claude/claude-api-models.js';
+export { findClaudeModelOption, withGatewayEffortSuffix } from './list/claude/claude-models.provider.js';
+export { knownGatewayModelReasoning } from './list/claude/claude-model-reasoning.js';
+
 // providerModelsService: used by Commands to list models and resolve the active session model.
 export { providerModelsService } from './services/provider-models.service.js';
 

@@ -671,8 +671,8 @@ export const api = {
   // GOLDJAXE fork (реестр §4.16): a short spoken summary before read-aloud,
   // made by the server with the user's own model access.
   speechSummary: {
-    status: () => get('/api/speech-summary/status'),
-    models: () => get('/api/speech-summary/models'),
+    status: (options: ApiRequestOptions = {}) => get('/api/speech-summary/status', options),
+    models: (force = false) => get(`/api/speech-summary/models${force ? '?refresh=1' : ''}`),
     summarize: (text: string, options: ApiRequestOptions = {}) => post('/api/speech-summary', { text }, options),
   },
 

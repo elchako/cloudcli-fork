@@ -905,7 +905,12 @@ type CommandModalKind = 'help' | 'models' | 'cost' | 'status';
 export type VoiceInputState = 'idle' | 'recording' | 'transcribing';
 
 /** Immutable snapshot of the app-level text-to-speech player for one utterance — its play state plus any error message — read by components so read-aloud state survives re-renders and chat switches. */
-export type VoiceSnapshot = { state: VoicePlayState; error: string | null };
+export type VoiceSnapshot = {
+  state: VoicePlayState;
+  error: string | null;
+  /** GOLDJAXE fork (реестр §4.16-тер): сообщение о полном тексте, не ошибка TTS. */
+  notice?: 'summary-fallback';
+};
 
 /** Playback state of a text-to-speech utterance: 'idle', 'loading' or 'playing'. */
 export type VoicePlayState = 'idle' | 'loading' | 'playing';

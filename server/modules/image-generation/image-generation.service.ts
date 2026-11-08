@@ -12,6 +12,10 @@ import {
 } from '@/shared/image-attachments.js';
 import { readObjectRecord, readOptionalString } from '@/shared/utils.js';
 
+import { imageGenerationSettingsService, DEFAULT_IMAGE_MODEL } from './image-generation-settings.service.js';
+import { IMAGE_QUALITIES, type ImageProfile } from './image-generation.config.js';
+export { IMAGE_QUALITIES } from './image-generation.config.js';
+
 /**
  * Image generation for chat runs, through the same gateway the Claude CLI already talks to
  * (`ANTHROPIC_BASE_URL`). The holding's CLIProxyAPI exposes OpenAI's image endpoints for
@@ -19,8 +23,6 @@ import { readObjectRecord, readOptionalString } from '@/shared/utils.js';
  * `generate_image` tool, the file lands in the global assets folder, and the chat renders
  * it through the authenticated `/api/assets/images/:filename` route.
  */
-
-const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5';
 
 /** High-quality edits take well over a minute on the gateway; leave headroom. */
 export const IMAGE_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
@@ -38,11 +40,13 @@ const OUTPUT_EXTENSIONS: Record<string, string> = { png: 'png', jpeg: 'jpg', web
 
 /** The gateway treats size as an aspect hint and picks the exact resolution itself. */
 export const IMAGE_SIZES = ['1024x1024', '1536x1024', '1024x1536', 'auto'] as const;
-export const IMAGE_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
 export const IMAGE_BACKGROUNDS = ['opaque', 'transparent', 'auto'] as const;
 
 export type ImageGenerationRequest = {
   prompt: string;
+  /** GOLDJAXE fork (реестр §13.3): userId берётся из авторизации рана, не из аргументов модели. */
+  userId?: number;
+  profile?: ImageProfile;
   size?: (typeof IMAGE_SIZES)[number];
   quality?: (typeof IMAGE_QUALITIES)[number];
   background?: (typeof IMAGE_BACKGROUNDS)[number];
@@ -57,7 +61,12 @@ export type GeneratedImage = {
   filePath: string;
   /** Same-origin URL the chat renders through the authenticated assets route. */
   url: string;
+  /** Запрошенная модель: шлюз не всегда сообщает фактически использованную. */
   model: string;
+  reportedModel?: string;
+  profile?: ImageProfile;
+  quality?: (typeof IMAGE_QUALITIES)[number];
+  elapsedMs?: number;
   /** Resolution the gateway reports, e.g. "1254x1254". */
   size: string | null;
 };
@@ -195,7 +204,8 @@ async function postImageRequest(
     body = JSON.stringify({ model: gateway.model, prompt, n: 1, ...pickOptions(request) });
   }
 
-  const response = await fetch(`${gateway.baseUrl}${endpoint}`, {
+  const base = gateway.baseUrl.replace(/\/v1$/, '');
+  const response = await fetch(`${base}${endpoint}`, {
     method: 'POST',
     headers,
     body,
@@ -226,7 +236,11 @@ async function postImageRequest(
  * uploads. The file name keeps to `[0-9a-z.-]`, so the assets route serves it as a direct
  * child of the folder like any uploaded attachment.
  */
-export async function generateImage(request: ImageGenerationRequest): Promise<GeneratedImage> {
+export async function generateImage(
+  request: ImageGenerationRequest,
+  resolveSelection = imageGenerationSettingsService.resolve,
+): Promise<GeneratedImage> {
+  const started = Date.now();
   const gateway = await resolveImageGateway();
   if (!gateway) {
     throw new Error('Image generation is not available: no gateway configured (ANTHROPIC_BASE_URL + token) or CLOUDCLI_IMAGE_GEN=off.');
@@ -237,8 +251,12 @@ export async function generateImage(request: ImageGenerationRequest): Promise<Ge
     throw new Error('A prompt is required.');
   }
 
+  // GOLDJAXE fork (реестр §13.3): читаем профиль заново на каждый вызов, не на старте рана.
+  // Нет fallback по ошибке: другая модель/качество требуют явного решения пользователя.
+  const selected = await resolveSelection(request.userId, request.profile);
+  const quality = request.quality ?? selected.quality;
   const inputImages = await readInputImages(request.inputImages ?? [], request.cwd);
-  const payload = await postImageRequest(gateway, prompt, request, inputImages);
+  const payload = await postImageRequest({ ...gateway, model: selected.model }, prompt, { ...request, quality }, inputImages);
 
   const firstImage = Array.isArray(payload.data) ? readObjectRecord(payload.data[0]) : null;
   const base64 = readOptionalString(firstImage?.b64_json);
@@ -256,7 +274,11 @@ export async function generateImage(request: ImageGenerationRequest): Promise<Ge
   return {
     filePath: toPosixPath(filePath),
     url: `/api/assets/images/${fileName}`,
-    model: gateway.model,
+    model: selected.model,
+    reportedModel: readOptionalString(payload.model),
+    profile: selected.profile,
+    quality,
+    elapsedMs: Date.now() - started,
     size: readOptionalString(payload.size) ?? null,
   };
 }

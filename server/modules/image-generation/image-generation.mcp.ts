@@ -12,40 +12,38 @@ import {
 } from '@/modules/image-generation/image-generation.service.js';
 import type { GeneratedImage } from '@/modules/image-generation/image-generation.service.js';
 
-/**
- * In-process MCP server that gives every Claude run started from CloudCLI a
- * `generate_image` tool. It runs inside the server (no ~/.claude.json registration, no
- * extra process) and works with any chat model, since the model only decides when to call
- * it — the picture itself always comes from the gateway's image model.
- */
+import { IMAGE_PROFILES } from './image-generation.config.js';
 
 export const IMAGE_GENERATION_MCP_SERVER_NAME = 'cloudcli-images';
 export const IMAGE_GENERATION_TOOL_ID = `mcp__${IMAGE_GENERATION_MCP_SERVER_NAME}__generate_image`;
 
+// GOLDJAXE fork (реестр §13.3): режим выбирает задачу; конкретные модель/качество — настройки аккаунта.
 const TOOL_DESCRIPTION = [
-  'Generate an image with OpenAI gpt-image and show it to the user in this chat.',
-  'Use it whenever the user asks to draw, generate, render or design a picture: illustrations,',
-  'icons, logos, banners, mockups, diagrams-as-art, photos.',
-  'To edit or vary an existing image (a previous result or a user attachment), pass its path in',
-  'input_images and describe the change in prompt.',
-  'Write a detailed prompt: subject, style, composition, colors, lighting, and any exact text to render.',
-  'The image is displayed in the chat automatically, so do not repeat it in your reply.',
+  'Сгенерируй или отредактируй изображение через настроенный API и покажи его в чате.',
+  'Используй для иллюстраций, иконок, логотипов, баннеров, макетов и фотографий.',
+  'Опиши в prompt предмет, стиль, композицию, цвет, освещение и точные надписи.',
+  'Для правки или продолжения предыдущей картинки передай путь в input_images и опиши изменение.',
+  'Если пользователь просит набросок или проверку идеи, выбери profile=draft; для явно финальной версии — final.',
+  'Без указания режима оставь profile пустым: сервер использует режим по умолчанию пользователя.',
+  'Не сравнивай несколько моделей, не повышай режим и не повторяй генерацию после ошибки без просьбы пользователя.',
+  'Конкретные модели и свойства Flare/Sunburst не угадывай: их настраивает пользователь.',
+  'Картинка показывается автоматически — не дублируй её в ответе.',
 ].join(' ');
 
-/** Alt text for the chat markdown: short, single-line, without brackets that would end it. */
 function buildAltText(prompt: string): string {
   const flattened = prompt.replace(/[[\]\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
   return flattened.length > 80 ? `${flattened.slice(0, 79)}…` : flattened;
 }
 
-/**
- * Tool result for the model. The chat card renders the markdown image line itself, so the
- * text tells the model the user already sees the picture and where the file lives.
- */
+/** Транскрипт хранит настройки результата; UI отделяет их от инструкций для агента. */
 export function buildImageToolResultText(image: GeneratedImage, prompt: string): string {
   const resolution = image.size ? `, ${image.size}` : '';
   return [
     `Image generated (${image.model}${resolution}) and already displayed to the user in the chat.`,
+    ...(image.profile ? [`Image settings: ${JSON.stringify({
+      model: image.model, reportedModel: image.reportedModel, profile: image.profile,
+      quality: image.quality, elapsedMs: image.elapsedMs,
+    })}`] : []),
     `Saved to: ${image.filePath}`,
     `![${buildAltText(prompt)}](${image.url})`,
     'To refine it, call generate_image again with this path in input_images.',
@@ -53,19 +51,13 @@ export function buildImageToolResultText(image: GeneratedImage, prompt: string):
   ].join('\n');
 }
 
-/**
- * Builds the server for one run, or null when no gateway is configured (or the feature is
- * switched off), so runs without image support never see the tool.
- */
-export async function createImageGenerationMcpServer({ cwd }: { cwd?: string }) {
-  if (!(await resolveImageGateway())) {
-    return null;
-  }
+/** userId только из авторизации рана: модель не может выбрать чужие настройки. */
+export async function createImageGenerationMcpServer({ cwd, userId }: { cwd?: string; userId?: number }) {
+  if (!(await resolveImageGateway())) return null;
 
   return createSdkMcpServer({
     name: IMAGE_GENERATION_MCP_SERVER_NAME,
-    version: '1.0.0',
-    // Tool search would otherwise hide the tool until the model looks it up by name.
+    version: '1.1.0',
     alwaysLoad: true,
     timeout: IMAGE_REQUEST_TIMEOUT_MS + 30_000,
     tools: [
@@ -73,22 +65,19 @@ export async function createImageGenerationMcpServer({ cwd }: { cwd?: string }) 
         'generate_image',
         TOOL_DESCRIPTION,
         {
-          prompt: z.string().min(1).describe('Detailed description of the image to create, or of the change to make to input_images.'),
-          size: z.enum(IMAGE_SIZES).optional().describe('Aspect: square 1024x1024, landscape 1536x1024, portrait 1024x1536. Default: auto.'),
-          quality: z.enum(IMAGE_QUALITIES).optional().describe('low is fastest; high takes longest. Default: auto.'),
-          background: z.enum(IMAGE_BACKGROUNDS).optional().describe('transparent for icons/logos/stickers. Default: auto.'),
+          prompt: z.string().min(1).describe('Описание желаемого изображения или правки input_images.'),
+          profile: z.enum(IMAGE_PROFILES).optional().describe('draft — набросок; standard — обычный; final — явно запрошенный финал. Не задано — режим пользователя по умолчанию.'),
+          size: z.enum(IMAGE_SIZES).optional().describe('Формат: квадрат 1024x1024, горизонталь 1536x1024, вертикаль 1024x1536; по умолчанию auto.'),
+          quality: z.enum(IMAGE_QUALITIES).optional().describe('Переопределяй только по явной просьбе о качестве. Иначе не задавай: качество берётся из профиля пользователя.'),
+          background: z.enum(IMAGE_BACKGROUNDS).optional().describe('transparent — прозрачный фон, opaque — непрозрачный; по умолчанию auto.'),
           input_images: z.array(z.string().min(1)).max(MAX_INPUT_IMAGES).optional()
-            .describe('Absolute or project-relative paths of images to edit or use as references (PNG/JPEG/WebP).'),
+            .describe('PNG/JPEG/WebP для правки: абсолютные пути или пути относительно проекта.'),
         },
         async (args) => {
           try {
             const image = await generateImage({
-              prompt: args.prompt,
-              size: args.size,
-              quality: args.quality,
-              background: args.background,
-              inputImages: args.input_images,
-              cwd,
+              prompt: args.prompt, profile: args.profile, size: args.size, quality: args.quality,
+              background: args.background, inputImages: args.input_images, cwd, userId,
             });
             return { content: [{ type: 'text', text: buildImageToolResultText(image, args.prompt) }] };
           } catch (error) {

@@ -101,10 +101,10 @@ test('генераторы изображений и маски исключаю
 });
 
 test('effort берётся только из существующего подтверждённого каталога', () => {
-  assert.deepEqual(buildSessionTitleModelRequest('gpt-6.1-sol'), { model: 'gpt-6.1-sol(low)' });
+  assert.deepEqual(buildSessionTitleModelRequest('gpt-6.1-sol', [{ id: 'gpt-6.1-sol', label: 'GPT' }]), { model: 'gpt-6.1-sol(low)' });
   const masked = `claude-fable-5-dd-${[...'gpt-6.1-sol'].reverse().join('')}`;
-  assert.deepEqual(buildSessionTitleModelRequest(masked), { model: `${masked}(low)` });
-  assert.deepEqual(buildSessionTitleModelRequest('claude-sonnet-5-5'), {
+  assert.deepEqual(buildSessionTitleModelRequest(masked, [{ id: masked, label: 'GPT' }]), { model: `${masked}(low)` });
+  assert.deepEqual(buildSessionTitleModelRequest('claude-sonnet-5-5', [{ id: 'claude-sonnet-5-5', label: 'Sonnet' }]), {
     model: 'claude-sonnet-5-5', adaptiveThinking: true, effort: 'low',
   });
   for (const id of ['gemini-text-unknown', 'gpt-unknown', 'claude-haiku-4-5-20251001', 'new-provider-text']) {

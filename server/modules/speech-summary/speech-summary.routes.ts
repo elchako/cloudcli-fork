@@ -14,7 +14,7 @@ function requestUserId(request: express.Request): number {
  * GOLDJAXE fork (реестр §4.16): HTTP surface of the read-aloud summary.
  *
  *   GET  /status → what the settings screen needs (no secrets);
- *   GET  /models → { models: string[] } — Claude models for the picker;
+ *   GET  /models?refresh=1 → IDs для старых клиентов, modelOptions и source для новых;
  *   POST /       → { summary: string | null, reason? }.
  *
  * Every outcome except an oversized body is a 200 with `summary: null` and a
@@ -28,8 +28,13 @@ export function createSpeechSummaryRouter(service: SpeechSummaryService): expres
     response.json(await service.getStatus(requestUserId(request)));
   }));
 
-  router.get('/models', asyncHandler(async (_request, response) => {
-    response.json({ models: await service.listModels() });
+  router.get('/models', asyncHandler(async (request, response) => {
+    const catalog = await service.listModels(request.query.refresh === '1');
+    response.json({
+      models: catalog.models?.map((model) => model.id) ?? [],
+      modelOptions: catalog.models,
+      ...(catalog.source ? { source: catalog.source } : {}),
+    });
   }));
 
   router.post('/', asyncHandler(async (request, response) => {

@@ -73,8 +73,15 @@
           "server/shared/image-attachments.ts",
           "server/shared/message-unification.ts",
           "server/shared/secret-box.ts",
-          "server/shared/small-model.ts"
+          "server/shared/small-model.ts",
+          "server/shared/background-models.ts"
         ],
+        "mode": "file"
+      },
+      {
+        // GOLDJAXE fork (реестр §13.3, §4.16-тер): явный лёгкий entrypoint без registry/runtime.
+        "type": "backend-provider-model-catalog",
+        "pattern": "server/modules/providers/model-catalog.ts",
         "mode": "file"
       },
       {
@@ -97,6 +104,7 @@
           "src/shared/uiPreferences.ts",
           "src/shared/selectedProvider.ts",
           "src/shared/modelProviderGroups.ts",
+          "src/shared/imageGeneration.ts",
           "src/shared/authToken.ts",
           "src/shared/voiceConfig.ts",
           "src/shared/voiceOutbox.ts",
@@ -315,6 +323,16 @@
               {
                 "to": { "type": "backend-module" },
                 "allow": { "to": { "internalPath": ["index", "index.{js,mjs,cjs,ts,tsx}"] } }
+              },
+              {
+                // Только публичный лёгкий каталог может реэкспортировать эти три реализации.
+                "from": { "type": "backend-provider-model-catalog" },
+                "to": { "type": "backend-module" },
+                "allow": { "to": { "internalPath": [
+                  "list/claude/claude-api-models{,.ts}",
+                  "list/claude/claude-models.provider{,.ts}",
+                  "list/claude/claude-model-reasoning{,.ts}"
+                ] } }
               }
             ]
           }

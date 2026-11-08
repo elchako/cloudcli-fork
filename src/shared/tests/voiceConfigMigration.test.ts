@@ -29,7 +29,7 @@ describe('hydrateVoiceConfig legacy migration', () => {
   it('moves the voice setup up and leaves the summary settings alone', async () => {
     localStorage.setItem(VOICE_CONFIG_STORAGE_KEY, JSON.stringify({ baseUrl: 'https://voice.test/v1', ttsVoice: 'nova', apiKey: 'k' }));
     getVoiceSettings.mockImplementation(async () => json({
-      voice: { speechSummary: 'off', speechSummaryPrompt: 'Своя.', speechSummaryModel: 'claude-sonnet-5-5', hasApiKey: false },
+      voice: { speechSummary: 'off', speechSummaryPrompt: 'Своя.', speechSummaryModel: 'claude-sonnet-5-5', speechSummaryFallbackModel: 'gpt-6.1-sol', hasApiKey: false },
     }));
 
     await hydrateVoiceConfig();
@@ -39,12 +39,14 @@ describe('hydrateVoiceConfig legacy migration', () => {
     expect(sent).not.toHaveProperty('speechSummary');
     expect(sent).not.toHaveProperty('speechSummaryPrompt');
     expect(sent).not.toHaveProperty('speechSummaryModel');
+    expect(sent).not.toHaveProperty('speechSummaryFallbackModel');
     expect(readVoiceConfig()).toMatchObject({
       baseUrl: 'https://voice.test/v1',
       apiKey: '',
       speechSummary: 'off',
       speechSummaryPrompt: 'Своя.',
       speechSummaryModel: 'claude-sonnet-5-5',
+      speechSummaryFallbackModel: 'gpt-6.1-sol',
     });
     expect(localStorage.getItem(VOICE_CONFIG_STORAGE_KEY)).toBeNull();
   });

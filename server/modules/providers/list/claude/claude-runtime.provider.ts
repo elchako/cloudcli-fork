@@ -1352,7 +1352,9 @@ async function queryClaudeSDK(
   try {
     // Fork: the image tool's gateway check (a settings.json read) starts here so it overlaps
     // the lookups below instead of adding a step to the start of every run; awaited further down.
-    const imageMcpServerPromise = createImageGenerationMcpServer({ cwd: options.cwd }).catch((error) => {
+    // GOLDJAXE fork (реестр §13.3): ID только из авторизации рана; SDK writer допускает строковое число.
+    const imageUserId = ws?.userId == null ? undefined : Number(ws.userId);
+    const imageMcpServerPromise = createImageGenerationMcpServer({ cwd: options.cwd, userId: imageUserId }).catch((error) => {
       console.warn('[Claude SDK] Image generation tool unavailable:', error?.message || error);
       return null;
     });

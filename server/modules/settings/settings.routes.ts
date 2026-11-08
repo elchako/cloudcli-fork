@@ -51,6 +51,9 @@ export function createSettingsRouter(
   router.put('/session-title-models', respond((req) => service.updateSessionTitleModels(
     userId(req), req.body,
   )));
+  // GOLDJAXE fork (реестр §13.3): профили картинок принадлежат авторизованному аккаунту.
+  router.get('/image-generation', respond((req) => service.getImageGenerationSettings(userId(req), req.query.refresh === '1')));
+  router.put('/image-generation', respond((req) => service.updateImageGenerationSettings(userId(req), req.body)));
   router.get('/voice-settings', respond((req) => service.getVoiceSettings(
     userId(req), req.query.revealApiKey === 'true',
   )));

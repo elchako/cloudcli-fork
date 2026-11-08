@@ -107,6 +107,7 @@ describe('voicePlayer summary', () => {
     await vi.waitFor(() => expect(snapshot(LONG_REPLY).state).toBe('playing'));
     expect(synthesize).toHaveBeenCalledWith(LONG_REPLY, expect.any(AbortSignal));
     expect(snapshot(LONG_REPLY).error).toBeNull();
+    expect(snapshot(LONG_REPLY).notice).toBe('summary-fallback');
   });
 
   it('reads in full against an older server without the summary route', async () => {
@@ -138,22 +139,87 @@ describe('voicePlayer summary', () => {
   });
 });
 
-// GOLDJAXE fork (реестр §4.16-бис): the model picker's list.
+// GOLDJAXE fork (реестр §4.16-тер): общий каталог, метки API и обратная совместимость.
 describe('loadSpeechSummaryModels', () => {
   const models = vi.mocked(api.speechSummary.models);
 
-  it('returns the listed ids and drops anything else', async () => {
-    models.mockResolvedValueOnce(json({ models: ['claude-haiku-5-5', 7, 'claude-sonnet-5-5'] }));
-    expect(await loadSpeechSummaryModels()).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
+  it('читает IDs старого сервера и отбрасывает чужие типы', async () => {
+    models.mockResolvedValueOnce(json({ models: ['claude-haiku-5-5', 7, 'gpt-6.1-sol'] }));
+    expect(await loadSpeechSummaryModels()).toEqual({ models: [
+      { id: 'claude-haiku-5-5', label: 'claude-haiku-5-5' }, { id: 'gpt-6.1-sol', label: 'gpt-6.1-sol' },
+    ] });
   });
 
-  it('is empty for an older server, an error or a failed request', async () => {
-    // An older server answers the path with the app's index.html.
+  it('сохраняет label/catalogProvider и прокидывает force refresh', async () => {
+    const modelOptions = [{ id: 'gpt-6.1-sol', label: 'Модель API', catalogProvider: 'openai' }];
+    models.mockResolvedValueOnce(json({ models: ['gpt-6.1-sol'], modelOptions, source: 'api-cache' }));
+    expect(await loadSpeechSummaryModels(true)).toEqual({ models: modelOptions, source: 'api-cache' });
+    expect(models).toHaveBeenLastCalledWith(true);
+  });
+
+  it('отличает пустой каталог от недоступности и работает со старым HTML-сервером', async () => {
+    models.mockResolvedValueOnce(json({ models: [], modelOptions: [], source: 'api' }));
+    expect(await loadSpeechSummaryModels()).toEqual({ models: [], source: 'api' });
+    models.mockResolvedValueOnce(json({ models: [], modelOptions: null }));
+    expect(await loadSpeechSummaryModels()).toEqual({ models: null });
     models.mockResolvedValueOnce(new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } }));
-    expect(await loadSpeechSummaryModels()).toEqual([]);
+    expect(await loadSpeechSummaryModels()).toEqual({ models: null });
     models.mockResolvedValueOnce(json({ error: 'x' }, { status: 500 }));
-    expect(await loadSpeechSummaryModels()).toEqual([]);
+    expect(await loadSpeechSummaryModels()).toEqual({ models: null });
     models.mockRejectedValueOnce(new Error('offline'));
-    expect(await loadSpeechSummaryModels()).toEqual([]);
+    expect(await loadSpeechSummaryModels()).toEqual({ models: null });
+  });
+});
+
+describe('voicePlayer summary fallback limits', () => {
+  it('после двух неудач читает весь исходник, а не обрезанный вход модели; уведомляет и при повторе кэша', async () => {
+    const content = `${longReply()}${'Полная середина и конец. '.repeat(3000)}`;
+    summarize.mockResolvedValue(json({ summary: null, reason: 'timeout' }));
+    voicePlayer.toggle(content);
+    await vi.waitFor(() => expect(snapshot(content).state).toBe('playing'));
+    expect(synthesize).toHaveBeenCalledWith(content, expect.any(AbortSignal));
+    expect(snapshot(content).notice).toBe('summary-fallback');
+    voicePlayer.stop();
+    voicePlayer.toggle(content);
+    await vi.waitFor(() => expect(snapshot(content).state).toBe('playing'));
+    expect(snapshot(content).notice).toBe('summary-fallback');
+    expect(synthesize).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['disabled', 'short'])('пропуск %s не показывает сообщение о сбое', async (reason) => {
+    const content = longReply();
+    summarize.mockResolvedValue(json({ summary: null, reason }));
+    voicePlayer.toggle(content);
+    await vi.waitFor(() => expect(snapshot(content).state).toBe('playing'));
+    expect(snapshot(content).notice).toBeUndefined();
+  });
+
+  it('«Стоп» во время /status сразу отменяет ожидание и не запускает ни сводку, ни TTS', async () => {
+    const content = longReply();
+    let resolveStatus: ((response: Response) => void) | undefined;
+    status.mockImplementation(() => new Promise((resolve) => { resolveStatus = resolve; }));
+    voicePlayer.toggle(content);
+    await vi.waitFor(() => expect(resolveStatus).toBeDefined());
+    voicePlayer.stop();
+    resolveStatus!(json(STATUS));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(summarize).not.toHaveBeenCalled();
+    expect(synthesize).not.toHaveBeenCalled();
+    expect(snapshot(content)).toEqual({ state: 'idle', error: null });
+  });
+
+  it('зависший ответ сервера ограничен клиентским backstop, после него идёт TTS полного текста', async () => {
+    vi.useFakeTimers();
+    try {
+      const content = longReply();
+      summarize.mockImplementation(() => new Promise(() => {}));
+      voicePlayer.toggle(content);
+      await vi.advanceTimersByTimeAsync(35_001);
+      expect(synthesize).toHaveBeenCalledWith(content, expect.any(AbortSignal));
+      expect(snapshot(content).notice).toBe('summary-fallback');
+      expect(snapshot(content).error).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

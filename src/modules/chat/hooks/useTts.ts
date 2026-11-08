@@ -20,7 +20,7 @@ export function useTts(getText: () => string) {
     const update = () =>
       setSnap((prev) => {
         const next = voicePlayer.getSnapshot(id);
-        return prev.state === next.state && prev.error === next.error ? prev : next;
+        return prev.state === next.state && prev.error === next.error && prev.notice === next.notice ? prev : next;
       });
     update();
     return voicePlayer.subscribe(update);
@@ -31,5 +31,5 @@ export function useTts(getText: () => string) {
     voicePlayer.toggle(content);
   }, [content]);
 
-  return { state: snap.state, toggle, error: snap.error };
+  return { state: snap.state, toggle, error: snap.error, notice: snap.notice };
 }

@@ -21,6 +21,7 @@ export type SpeechSummaryStatus = {
   model: string;
   /** §4.16-бис; absent from a server before it. */
   defaultModel?: string;
+  fallbackModel?: string;
   defaultPrompt: string;
   minChars: number;
 };
@@ -31,8 +32,10 @@ let statusPromise: Promise<SpeechSummaryStatus | null> | null = null;
 export function loadSpeechSummaryStatus(): Promise<SpeechSummaryStatus | null> {
   if (!statusPromise) {
     statusPromise = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
       try {
-        const response = await api.speechSummary.status();
+        const response = await api.speechSummary.status({ signal: controller.signal });
         // An older server answers this path with the app's index.html.
         if (!response.ok || !(response.headers.get('content-type') || '').includes('application/json')) {
           return null;
@@ -40,6 +43,8 @@ export function loadSpeechSummaryStatus(): Promise<SpeechSummaryStatus | null> {
         return await response.json() as SpeechSummaryStatus;
       } catch {
         return null;
+      } finally {
+        clearTimeout(timer);
       }
     })();
     void statusPromise.then((status) => {
@@ -49,21 +54,32 @@ export function loadSpeechSummaryStatus(): Promise<SpeechSummaryStatus | null> {
   return statusPromise;
 }
 
-/**
- * GOLDJAXE fork (реестр §4.16-бис): Claude models the user's endpoint offers,
- * for the settings picker. Empty on any failure — the picker then offers the
- * default and the current choice only.
- */
-export async function loadSpeechSummaryModels(): Promise<string[]> {
+export type SpeechSummaryModel = { id: string; label: string; catalogProvider?: string };
+export type SpeechSummaryModels = {
+  models: SpeechSummaryModel[] | null;
+  source?: 'api' | 'api-cache' | 'fallback';
+};
+
+/** GOLDJAXE fork (реестр §4.16-тер): полный текстовый API-каталог, ID не меняются.
+ * Старые серверы отдают только IDs; недоступность не равна пустому каталогу. */
+export async function loadSpeechSummaryModels(force = false): Promise<SpeechSummaryModels> {
   try {
-    const response = await api.speechSummary.models();
+    const response = await api.speechSummary.models(force);
     if (!response.ok || !(response.headers.get('content-type') || '').includes('application/json')) {
-      return [];
+      return { models: null };
     }
-    const body = await response.json() as { models?: unknown };
-    return Array.isArray(body.models) ? body.models.filter((id): id is string => typeof id === 'string') : [];
+    const body = await response.json() as { models?: unknown; modelOptions?: unknown; source?: unknown };
+    const raw = 'modelOptions' in body ? body.modelOptions : body.models;
+    const models = Array.isArray(raw) ? raw.flatMap((item): SpeechSummaryModel[] => {
+      if (typeof item === 'string') return [{ id: item, label: item }];
+      if (!item || typeof item !== 'object' || typeof item.id !== 'string') return [];
+      return [{ id: item.id, label: typeof item.label === 'string' ? item.label : item.id,
+        ...(typeof item.catalogProvider === 'string' ? { catalogProvider: item.catalogProvider } : {}) }];
+    }) : null;
+    const source = body.source === 'api' || body.source === 'api-cache' || body.source === 'fallback' ? body.source : undefined;
+    return { models, ...(source ? { source } : {}) };
   } catch {
-    return [];
+    return { models: null };
   }
 }
 
@@ -72,41 +88,60 @@ export function resetSpeechSummaryStatusForTests(): void {
   statusPromise = null;
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
-}
-
 /**
- * The text read-aloud should speak. Rejects only with an AbortError (the user
- * pressed «Стоп» while the summary was being made); everything else resolves
- * to the summary or, failing that, to the reply as it is.
+ * GOLDJAXE fork (реестр §4.16-тер): только пользовательская отмена запрещает чтение.
+ * Таймаут/ошибки оставляют исходный ПОЛНЫЙ текст, а уведомление не является
+ * ошибкой TTS и в текст синтеза не подмешивается.
  */
-export async function prepareSpokenText(content: string, signal: AbortSignal): Promise<string> {
-  if (readVoiceConfig().speechSummary === 'off') {
-    return content;
-  }
-  const status = await loadSpeechSummaryStatus();
-  if (signal.aborted) {
-    throw new DOMException('Read-aloud stopped', 'AbortError');
-  }
-  // The user's switch is the local config read above, not `status.enabled`:
-  // the status is cached for the page's life and would keep a switch flipped
-  // in the settings since then. The server answers null for 'off' anyway.
-  if (!status?.available || content.trim().length < status.minChars) {
-    return content;
-  }
+export async function prepareSpokenText(
+  content: string, signal: AbortSignal, onFullText?: () => void,
+): Promise<string> {
+  const cancelled = () => new DOMException('Read-aloud stopped', 'AbortError');
+  if (signal.aborted) throw cancelled();
+  if (readVoiceConfig().speechSummary === 'off' || content.trim().length < 700) return content;
 
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort = () => {};
+  const stopped = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      controller.abort();
+      reject(cancelled());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    // Серверная цепочка ограничена 30 с. Запас — на /status и сеть, не на ещё
+    // один проход моделей. Даже зависший/старый сервер не блокирует TTS надолго.
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new DOMException('Summary timed out', 'TimeoutError'));
+    }, 35_000);
+  });
+  const prepare = async (): Promise<{ text: string; fallback: boolean }> => {
+    const status = await loadSpeechSummaryStatus();
+    if (controller.signal.aborted) throw cancelled();
+    if (!status?.available) return { text: content, fallback: true };
+    if (content.trim().length < status.minChars) return { text: content, fallback: false };
+    // status.enabled кэшируется: локальный выключатель актуальнее. Сервер тоже
+    // заново читает настройку и при off не запускает ни основную, ни резерв.
+    const response = await api.speechSummary.summarize(content, { signal: controller.signal });
+    if (!response.ok) return { text: content, fallback: true };
+    const body = await response.json() as { summary?: unknown; reason?: string };
+    return typeof body.summary === 'string' && body.summary.trim()
+      ? { text: body.summary, fallback: false }
+      : { text: content, fallback: body.reason !== 'disabled' && body.reason !== 'short' };
+  };
   try {
-    const response = await api.speechSummary.summarize(content, { signal });
-    if (!response.ok) {
-      return content;
-    }
-    const body = await response.json() as { summary?: unknown };
-    return typeof body.summary === 'string' && body.summary.trim() ? body.summary : content;
-  } catch (error) {
-    if (isAbort(error) || signal.aborted) {
-      throw error;
-    }
+    const result = await Promise.race([prepare(), stopped]);
+    if (signal.aborted) throw cancelled();
+    if (result.fallback) onFullText?.();
+    return result.text;
+  } catch {
+    if (signal.aborted) throw cancelled();
+    onFullText?.();
     return content;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
+    controller.abort();
   }
 }

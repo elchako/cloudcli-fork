@@ -1,5 +1,6 @@
 import { AppError } from '@/shared/utils.js';
 import type { createSessionTitleModelsService } from '@/modules/providers/index.js';
+import type { createImageGenerationSettingsService } from '@/modules/image-generation/index.js';
 
 type ApiKeyRow = Record<string, unknown> & { api_key: string };
 type NotificationPreferences = Record<string, unknown> & {
@@ -41,6 +42,7 @@ type SettingsDependencies = {
   };
   // GOLDJAXE fork (реестр §4.9-тер): отдельная политика служебных моделей.
   sessionTitleModels: Pick<ReturnType<typeof createSessionTitleModelsService>, 'getStatus' | 'save'>;
+  imageGeneration: Pick<ReturnType<typeof createImageGenerationSettingsService>, 'getStatus' | 'save'>;
   voiceSettings: {
     get(userId: number): unknown;
     getApiKey(userId: number): string | null;
@@ -172,6 +174,12 @@ export function createSettingsService(dependencies: SettingsDependencies) {
     },
     async updateSessionTitleModels(userId: number, input: unknown) {
       return { success: true, settings: await dependencies.sessionTitleModels.save(userId, input) };
+    },
+    async getImageGenerationSettings(userId: number, refresh = false) {
+      return { success: true, ...await dependencies.imageGeneration.getStatus(userId, refresh) };
+    },
+    async updateImageGenerationSettings(userId: number, input: unknown) {
+      return { success: true, settings: await dependencies.imageGeneration.save(userId, input) };
     },
     getVoiceSettings(userId: number, revealApiKey = false) {
       // Default response carries the non-secret fields plus `hasApiKey`. The

@@ -12,6 +12,7 @@ import {
   notifyUserIfEnabled,
 } from '@/modules/notifications/index.js';
 import { sessionTitleModelsService } from '@/modules/providers/index.js';
+import { imageGenerationSettingsService } from '@/modules/image-generation/index.js';
 
 import { createSettingsRouter } from './settings.routes.js';
 import { createSettingsService } from './settings.service.js';
@@ -52,6 +53,7 @@ const settingsService = createSettingsService({
   },
   // GOLDJAXE fork (реестр §4.9-тер): API и генератор используют одну настройку.
   sessionTitleModels: sessionTitleModelsService,
+  imageGeneration: imageGenerationSettingsService,
   voiceSettings: {
     get: (userId) => voiceSettingsDb.getVoiceSettings(userId),
     getApiKey: (userId) => voiceSettingsDb.getVoiceApiKey(userId),

@@ -110,9 +110,9 @@ export type SmallModelRequest = {
   /** §4.16-бис: `{type:'adaptive'}` — the thinking form of 4.6+ and 5.x
    * models (4.7+ and 5.x reject `budget_tokens`). */
   adaptiveThinking?: boolean;
-  /** §4.16-бис: `output_config.effort` — how much the model may think (4.6+
-   * and 5.x only). */
-  effort?: 'low' | 'medium' | 'high';
+  /** GOLDJAXE fork (реестр §4.16-тер): реальный SDK effort из метаданных
+   * каталога, в том числе xhigh/max. Suffix-транспорт обрабатывает вызывающий код. */
+  effort?: string;
 };
 
 /**

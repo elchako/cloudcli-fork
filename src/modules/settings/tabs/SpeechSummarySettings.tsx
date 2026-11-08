@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import SettingsSection from '@/modules/settings/SettingsSection';
@@ -8,7 +8,10 @@ import {
   loadSpeechSummaryModels,
   loadSpeechSummaryStatus,
   type SpeechSummaryStatus,
+  type SpeechSummaryModels,
 } from '@/shared/speechSummary';
+import { groupModelsByCatalogProvider } from '@/shared/modelProviderGroups';
+import type { ProviderModelOption } from '@/shared/types';
 import { Button } from '@/shared/ui';
 
 /** Same limit as the server (`SPEECH_SUMMARY_PROMPT_MAX_CHARS`); the server is
@@ -16,7 +19,7 @@ import { Button } from '@/shared/ui';
 const PROMPT_MAX_CHARS = 8000;
 
 /**
- * GOLDJAXE fork (реестр §4.16, §4.16-бис): the read-aloud summary block of the
+ * GOLDJAXE fork (реестр §4.16, §4.16-бис, §4.16-тер): the read-aloud summary block of the
  * Voice tab.
  *
  * The switch and the model save at once. The instruction is edited as a draft
@@ -27,11 +30,11 @@ export default function SpeechSummarySettings() {
   const { t } = useTranslation('settings');
   const { config, save } = useVoiceConfig();
   const [status, setStatus] = useState<SpeechSummaryStatus | null | undefined>(undefined);
-  // null while the list is loading: «loading» and «unavailable» read differently.
-  const [models, setModels] = useState<string[] | null>(null);
-  // The pick being saved, shown at once — the saved config changes only after
-  // the server accepts it, and a slow phone link would otherwise snap it back.
-  const [pendingModel, setPendingModel] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<SpeechSummaryModels | null>(null);
+  const [refreshAttempt, setRefreshAttempt] = useState(0);
+  const [loadingModels, setLoadingModels] = useState(true);
+  // Сразу показываем сохраняемый выбор, не дёргая select на медленной связи.
+  const [pendingModel, setPendingModel] = useState<{ field: 'speechSummaryModel' | 'speechSummaryFallbackModel'; value: string } | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   // `at` puts the message next to what was saved: on a phone the bottom of the
   // block is off screen while the model list is in view.
@@ -43,13 +46,21 @@ export default function SpeechSummarySettings() {
     void loadSpeechSummaryStatus().then((next) => {
       if (!cancelled) setStatus(next);
     });
-    void loadSpeechSummaryModels().then((next) => {
-      if (!cancelled) setModels(next);
-    });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadSpeechSummaryModels(refreshAttempt > 0).then((next) => {
+      if (cancelled) return;
+      setCatalog((previous) => next.models === null && previous?.models
+        ? { ...previous, source: 'api-cache' } : next);
+      setLoadingModels(false);
+    });
+    return () => { cancelled = true; };
+  }, [refreshAttempt]);
 
   const defaultPrompt = status?.defaultPrompt ?? '';
   const enabled = config.speechSummary !== 'off';
@@ -60,9 +71,13 @@ export default function SpeechSummarySettings() {
   const defaultModel = status?.defaultModel || status?.model || '';
   const ownModel = config.speechSummaryModel.trim();
   const modelInUse = ownModel || defaultModel;
-  // A saved model the endpoint no longer lists still shows as selected.
-  const listedModels = models ?? [];
-  const modelOptions = ownModel && !listedModels.includes(ownModel) ? [ownModel, ...listedModels] : listedModels;
+  const fallbackModel = config.speechSummaryFallbackModel.trim();
+  const listedModels = catalog?.models ?? [];
+  const modelGroups = groupModelsByCatalogProvider(listedModels.map((model) => ({
+    value: model.id, label: model.label, catalogProvider: model.catalogProvider,
+  })), { default: t('chat:composer.defaultModelGroup'), unassigned: t('chat:composer.unassignedModelGroup') });
+  const missingModels = catalog?.models !== null && catalog !== null && catalog.source !== 'api-cache'
+    && [modelInUse, fallbackModel].some((id) => id && !listedModels.some((model) => model.id === id));
 
   const run = async (patch: Parameters<typeof save>[0], okText: string, at: 'model' | 'block' = 'block') => {
     setSaving(true);
@@ -73,10 +88,42 @@ export default function SpeechSummarySettings() {
     return result.ok;
   };
 
-  const saveModel = async (value: string) => {
-    setPendingModel(value);
-    await run({ speechSummaryModel: value }, t('speechSummary.saved'), 'model');
+  const saveModel = async (field: 'speechSummaryModel' | 'speechSummaryFallbackModel', value: string) => {
+    setPendingModel({ field, value });
+    await run({ [field]: value }, t('speechSummary.saved'), 'model');
     setPendingModel(null);
+  };
+
+  const modelSelect = (field: 'speechSummaryModel' | 'speechSummaryFallbackModel') => {
+    const primary = field === 'speechSummaryModel';
+    const value = pendingModel?.field === field ? pendingModel.value : config[field].trim();
+    const other = primary ? fallbackModel : modelInUse;
+    const absent = value && !listedModels.some((model) => model.id === value);
+    const option = (model: ProviderModelOption) => (
+      <option key={model.value} value={model.value} disabled={model.value === other}>
+        {model.label === model.value ? model.value : `${model.label} (${model.value})`}
+      </option>
+    );
+    return (
+      <label className="block min-w-0 space-y-1.5">
+        <span className="text-sm font-medium text-foreground">{t(primary ? 'speechSummary.model' : 'speechSummary.fallbackModel')}</span>
+        <select
+          value={value}
+          onChange={(event) => void saveModel(field, event.target.value)}
+          disabled={saving}
+          className="min-h-11 w-full min-w-0 touch-manipulation rounded-lg border border-input bg-card p-2.5 text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-60"
+        >
+          <option value="" disabled={primary && Boolean(defaultModel && defaultModel === other)}>
+            {primary ? (defaultModel ? t('speechSummary.modelDefault', { model: defaultModel })
+              : t('speechSummary.modelDefaultNoName')) : t('speechSummary.fallbackNone')}
+          </option>
+          {absent && <option value={value} disabled>{value}</option>}
+          {modelGroups.map((group) => group.name
+            ? <optgroup key={group.key} label={group.name}>{group.models.map(option)}</optgroup>
+            : <Fragment key={group.key}>{group.models.map(option)}</Fragment>)}
+        </select>
+      </label>
+    );
   };
 
   const messageView = message && (
@@ -130,31 +177,34 @@ export default function SpeechSummarySettings() {
           />
         </div>
 
-        {enabled && status?.available && (
-          <div className="space-y-1">
-            <label className="block space-y-1">
-              <span className="text-sm font-medium text-foreground">{t('speechSummary.model')}</span>
-              <select
-                value={pendingModel ?? ownModel}
-                onChange={(event) => void saveModel(event.target.value)}
-                disabled={saving}
-                className="w-full touch-manipulation rounded-lg border border-input bg-card p-2.5 text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="">
-                  {defaultModel
-                    ? t('speechSummary.modelDefault', { model: defaultModel })
-                    : t('speechSummary.modelDefaultNoName')}
-                </option>
-                {modelOptions.map((id) => (
-                  <option key={id} value={id}>{id}</option>
-                ))}
-              </select>
-            </label>
-            <p className="text-xs text-muted-foreground">
-              {models === null
-                ? t('speechSummary.modelListLoading')
-                : models.length ? t('speechSummary.modelHint') : t('speechSummary.modelListUnavailable')}
-            </p>
+        {enabled && (
+          <div className="min-w-0 space-y-3">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+              {modelSelect('speechSummaryModel')}
+              {modelSelect('speechSummaryFallbackModel')}
+            </div>
+            <p className="text-xs text-muted-foreground">{t('speechSummary.modelHint')}</p>
+            <p className="text-xs text-muted-foreground">{t('speechSummary.fallbackHint')}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" className="min-h-11" disabled={loadingModels} onClick={() => {
+                setLoadingModels(true);
+                setRefreshAttempt((value) => value + 1);
+              }}>
+                {t(loadingModels ? 'speechSummary.modelListLoading' : 'speechSummary.refreshModels')}
+              </Button>
+            </div>
+            {!loadingModels && catalog?.models === null && (
+              <p role="status" className="text-sm text-muted-foreground">{t('speechSummary.modelListUnavailable')}</p>
+            )}
+            {!loadingModels && catalog?.models?.length === 0 && (
+              <p role="status" className="text-sm text-muted-foreground">{t('speechSummary.modelListEmpty')}</p>
+            )}
+            {catalog?.source === 'api-cache' && (
+              <p role="status" className="text-sm text-muted-foreground">{t('speechSummary.catalogCached')}</p>
+            )}
+            {missingModels && (
+              <p role="status" className="text-sm text-muted-foreground">{t('speechSummary.modelMissing')}</p>
+            )}
             {message?.at === 'model' && messageView}
           </div>
         )}

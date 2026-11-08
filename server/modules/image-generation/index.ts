@@ -5,3 +5,6 @@ export {
   IMAGE_GENERATION_MCP_SERVER_NAME,
   IMAGE_GENERATION_TOOL_ID,
 } from './image-generation.mcp.js';
+
+// GOLDJAXE fork (реестр §13.3): публичная граница для модуля Settings.
+export { createImageGenerationSettingsService, imageGenerationSettingsService, defaultImageSettings } from './image-generation-settings.service.js';

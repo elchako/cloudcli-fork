@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { defaultImageSettings } from '@/modules/image-generation/index.js';
+
 import { createSettingsService } from '../settings.service.js';
 
+const imageSettings = defaultImageSettings('gpt-image-test');
 type Dependencies = Parameters<typeof createSettingsService>[0];
 
 function dependencies(overrides: Partial<Dependencies> = {}): Dependencies {
@@ -20,6 +23,10 @@ function dependencies(overrides: Partial<Dependencies> = {}): Dependencies {
     sessionTitleModels: {
       getStatus: async () => ({ settings: { primaryModel: '', fallbackModel: '' }, models: [], legacyModel: null }),
       save: async () => ({ primaryModel: 'primary', fallbackModel: 'fallback' }),
+    },
+    imageGeneration: {
+      getStatus: async () => ({ settings: imageSettings, models: [] }),
+      save: async () => imageSettings,
     },
     voiceSettings: { get: () => ({}), getApiKey: () => null, update: () => ({}) },
     getVapidPublicKey: () => null,
@@ -88,6 +95,17 @@ test('настройки названий используют ID авториз
   assert.deepEqual(await service.getSessionTitleModels(7), { success: true, settings, models: [], legacyModel: null });
   assert.deepEqual(await service.updateSessionTitleModels(7, settings), { success: true, settings });
   assert.deepEqual(calls, [['get', 7], ['save', 7, settings]]);
+});
+
+test('профили картинок используют авторизованный userId и явный refresh каталога', async () => {
+  const calls: unknown[] = [];
+  const service = createSettingsService(dependencies({ imageGeneration: {
+    getStatus: async (id, refresh) => { calls.push(['get', id, refresh]); return { settings: imageSettings, models: [] }; },
+    save: async (id, input) => { calls.push(['save', id, input]); return imageSettings; },
+  } }));
+  assert.deepEqual(await service.getImageGenerationSettings(7, true), { success: true, settings: imageSettings, models: [] });
+  assert.deepEqual(await service.updateImageGenerationSettings(7, imageSettings), { success: true, settings: imageSettings });
+  assert.deepEqual(calls, [['get', 7, true], ['save', 7, imageSettings]]);
 });
 
 test('getVoiceSettings withholds the apiKey unless it is explicitly requested', () => {
