@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { gzipSync } from 'node:zlib';
+
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
 import {
   CLOUDCLI_AGENT_IDENTITY, SDK_AGENT_IDENTITY, createAntigravityTransport,
@@ -173,10 +175,16 @@ for (const scenario of [
       assert.deepEqual(captured.systemPrompt, { type: 'preset', preset: 'claude_code' });
       assert.deepEqual(captured.disallowedTools, ['Bash']);
       assert.equal(typeof captured.canUseTool, 'function');
+      assert.deepEqual(captured.settingSources, ['project', 'user', 'local']);
       if (scenario.owner === 'antigravity') {
         assert.notEqual(captured.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:9');
+        assert.equal(captured.settings?.env?.ANTHROPIC_BASE_URL, captured.env.ANTHROPIC_BASE_URL,
+          'flag-settings сохраняет адрес адаптера после загрузки user/project settings');
         await assert.rejects(fetch(`${captured.env.ANTHROPIC_BASE_URL}/v1/models`), 'адаптер закрыт в finally');
-      } else assert.equal(captured.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:9');
+      } else {
+        assert.equal(captured.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:9');
+        assert.equal(captured.settings?.env?.ANTHROPIC_BASE_URL, undefined);
+      }
     } finally {
       if (previousBase === undefined) delete process.env.ANTHROPIC_BASE_URL;
       else process.env.ANTHROPIC_BASE_URL = previousBase;
@@ -184,6 +192,75 @@ for (const scenario of [
     }
   });
 }
+
+// GOLDJAXE fork (реестр §22.3): mock createQuery не замечает перезапись env внутри CLI.
+// Явно заданный CLI нужен только этому полностью локальному интеграционному тесту.
+test('настоящий CLI сохраняет адаптер при env в user/project/local settings', {
+  skip: !process.env.CLOUDCLI_TEST_NATIVE_CLI_PATH, timeout: 45000,
+}, async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'antigravity-native-settings-'));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const configDir = path.join(cwd, 'config');
+  await mkdir(configDir);
+  await mkdir(path.join(cwd, '.claude'));
+  const received: Array<{ url: string; marker: unknown; body: AnyRecord }> = [];
+  const upstream = createServer(async (req, res) => {
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(chunk);
+    if (!req.url?.includes('/messages')) { res.end('{"data":[]}'); return; }
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    received.push({ url: req.url, marker: req.headers['x-cloudcli-settings-fixture'], body });
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    const event = (type: string, data: AnyRecord) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+    event('message_start', { message: { id: 'msg_fixture', type: 'message', role: 'assistant',
+      content: [], model: body.model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } });
+    event('content_block_start', { index: 0, content_block: { type: 'text', text: '' } });
+    event('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'ОК' } });
+    event('content_block_stop', { index: 0 });
+    event('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } });
+    event('message_stop', {}); res.end();
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => { upstream.closeAllConnections(); upstream.close(); });
+  const address = upstream.address(); assert.ok(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`;
+  for (const file of [path.join(configDir, 'settings.json'), path.join(cwd, '.claude', 'settings.json'),
+    path.join(cwd, '.claude', 'settings.local.json')]) {
+    await writeFile(file, JSON.stringify({ env: { ANTHROPIC_BASE_URL: `${base}/settings-bypass`,
+      ANTHROPIC_CUSTOM_HEADERS: 'X-CloudCLI-Settings-Fixture: loaded' } }));
+  }
+  const previousBase = process.env.ANTHROPIC_BASE_URL;
+  process.env.ANTHROPIC_BASE_URL = base;
+  const sessions = new ClaudeSessionsProvider({ getLiveRunStartTime: () => null });
+  try {
+    await queryClaudeSDK('Ответь ОК без инструментов.', { sessionId: 'native-settings-fixture', cwd,
+      model: 'gemini-4-argon-high', effort: 'high',
+      toolsSettings: { allowedTools: [], disallowedTools: ['Bash', 'Read'], skipPermissions: false },
+    }, { send() {}, userId: null } as never, {
+      resolveProviderSessionId: () => null, resolveResumeModel: async () => 'gemini-4-argon-high',
+      getProviderModels: async () => ({ DEFAULT: 'gemini-4-argon-high', OPTIONS: [{ value: 'gemini-4-argon-high',
+        label: 'Argon', catalogProvider: 'antigravity', effort: { transport: 'model-suffix', values: [{ value: 'high' }] } }] }),
+      normalizeMessage: (raw, sessionId) => sessions.normalizeMessage(raw, sessionId),
+      isProviderInstalled: async () => true,
+      createQuery: ({ prompt, options }) => query({ prompt: prompt as Parameters<typeof query>[0]['prompt'], options: { ...options,
+        pathToClaudeCodeExecutable: process.env.CLOUDCLI_TEST_NATIVE_CLI_PATH,
+        tools: [], mcpServers: {}, maxTurns: 1,
+        env: { ...options.env, HOME: cwd, CLAUDE_CONFIG_DIR: configDir, ANTHROPIC_API_KEY: 'fixture-only',
+          ANTHROPIC_AUTH_TOKEN: undefined, DISABLE_NONESSENTIAL_TRAFFIC: '1' },
+      } }),
+    });
+    assert.ok(received.length > 0, 'настоящий CLI отправил HTTP-запрос');
+    for (const request of received) {
+      assert.equal(request.url, '/v1/messages?beta=true', 'user/project/local env не обошёл адаптер');
+      assert.equal(request.marker, 'loaded', 'остальные файловые настройки CLI продолжают загружаться');
+      assert.equal(request.body.model, 'gemini-4-argon-high(high)');
+      assert.ok(request.body.system.some((block: AnyRecord) => block.text === CLOUDCLI_AGENT_IDENTITY));
+      assert.ok(!request.body.system.some((block: AnyRecord) => block.text === SDK_AGENT_IDENTITY));
+    }
+  } finally {
+    if (previousBase === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = previousBase;
+  }
+});
 
 test('отмена входящего SDK stream отменяет единственный upstream запрос', async (t) => {
   let count = 0;

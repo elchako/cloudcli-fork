@@ -207,7 +207,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | §22 | Динамический каталог моделей подключённого API | 🟡 | [api-models](fork/api-models.md) |
 | §22.1 | Группировка моделей по провайдеру API (owned_by), не по семейству | 🟡 | [api-models](fork/api-models.md) |
 | §22.2 | Выбор effort для Gemini/Claude Antigravity и новых GPT, явные capabilities API | 🟡 | [api-models](fork/api-models.md) |
-| §22.3 | Точечная нейтрализация SDK identity для Antigravity без изменения model/effort | 🟡 | [api-models](fork/api-models.md) |
+| §22.3 | Нейтрализация SDK identity для Antigravity; адрес адаптера защищён от перезаписи settings.env | 🟡 | [api-models](fork/api-models.md) |
 
 ---
 

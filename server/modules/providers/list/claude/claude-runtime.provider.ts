@@ -1385,6 +1385,11 @@ async function queryClaudeSDK(
       if (typeof configuredBase === 'string' && configuredBase.trim()) {
         antigravityTransport = await createAntigravityTransport(configuredBase.trim(), effortModels);
         sdkOptions.env = { ...sdkOptions.env, ANTHROPIC_BASE_URL: antigravityTransport.baseUrl };
+        // CLI повторно применяет env из user/project/local settings поверх spawn env.
+        // Flag-settings закрепляет только endpoint, сохраняя остальные настройки (§22.3).
+        sdkOptions.settings = { ...sdkOptions.settings, env: {
+          ...sdkOptions.settings?.env, ANTHROPIC_BASE_URL: antigravityTransport.baseUrl,
+        } };
       }
     }
 
