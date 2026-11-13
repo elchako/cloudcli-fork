@@ -333,13 +333,18 @@ export class ClaudeProviderModels implements IProviderModels {
       // проверенные метаданные — запасные, без добавления моделей в список.
       const gatewayKnown = model.catalogProvider === 'antigravity' || model.catalogProvider === 'openai'
         ? knownGatewayModelReasoning(canonical) : null;
+      // GOLDJAXE fork (реестр §22.4): только конкретная Strata из нашего шлюза;
+      // её уровни передаются штатным SDK, без суффикса других провайдеров.
+      const strataKnown = model.catalogProvider === 'strata-qwen38' && canonical === 'strata-qwen3.8-flash-next'
+        ? { effort: { transport: 'sdk' as const, values: ['low', 'medium', 'high'].map(value => ({ value })) } }
+        : null;
       const reasoning = model.effort ? { effort: {
         ...structuredClone(model.effort),
         ...(model.effort.transport || !gatewayKnown?.effort?.transport ? {}
           : { transport: gatewayKnown.effort.transport }),
       } }
         : model.reasoningStatus ? { reasoningStatus: model.reasoningStatus }
-          : gatewayKnown
+          : gatewayKnown ?? strataKnown
             ?? (known?.effort ? { effort: structuredClone(known.effort) } : { reasoningStatus: 'unknown' as const });
       return {
         value: model.id,

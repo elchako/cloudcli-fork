@@ -23,12 +23,28 @@ for (const id of ['gemini-4-argon-high', 'gemini-3.8-flash-high', 'claude-opus-5
   });
 }
 
-for (const model of ['gemini-4-argon-high', 'claude-sonnet-5-5-high', 'vendor/future']) {
-  for (const effort of model === 'vendor/future' ? ['minimal'] : ['low', 'high', 'default']) {
+test('Strata Qwen получает три уровня только при совпадении ID и провайдера', async () => {
+  const id = 'strata-qwen3.8-flash-next';
+  const provider = new ClaudeProviderModels({ get: async () => ({ source: 'api', models: [
+    { id, label: id, catalogProvider: 'strata-qwen38' },
+    { id: 'strata-qwen-other', label: 'other', catalogProvider: 'strata-qwen38' },
+  ] }) });
+  const models = await provider.getSupportedModels();
+  const option = models.OPTIONS.find(m => m.value === id)!;
+  assert.deepEqual(option.effort?.values.map(v => v.value), ['low', 'medium', 'high']);
+  assert.equal(option.effort?.transport, 'sdk');
+  assert.equal(withGatewayEffortSuffix(id, 'high', models), id);
+  assert.equal(models.OPTIONS.find(m => m.value === 'strata-qwen-other')?.reasoningStatus, 'unknown');
+  const other = new ClaudeProviderModels({ get: async () => ({ source: 'api', models: [{ id, label: id, catalogProvider: 'other' }] }) });
+  assert.equal((await other.getSupportedModels()).OPTIONS.find(m => m.value === id)?.reasoningStatus, 'unknown');
+});
+
+for (const model of ['gemini-4-argon-high', 'claude-sonnet-5-5-high', 'vendor/future', 'strata-qwen3.8-flash-next']) {
+  for (const effort of model === 'vendor/future' ? ['minimal'] : model === 'strata-qwen3.8-flash-next' ? ['low', 'medium', 'high', 'default'] : ['low', 'high', 'default']) {
     test(`SDK получает ${model} с выбранным ${effort}, а не только надпись в UI`, async () => {
       const cwd = await mkdtemp(path.join(os.tmpdir(), 'reasoning-sdk-'));
       let captured: Record<string, unknown> | undefined;
-      const provider = new ClaudeProviderModels({ get: async () => ({ source: 'api', models: [{ id: model, label: model, catalogProvider: 'antigravity',
+      const provider = new ClaudeProviderModels({ get: async () => ({ source: 'api', models: [{ id: model, label: model, catalogProvider: model === 'strata-qwen3.8-flash-next' ? 'strata-qwen38' : 'antigravity',
         ...(model === 'vendor/future' ? { effort: { transport: 'model-suffix' as const, values: [{ value: 'minimal' }] } } : {}),
       }] }) });
       const catalog = await provider.getSupportedModels();
@@ -50,7 +66,7 @@ for (const model of ['gemini-4-argon-high', 'claude-sonnet-5-5-high', 'vendor/fu
       };
       try {
         await queryClaudeSDK('test reasoning', { sessionId: 'reasoning-app', cwd, model, effort }, { send() {}, userId: null } as never, context);
-        assert.equal(captured?.model, effort === 'default' ? model : `${model}(${effort})`);
+        assert.equal(captured?.model, effort === 'default' || model === 'strata-qwen3.8-flash-next' ? model : `${model}(${effort})`);
         assert.equal(captured?.effort, effort === 'default' || effort === 'minimal' ? undefined : effort,
           'расширенный уровень шлюза не попадает в валидатор CLI; стандартный контракт SDK сохранён');
       } finally { await rm(cwd, { recursive: true, force: true }); }

@@ -61,7 +61,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | [Модели Claude и Kimi в каталоге](fork/models.md) | Kimi K3 [1m] с авто-адресом Moonshot, снятый Opus 5, Sonnet 5.5 явным id | 1.1, 1.2, 1.4 |
 | [GPT через шлюз CLIProxyAPI](fork/gpt-gateway.md) | Effort суффиксом в id, окно контекста 930k и почему не 1M, окно при суффиксе | 1.3, 1.3-бис, 16.2 |
 | [Свои модели через библиотеку](fork/custom-models.md) | «Польза.ai» штатной библиотекой моделей, ключ только в шлюзе | 1.5 |
-| [Модели подключённого API](fork/api-models.md) | Каталог, группы, effort, ручные модели и совместимость SDK identity с Antigravity | 22, 22.1, 22.2, 22.3 |
+| [Модели подключённого API](fork/api-models.md) | Каталог, группы, effort, ручные модели и совместимость SDK identity с Antigravity | 22, 22.1, 22.2, 22.3, 22.4 |
 
 ### Чат и панель ввода
 
@@ -208,6 +208,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | §22.1 | Группировка моделей по провайдеру API (owned_by), не по семейству | 🟡 | [api-models](fork/api-models.md) |
 | §22.2 | Выбор effort для Gemini/Claude Antigravity и новых GPT, явные capabilities API | 🟡 | [api-models](fork/api-models.md) |
 | §22.3 | Нейтрализация SDK identity для Antigravity; адрес адаптера защищён от перезаписи settings.env | 🟡 | [api-models](fork/api-models.md) |
+| §22.4 | Уровни рассуждений Strata Qwen в каталоге CloudCLI | 🟡 | [api-models](fork/api-models.md) |
 
 ---
 
