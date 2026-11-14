@@ -1051,7 +1051,8 @@ export function createBackgroundWorkTracker() {
  * @returns {Promise<Array<Object>>} SDKUserMessage records for the turn
  */
 async function buildPromptMessages(command: string, images: unknown, files: unknown, cwd: string) {
-  const promptWithFiles = appendFilesInputTag(command, files);
+  // GOLDJAXE fork (реестр §24): ID/SHA картинок тоже видны модели, без дублирования image input.
+  const promptWithFiles = appendFilesInputTag(command, files, images);
   const content = normalizeImageDescriptors(images).length === 0
     ? promptWithFiles
     : await buildClaudeUserContent(promptWithFiles, images, cwd);

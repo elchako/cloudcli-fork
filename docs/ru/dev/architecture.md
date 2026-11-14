@@ -158,10 +158,23 @@ Listener закрывается в `queryClaudeSDK.finally` ([§22.3](../fork/ap
 backend проверяет issuer-signed challenge и регистрирует снимок под user/session/
 request. Только authenticated WS permission-response подписывает Ed25519 событие
 `cloudcli_native`; generic resolver и SDK hooks подписывать не умеют. В MCP content
-возвращается canonical JSON **строка** `local_mail_decision`. UI показывает все
-поля preview как text без HTML/Markdown и обрезки тела; непочтовые формы сохранены.
+возвращается canonical JSON **строка** `local_mail_decision`. UI показывает полное
+письмо с русскими полями, всеми Cc/Bcc и списком вложений без JSON и обрезки тела;
+SHA/MIME отдельно в details. Одно явное нажатие «Отправить письмо» передаёт
+confirm=true, backend подписывает исходный полный preview без изменения policy.
+Непочтовые формы сохранены.
 Ключи создаются только явной административной командой, реальные конфиги не
 изменяются ([настройка и границы доверия](../fork/local-mail-approval.md)).
+
+Для новых authenticated multipart загрузок в `/api/assets/images` и `/files`
+добавлен opt-in `CLOUDCLI_MAIL_UPLOADS_DIR` (реестр §24). Отдельный
+`mail-upload-registry.service.ts` пишет приватные UUID JSON с owner, реальным
+размером и FD SHA-256, не принимает путь из model JSON и не регистрирует генератор
+или старые файлы. Дополнительные поля upload response: `mail_source_object_id`,
+`mail_sha256`. `DELETE /api/assets/mail-uploads/:asset_id` отзывает только Mail
+экспорт владельца, без удаления chat asset. Session/import/capability TTL/lease
+принадлежат отдельному Python G2, не этому реестру
+([протокол и настройка](../fork/mail-uploads.md)).
 
 SDK Claude обновлён до 0.3.311, Codex CLI/SDK — 0.166.0. Это зависимости
 CloudCLI; ручной CLI updater по-прежнему отдельное действие.

@@ -73,7 +73,8 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | [Голос](fork/voice.md) | Настройки голоса в БД с шифрованием ключа, микрофон, быстрая диктовка, очередь надиктовок при обрыве связи, потоковая озвучка | 3-бис, 4.4, 4.12, 4.13, 4.14, 4.15 |
 | [Сводка вслух](fork/speech-summary.md) | Основная и резервная текстовые модели API, ограниченное ожидание, защита смысла и чтение полного текста с уведомлением при сбое | 4.16, 4.16-бис, 4.16-тер |
 | [Навигатор по вопросам](fork/prompt-navigator.md) | Оглавление по вопросам, первая загрузка во время ответа и защита от поздних ответов | 17 |
-| [Локальное подтверждение Mail](fork/local-mail-approval.md) | Opt-in Ed25519 подписант authenticated WS решения, полный plain-text preview и защита от raw SDK accept/hooks | 23 |
+| [Локальное подтверждение Mail](fork/local-mail-approval.md) | Подпись authenticated WS решения, понятное полное письмо и одно подтверждение без checkbox | 23, 23.1 |
+| [Учёт загрузок для Mail](fork/mail-uploads.md) | Opt-in реестр новых пользовательских файлов, owner/SHA и отзыв только Mail-экспорта | 24 |
 | [Генерация картинок](fork/image-generation.md) | Профили Черновик/Обычный/Финал с моделью API и качеством, инструмент `generate_image`, ограничение с GPT | 13, 13.3 |
 
 ### Сеансы и сайдбар
@@ -211,6 +212,8 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | §22.3 | Нейтрализация SDK identity для Antigravity; адрес адаптера защищён от перезаписи settings.env | 🟡 | [api-models](fork/api-models.md) |
 | §22.4 | Уровни рассуждений Strata Qwen в каталоге CloudCLI | 🟡 | [api-models](fork/api-models.md) |
 | §23 | Локальное подтверждение Mail: подпись только authenticated WS события | средний | [local-mail-approval](fork/local-mail-approval.md) |
+| §23.1 | Понятное письмо, русские поля и одна кнопка отправки без checkbox | средний | [local-mail-approval](fork/local-mail-approval.md) |
+| §24 | Реестр новых пользовательских загрузок для Mail, owner/hash и отзыв | средний | [mail-uploads](fork/mail-uploads.md) |
 
 ---
 

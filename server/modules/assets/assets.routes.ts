@@ -10,8 +10,33 @@ import {
   openStoredAttachmentAsset,
 } from '@/modules/assets/services/image-assets.service.js';
 import { openLocalMedia } from '@/modules/assets/services/local-media.service.js';
+import { mailUploadRegistry } from '@/modules/assets/services/mail-upload-registry.service.js';
+import { userDb } from '@/modules/database/index.js';
 
 const router = express.Router();
+
+// GOLDJAXE fork (реестр §24): owner только из проверенной учётки, не из body/scope.
+function readActiveUploadOwner(req: express.Request): string | null {
+  const id = (req as express.Request & { user?: { id?: unknown } }).user?.id;
+  if ((typeof id !== 'number' && typeof id !== 'string') || !/^\d+$/.test(String(id))) return null;
+  const numericId = Number(id);
+  if (!Number.isSafeInteger(numericId)) return null;
+  const user = userDb.getUserById(numericId);
+  return user ? String(user.id) : null;
+}
+
+async function finishUpload(req: express.Request, res: express.Response, owner: string, field: 'images' | 'attachments', maxBytes: number) {
+  const files = Array.isArray(req.files) ? req.files : [];
+  if (files.length === 0) { res.status(400).json({ error: 'No files provided' }); return; }
+  try {
+    if (readActiveUploadOwner(req) !== owner) { res.status(401).json({ error: 'Active user required' }); return; }
+    const metadata = await mailUploadRegistry.registerUploads(files, owner, maxBytes, () => readActiveUploadOwner(req) === owner);
+    const records = field === 'images' ? buildStoredImageRecords(files) : buildStoredAttachmentRecords(files);
+    res.json({ [field]: records.map((record, index) => ({ ...record, ...metadata?.[index] })) });
+  } catch {
+    res.status(500).json({ error: 'Не удалось зарегистрировать загрузку для Mail' });
+  }
+}
 
 // Multer writes uploads straight into the global assets folder; the service
 // owns the folder location and the response record shape.
@@ -56,18 +81,15 @@ const attachmentUpload = multer({
  * returns their absolute paths for use in provider prompts and chat history.
  */
 router.post('/images', (req, res) => {
+  const owner = readActiveUploadOwner(req);
+  if (!owner) return res.status(401).json({ error: 'Active user required' });
   upload.array('images', 5)(req, res, (err: unknown) => {
     if (err) {
       const message = err instanceof Error ? err.message : 'Upload failed';
       return res.status(400).json({ error: message });
     }
 
-    const files = Array.isArray(req.files) ? req.files : [];
-    if (files.length === 0) {
-      return res.status(400).json({ error: 'No files provided' });
-    }
-
-    res.json({ images: buildStoredImageRecords(files) });
+    void finishUpload(req, res, owner, 'images', 20 * 1024 * 1024);
   });
 });
 
@@ -77,19 +99,29 @@ router.post('/images', (req, res) => {
  * tools; uploads are capped at 10 files and 10MB per file.
  */
 router.post('/files', (req, res) => {
+  const owner = readActiveUploadOwner(req);
+  if (!owner) return res.status(401).json({ error: 'Active user required' });
   attachmentUpload.array('files', 10)(req, res, (err: unknown) => {
     if (err) {
       const message = err instanceof Error ? err.message : 'Upload failed';
       return res.status(400).json({ error: message });
     }
 
-    const files = Array.isArray(req.files) ? req.files : [];
-    if (files.length === 0) {
-      return res.status(400).json({ error: 'No files provided' });
-    }
-
-    res.json({ attachments: buildStoredAttachmentRecords(files) });
+    void finishUpload(req, res, owner, 'attachments', 10 * 1024 * 1024);
   });
+});
+
+// GOLDJAXE fork (реестр §24): owner-scoped отзыв только Mail, без удаления chat asset.
+router.delete('/mail-uploads/:asset_id', async (req, res) => {
+  const owner = readActiveUploadOwner(req);
+  if (!owner) return res.status(401).json({ error: 'Active user required' });
+  try {
+    const found = await mailUploadRegistry.revoke(req.params.asset_id, owner, () => readActiveUploadOwner(req) === owner);
+    if (!found) return res.status(404).json({ error: 'Mail upload not found' });
+    return res.status(204).end();
+  } catch {
+    return res.status(500).json({ error: 'Не удалось отозвать загрузку для Mail' });
+  }
 });
 
 /**

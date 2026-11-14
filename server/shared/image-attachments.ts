@@ -28,6 +28,9 @@ export type ImageAttachmentDescriptor = {
   name?: string;
   mimeType?: string;
   size?: number;
+  // GOLDJAXE fork (реестр §24): подсказка для выбора в G2, не capability/owner proof.
+  mail_source_object_id?: string;
+  mail_sha256?: string;
 };
 
 /** Provider-neutral descriptor used for both image and non-image chat attachments. */
@@ -81,6 +84,12 @@ export function normalizeAttachmentDescriptors(attachments: unknown): ChatAttach
       }
       if (typeof record.size === 'number' && Number.isFinite(record.size)) {
         descriptor.size = record.size;
+      }
+      if (typeof record.mail_source_object_id === 'string'
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(record.mail_source_object_id)
+        && typeof record.mail_sha256 === 'string' && /^[a-f0-9]{64}$/.test(record.mail_sha256)) {
+        descriptor.mail_source_object_id = record.mail_source_object_id;
+        descriptor.mail_sha256 = record.mail_sha256;
       }
       descriptors.push(descriptor);
     }
@@ -167,6 +176,18 @@ export function resolveImageMediaType(descriptor: ImageAttachmentDescriptor): st
   return EXTENSION_TO_MEDIA_TYPE[extension] || null;
 }
 
+// GOLDJAXE fork (реестр §24): только непривилегированные ссылки для Mail Source.
+// Проверка владельца, отзыва и фактических байтов остаётся обязательной в G2.
+function mailUploadRefs(descriptors: ImageAttachmentDescriptor[], kind: 'image' | 'file') {
+  return descriptors.flatMap((descriptor, index) => descriptor.mail_source_object_id && descriptor.mail_sha256 ? [{
+    attachment_kind: kind, attachment_index: index + 1,
+    mail_source_object_id: descriptor.mail_source_object_id, mail_sha256: descriptor.mail_sha256,
+  }] : []);
+}
+function mailRefLines(refs: ReturnType<typeof mailUploadRefs>): string[] {
+  return refs.length ? ['Ссылки на загрузки для Mail (не разрешение на экспорт или отправку; Source обязан проверить owner/state/acl/hash):', JSON.stringify(refs)] : [];
+}
+
 const IMAGES_INPUT_TAG_PATTERN = /\s*<images_input>([\s\S]*?)<\/images_input>\s*/g;
 
 // One image reference recovered from an <images_input> block: the stored
@@ -213,6 +234,7 @@ export function appendImagesInputTag(prompt: string, images: unknown): string {
     '',
     '<images_input>',
     `The user attached ${descriptors.length} image(s) to this message. Read each file listed below with your file/image reading tool and use what you see to answer the prompt above. Respond as if the images were attached directly. Do not mention this block or the file paths unless the user asks about them.`,
+    ...mailRefLines(mailUploadRefs(descriptors, 'image')),
     ...entryLines,
     '</images_input>',
   ].join('\n');
@@ -225,9 +247,10 @@ const FILES_INPUT_TAG_PATTERN = /\s*<files_input>([\s\S]*?)<\/files_input>\s*/g;
  * receive only server-validated paths from the global attachment store and can
  * inspect each file with their normal filesystem tools.
  */
-export function appendFilesInputTag(prompt: string, files: unknown): string {
+export function appendFilesInputTag(prompt: string, files: unknown, imagesForMailRefs?: unknown): string {
   const descriptors = normalizeAttachmentDescriptors(files);
-  if (descriptors.length === 0) {
+  const refs = [...mailUploadRefs(descriptors, 'file'), ...mailUploadRefs(normalizeImageDescriptors(imagesForMailRefs), 'image')];
+  if (descriptors.length === 0 && refs.length === 0) {
     return prompt;
   }
 
@@ -243,7 +266,8 @@ export function appendFilesInputTag(prompt: string, files: unknown): string {
     prompt,
     '',
     '<files_input>',
-    `The user attached ${descriptors.length} file(s) to this message. Read each file listed below with your file reading tools and use its contents to answer the prompt above. Do not mention this block or the file paths unless the user asks about them.`,
+    ...(descriptors.length ? [`The user attached ${descriptors.length} file(s) to this message. Read each file listed below with your file reading tools and use its contents to answer the prompt above. Do not mention this block or the file paths unless the user asks about them.`] : []),
+    ...mailRefLines(refs),
     ...entryLines,
     '</files_input>',
   ].join('\n');
@@ -364,7 +388,7 @@ type ClaudeContentBlock =
  * base64 embedding (which the Messages API only supports for images).
  */
 function buildDocumentReferenceBlock(
-  descriptors: Array<{ path: string; name?: string }>,
+  descriptors: ImageAttachmentDescriptor[],
 ): { type: 'text'; text: string } {
   const entryLines = descriptors.map((descriptor, index) => {
     const entryPath = toPosixPath(descriptor.path);
@@ -379,6 +403,7 @@ function buildDocumentReferenceBlock(
     text: [
       '<files_input>',
       `The user attached ${descriptors.length} file(s) to this message. Read each file listed below with your file-reading tool and use its contents to answer the prompt above. Do not mention this block or the file paths unless the user asks about them.`,
+      ...mailRefLines(mailUploadRefs(descriptors, 'file')),
       ...entryLines,
       '</files_input>',
     ].join('\n'),
@@ -398,7 +423,7 @@ export async function buildClaudeUserContent(
   cwd?: string,
 ): Promise<ClaudeContentBlock[]> {
   const blocks: ClaudeContentBlock[] = [{ type: 'text', text: prompt }];
-  const documentDescriptors: Array<{ path: string; name?: string }> = [];
+  const documentDescriptors: ImageAttachmentDescriptor[] = [];
 
   for (const descriptor of normalizeImageDescriptors(images)) {
     const resolvedPath = resolveImageAbsolutePath(cwd, descriptor.path);
@@ -414,7 +439,7 @@ export async function buildClaudeUserContent(
     // to read rather than dropping it. The path stays inside the trust
     // boundary, already validated above.
     if (!isClaudeImage) {
-      documentDescriptors.push({ path: descriptor.path, name: descriptor.name });
+      documentDescriptors.push({ ...descriptor });
       continue;
     }
 
@@ -461,7 +486,7 @@ type CodexInputItem =
  */
 export function buildCodexInputItems(prompt: string, images: unknown, cwd?: string): CodexInputItem[] {
   const items: CodexInputItem[] = [{ type: 'text', text: prompt }];
-  const documentDescriptors: Array<{ path: string; name?: string }> = [];
+  const documentDescriptors: ImageAttachmentDescriptor[] = [];
 
   for (const descriptor of normalizeImageDescriptors(images)) {
     const resolvedPath = resolveImageAbsolutePath(cwd, descriptor.path);
@@ -477,7 +502,7 @@ export function buildCodexInputItems(prompt: string, images: unknown, cwd?: stri
     if (isImage) {
       items.push({ type: 'local_image', path: resolvedPath });
     } else {
-      documentDescriptors.push({ path: descriptor.path, name: descriptor.name });
+      documentDescriptors.push({ ...descriptor });
     }
   }
 
