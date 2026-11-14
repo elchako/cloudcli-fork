@@ -37,6 +37,7 @@ import { decodeCliProxyModelId } from '@/modules/providers/list/claude/claude-ap
 import { askClaudeSideQuestion } from '@/modules/providers/list/claude/claude-side-question.provider.js';
 import { createAntigravityTransport, isAntigravityModel } from '@/modules/providers/list/claude/claude-antigravity-transport.js';
 import { loadClaudeSettingsEnv } from '@/shared/small-model.js';
+import { isLocalMailApprovalRequest, localMailApproval } from '@/shared/mail-approval/index.js';
 import {
   createImageGenerationMcpServer,
   IMAGE_GENERATION_MCP_SERVER_NAME,
@@ -1454,6 +1455,37 @@ async function queryClaudeSDK(
     if (!options.unattended) {
       sdkOptions.onElicitation = async (request: ElicitationRequest, elicitationOptions: { signal: AbortSignal }) => {
         const requestId = createRequestId();
+        // GOLDJAXE fork (реестр §23): отдельно от обычного SDK accept и hooks.
+        if (isLocalMailApprovalRequest(request)) {
+          if (elicitationOptions?.signal?.aborted) return { action: 'cancel' };
+          const appSessionId = sessionId || null;
+          const registered = localMailApproval.register(request, requestId, ws.userId, appSessionId);
+          if (!registered) return { action: 'decline' };
+          const { input } = registered;
+          try {
+            const pending = waitForToolApproval(requestId, {
+              timeoutMs: registered.timeoutMs,
+              signal: elicitationOptions?.signal,
+              metadata: { _sessionId: appSessionId, _toolName: MCP_ELICITATION_TOOL_NAME, _input: input, _receivedAt: new Date() },
+              onCancel: (reason: string) => {
+                registered.dispose();
+                ws.send(createNormalizedMessage({ kind: 'permission_cancelled', requestId, reason, sessionId: appSessionId, provider: 'claude' }));
+              },
+            });
+            ws.send(createNormalizedMessage({ kind: 'permission_request', requestId, toolName: MCP_ELICITATION_TOOL_NAME, input, sessionId: appSessionId, provider: 'claude' }));
+            emitNotification(notificationEvent({
+              provider: 'claude', sessionId: appSessionId, kind: 'action_required', code: 'agent.notification',
+              meta: { message: 'Mail: требуется локальное подтверждение письма', sessionName: sessionSummary },
+              severity: 'warning', requiresUserAction: true, dedupeKey: `claude:mail-local:${requestId}`,
+            }));
+            const decision = await pending;
+            const result = registered.finish(decision);
+            if (decision && !decision.cancelled) {
+              ws.send(createNormalizedMessage({ kind: 'permission_resolved', requestId, sessionId: appSessionId, provider: 'claude' }));
+            }
+            return result;
+          } finally { registered.dispose(); }
+        }
         const input = {
           serverName: request.serverName,
           message: request.message,

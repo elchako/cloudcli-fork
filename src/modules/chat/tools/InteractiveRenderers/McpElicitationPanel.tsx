@@ -39,6 +39,7 @@ type ElicitationInput = {
   mode?: 'form' | 'url';
   url?: string;
   requestedSchema?: { properties?: Record<string, unknown>; required?: unknown };
+  localMailPreview?: Record<string, unknown>;
 };
 
 type RawValues = Record<string, string | boolean | string[]>;
@@ -246,7 +247,53 @@ const inputClassName = 'w-full rounded-lg border-0 bg-gray-50 px-3 py-1.5 text-[
  * Submit is `accept`, Decline is `decline`; the backend maps a request that
  * goes away unanswered to `cancel`.
  */
-export const McpElicitationPanel: React.FC<PermissionPanelProps> = ({ request, onDecision }) => {
+// GOLDJAXE fork (реестр §23): только React text. Никаких Markdown/HTML, ссылок,
+// сокращения тела или выборочного списка полей, который мог бы потерять Bcc.
+const LocalMailApprovalPanel: React.FC<PermissionPanelProps> = ({ request, onDecision }) => {
+  const [confirmed, setConfirmed] = useState(false);
+  const submitted = useRef(false);
+  const preview = (request.input as ElicitationInput).localMailPreview!;
+  const decide = (allow: boolean) => {
+    if (submitted.current || (allow && !confirmed)) return;
+    submitted.current = true;
+    onDecision(request.requestId, allow ? { allow: true, updatedInput: { confirm: true } } : { allow: false });
+  };
+  return (
+    <section className="flex max-h-[70dvh] min-w-0 flex-col rounded-xl border bg-background text-foreground" aria-label="Локальное подтверждение Mail">
+      <div className="min-h-0 overflow-y-auto p-4">
+        <h3 className="font-semibold">Отправка письма через mail-local</h3>
+        <p className="mb-3 text-sm">Проверьте всех получателей, включая Bcc, полное тело и вложения.</p>
+        <dl className="space-y-3" data-testid="local-mail-preview">
+          {Object.entries(preview).map(([key, value]) => (
+            <div key={key}>
+              <dt className="text-sm font-semibold">{key}</dt>
+              <dd><pre className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">{typeof value === 'string' ? value : JSON.stringify(value, null, 2)}</pre></dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div className="shrink-0 space-y-3 border-t p-4">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
+          Отправить это письмо
+        </label>
+        <div className="flex justify-end gap-3">
+          <button type="button" onClick={() => decide(false)} className="rounded border px-3 py-2">Отказаться</button>
+          <button type="button" disabled={!confirmed} onClick={() => decide(true)} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">Подтвердить отправку</button>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+export const McpElicitationPanel: React.FC<PermissionPanelProps> = (props) => {
+  const input = props.request.input as ElicitationInput | undefined;
+  return input?.localMailPreview
+    ? <LocalMailApprovalPanel key={props.request.requestId} {...props} />
+    : <StandardMcpElicitationPanel {...props} />;
+};
+
+const StandardMcpElicitationPanel: React.FC<PermissionPanelProps> = ({ request, onDecision }) => {
   const { t } = useTranslation();
   const input = (request.input ?? {}) as ElicitationInput;
   const isUrlMode = input.mode === 'url';

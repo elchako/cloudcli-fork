@@ -3,7 +3,7 @@ title: Архитектура форка
 type: dev
 tags: [архитектура, карта-репозитория, провайдеры, claude-agent-sdk, авторизация, jwt, настройки, эндпоинты, голос, indexeddb]
 description: "Карта репозитория CloudCLI (src/ и server/), откуда берутся сессии и что хранит своя БД, провайдер Claude и каталог моделей, ключевые механизмы форка и их эндпоинты: версии CLI, библиотека моделей, генерация картинок, чтение вне проекта, навигатор, очередь надиктовок, авторизация, настройки и секреты."
-updated: 2026-11-09
+updated: 2026-11-15
 ---
 
 # Архитектура форка
@@ -152,6 +152,16 @@ Listener закрывается в `queryClaudeSDK.finally` ([§22.3](../fork/ap
 - Состояние отправки — `useChatComposerState`, выбор — `ComposerSendMenu`.
   Черновики/вложения по `draftScope` сохранены и для steer
   ([сохранность вложений](../fork/attachments.md), [чат](../chat.md)).
+
+Локальное подтверждение `mail-local` выделено в `server/shared/mail-approval/`
+(реестр §23). Без `CLOUDCLI_MAIL_APPROVAL_CONFIG` механизм выключен. При opt-in
+backend проверяет issuer-signed challenge и регистрирует снимок под user/session/
+request. Только authenticated WS permission-response подписывает Ed25519 событие
+`cloudcli_native`; generic resolver и SDK hooks подписывать не умеют. В MCP content
+возвращается canonical JSON **строка** `local_mail_decision`. UI показывает все
+поля preview как text без HTML/Markdown и обрезки тела; непочтовые формы сохранены.
+Ключи создаются только явной административной командой, реальные конфиги не
+изменяются ([настройка и границы доверия](../fork/local-mail-approval.md)).
 
 SDK Claude обновлён до 0.3.311, Codex CLI/SDK — 0.166.0. Это зависимости
 CloudCLI; ручной CLI updater по-прежнему отдельное действие.

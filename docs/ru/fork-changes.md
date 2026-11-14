@@ -3,7 +3,7 @@ title: "Реестр правок форка"
 type: index
 tags: [форк, реестр, upstream, слияние, cloudcli]
 description: "Оглавление реестра отличий форка GOLDJAXE от upstream siteboon/claudecodeui: правки по темам, отчёты о слияниях upstream, указатель «§ → страница» с риском конфликта и регламент ведения."
-updated: 2026-11-09
+updated: 2026-11-15
 ---
 
 # Реестр правок форка — чем наша версия отличается от оригинала
@@ -73,6 +73,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | [Голос](fork/voice.md) | Настройки голоса в БД с шифрованием ключа, микрофон, быстрая диктовка, очередь надиктовок при обрыве связи, потоковая озвучка | 3-бис, 4.4, 4.12, 4.13, 4.14, 4.15 |
 | [Сводка вслух](fork/speech-summary.md) | Основная и резервная текстовые модели API, ограниченное ожидание, защита смысла и чтение полного текста с уведомлением при сбое | 4.16, 4.16-бис, 4.16-тер |
 | [Навигатор по вопросам](fork/prompt-navigator.md) | Оглавление по вопросам, первая загрузка во время ответа и защита от поздних ответов | 17 |
+| [Локальное подтверждение Mail](fork/local-mail-approval.md) | Opt-in Ed25519 подписант authenticated WS решения, полный plain-text preview и защита от raw SDK accept/hooks | 23 |
 | [Генерация картинок](fork/image-generation.md) | Профили Черновик/Обычный/Финал с моделью API и качеством, инструмент `generate_image`, ограничение с GPT | 13, 13.3 |
 
 ### Сеансы и сайдбар
@@ -209,6 +210,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | §22.2 | Выбор effort для Gemini/Claude Antigravity и новых GPT, явные capabilities API | 🟡 | [api-models](fork/api-models.md) |
 | §22.3 | Нейтрализация SDK identity для Antigravity; адрес адаптера защищён от перезаписи settings.env | 🟡 | [api-models](fork/api-models.md) |
 | §22.4 | Уровни рассуждений Strata Qwen в каталоге CloudCLI | 🟡 | [api-models](fork/api-models.md) |
+| §23 | Локальное подтверждение Mail: подпись только authenticated WS события | средний | [local-mail-approval](fork/local-mail-approval.md) |
 
 ---
 

@@ -30,6 +30,7 @@ import type {
   SideQuestionRuntime,
 } from '@/shared/types.js';
 import { parseIncomingJsonObject, SIDE_QUESTION_ID_PATTERN } from '@/shared/utils.js';
+import { localMailApproval } from '@/shared/mail-approval/index.js';
 
 /**
  * Trust boundary for client-supplied image attachments: chat.send options come
@@ -913,6 +914,8 @@ export function handleChatConnection(
   connectedClients.add(ws);
 
   const userId = readRequestUserId(request);
+  // GOLDJAXE fork (реестр §23): auth только из upgrade request, не из JSON клиента.
+  const receiveLocalMailResponse = localMailApproval.bindAuthenticatedConnection(ws, userId);
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -946,9 +949,12 @@ export function handleChatConnection(
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);
           return;
-        case 'chat.permission-response':
+        case 'chat.permission-response': {
+          const session = typeof data.sessionId === 'string' ? sessionsDb.getSessionById(data.sessionId) : null;
+          if (receiveLocalMailResponse(data, session?.provider === 'claude')) return;
           handlePermissionResponse(data, dependencies);
           return;
+        }
         default:
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);
           return;

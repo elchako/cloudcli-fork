@@ -1893,6 +1893,8 @@ export function useChatComposerState({
       validIds.forEach((requestId) => {
         sendMessage({
           type: 'chat.permission-response',
+          // GOLDJAXE fork (реестр §23): Mail подписывается только в исходной сессии.
+          sessionId: currentSessionId || selectedSession?.id,
           requestId,
           allow: Boolean(decision?.allow),
           updatedInput: decision?.updatedInput,
@@ -1905,7 +1907,7 @@ export function useChatComposerState({
         previous.filter((request) => !validIds.includes(request.requestId)),
       );
     },
-    [sendMessage, setPendingPermissionRequests],
+    [sendMessage, setPendingPermissionRequests, currentSessionId, selectedSession?.id],
   );
 
   const [isInputFocused, setIsInputFocused] = useState(false);

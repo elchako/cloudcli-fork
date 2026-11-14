@@ -74,7 +74,8 @@
           "server/shared/message-unification.ts",
           "server/shared/secret-box.ts",
           "server/shared/small-model.ts",
-          "server/shared/background-models.ts"
+          "server/shared/background-models.ts",
+          "server/shared/mail-approval/index.ts"
         ],
         "mode": "file"
       },
