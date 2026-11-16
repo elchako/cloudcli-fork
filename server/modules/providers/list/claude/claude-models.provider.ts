@@ -46,6 +46,118 @@ const GATEWAY_GPT_EFFORT: NonNullable<ProviderModelOption['effort']> = {
   ],
 };
 
+// GOLDJAXE fork (реестр §22): pinned-версии upstream — только fallback и метаданные;
+// их наличие здесь не добавляет отсутствующие модели в подключённый API-каталог.
+const EFFORT_LEVELS_WITH_XHIGH = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+// Opus 4.6 and Sonnet 4.6 predate the xhigh level; Claude Code rejects it for them.
+const EFFORT_LEVELS_WITHOUT_XHIGH = ['low', 'medium', 'high', 'max'] as const;
+
+/**
+ * Builds the effort control for one pinned model version. The levels and default mirror the
+ * ones Claude Code's own model picker declares for that version, so an unchanged control sends
+ * the effort Claude Code would have used anyway. Ultracode is appended when asked for: Claude
+ * Code honours it only on xhigh-capable models. Arrays are built per call so options never
+ * share them.
+ */
+const buildPinnedModelEffort = (
+  defaultEffort: string,
+  levels: readonly string[],
+  { ultracode }: { ultracode: boolean },
+): NonNullable<ProviderModelOption['effort']> => ({
+  default: defaultEffort,
+  values: [
+    ...levels.map((value) => ({ value })),
+    ...(ultracode ? [ULTRACODE_EFFORT_OPTION] : []),
+  ],
+});
+
+/**
+ * Exact model versions, listed after the aliases above. An alias such as `opus` follows
+ * whichever release is newest; these stay on one release, which is what a user picks them for.
+ * The set matches the versions Claude Code's own model picker offers.
+ */
+const CLAUDE_PINNED_MODEL_OPTIONS: ProviderModelOption[] = [
+  {
+    value: 'claude-fable-5-2',
+    label: 'Fable 5.2',
+    description: 'Pinned to Fable 5.2, the current Fable release.',
+    effort: buildPinnedModelEffort('medium', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-fable-5-1',
+    label: 'Fable 5.1',
+    description: 'Pinned to Fable 5.1.',
+    effort: buildPinnedModelEffort('high', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-fable-5',
+    label: 'Fable 5',
+    description: 'Pinned to Fable 5.',
+    effort: buildPinnedModelEffort('high', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-opus-5-5',
+    label: 'Opus 5.5',
+    description: 'Pinned to Opus 5.5, the current Opus release.',
+    effort: buildPinnedModelEffort('medium', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-opus-5',
+    label: 'Opus 5',
+    description: 'Pinned to Opus 5.',
+    effort: buildPinnedModelEffort('high', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-opus-4-8',
+    label: 'Opus 4.8',
+    description: 'Pinned to Opus 4.8.',
+    effort: buildPinnedModelEffort('high', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-opus-4-7',
+    label: 'Opus 4.7',
+    description: 'Pinned to Opus 4.7.',
+    effort: buildPinnedModelEffort('xhigh', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-opus-4-6',
+    label: 'Opus 4.6',
+    description: 'Pinned to Opus 4.6.',
+    effort: buildPinnedModelEffort('high', EFFORT_LEVELS_WITHOUT_XHIGH, { ultracode: false }),
+  },
+  {
+    value: 'claude-sonnet-5-5',
+    label: 'Sonnet 5.5',
+    description: 'Pinned to Sonnet 5.5, the current Sonnet release.',
+    effort: buildPinnedModelEffort('medium', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-sonnet-5',
+    label: 'Sonnet 5',
+    description: 'Pinned to Sonnet 5.',
+    effort: buildPinnedModelEffort('high', EFFORT_LEVELS_WITH_XHIGH, { ultracode: true }),
+  },
+  {
+    value: 'claude-sonnet-4-6',
+    label: 'Sonnet 4.6',
+    description: 'Pinned to Sonnet 4.6.',
+    effort: buildPinnedModelEffort('high', EFFORT_LEVELS_WITHOUT_XHIGH, { ultracode: false }),
+  },
+  {
+    value: 'claude-haiku-5-5',
+    label: 'Haiku 5.5',
+    description: 'Pinned to Haiku 5.5, the current Haiku release.',
+    // Для Haiku не предлагаем standing workflow orchestration (ultracode).
+    effort: buildPinnedModelEffort('medium', EFFORT_LEVELS_WITH_XHIGH, { ultracode: false }),
+  },
+  {
+    // Claude Code's picker sends the dated id for this release, so the catalog does too.
+    value: 'claude-haiku-4-5-20251001',
+    label: 'Haiku 4.5',
+    description: 'Pinned to Haiku 4.5. Has no effort control.',
+  },
+];
+
 export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
@@ -91,7 +203,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
     {
       value: 'best',
       label: 'Best available',
-      description: 'Use Fable 5.1 when available, otherwise the latest Opus model.',
+      description: 'Use Fable when available, otherwise the latest Opus model.',
       effort: {
         default: 'high',
         values: [
@@ -168,6 +280,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
         ],
       },
     },
+    ...CLAUDE_PINNED_MODEL_OPTIONS,
   ],
   DEFAULT: 'default',
 };

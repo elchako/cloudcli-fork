@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
 import { getAllSessions } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+import { buildProjectSessionTree } from '@/modules/sidebar/utils/projectSessionTree';
 import type { Project } from '@/shared/types';
 
 /**
@@ -38,4 +39,20 @@ test('pinned sessions keep the usual newest-first order among themselves', () =>
   ]));
 
   assert.deepEqual(sessions.map((session) => session.id), ['pinned-new', 'pinned-old', 'plain']);
+});
+
+test('закреплённая ветка поднимает семью, сохраняя предка перед потомком и плоскую пагинацию', () => {
+  const source = project([
+    { id: 'recent', lastActivity: '2026-10-09T12:00:00.000Z' },
+    { id: 'pinned-fork', lastActivity: '2026-10-01T12:00:00.000Z', isPinned: true },
+    { id: 'parent', lastActivity: '2026-09-01T12:00:00.000Z' },
+  ]);
+  source.sessions = source.sessions!.map((session) => session.id === 'pinned-fork'
+    ? { ...session, forkedFromSessionId: 'parent' }
+    : session);
+  const sorted = getAllSessions(source);
+  const tree = buildProjectSessionTree(sorted, source.projectId);
+  assert.deepEqual(tree.map((row) => row.session.id), ['parent', 'pinned-fork', 'recent']);
+  assert.equal(tree[1].session.isPinned, true);
+  assert.deepEqual(sorted.map((session) => session.id), ['pinned-fork', 'recent', 'parent']);
 });

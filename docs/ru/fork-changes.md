@@ -3,7 +3,7 @@ title: "Реестр правок форка"
 type: index
 tags: [форк, реестр, upstream, слияние, cloudcli]
 description: "Оглавление реестра отличий форка GOLDJAXE от upstream siteboon/claudecodeui: правки по темам, отчёты о слияниях upstream, указатель «§ → страница» с риском конфликта и регламент ведения."
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # Реестр правок форка — чем наша версия отличается от оригинала
@@ -20,9 +20,9 @@ updated: 2026-11-15
 
 Форк-ветка: `feat/goldjaxe-improvements`. Upstream-remote: `origin =
 github.com/siteboon/claudecodeui`. База последнего слияния —
-**upstream v1.37.8** (коммит `2053f3d7`). Порядок слияния —
-[§14.1](fork/upstream-merge.md), проверки и порядок выкатки —
-[§19](fork/merge-v1.37.8.md); предыдущее обновление — [§18](fork/merge-v1.37.6.md).
+**upstream v1.37.9** (коммит `f86543fa`). Порядок слияния —
+[§14.1](fork/upstream-merge.md), проверки и статус выкатки —
+[§25](fork/merge-v1.37.9.md); предыдущее обновление — [§19](fork/merge-v1.37.8.md).
 
 ---
 
@@ -114,7 +114,8 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | [v1.37.4 (2026-10-09)](fork/merge-v1.37.4.md) | Пересечения, свои дефекты, подогнанные тесты (§14) |
 | [v1.37.5 (2026-10-17)](fork/merge-v1.37.5.md) | Пересечения, проверки, заметки (§16) |
 | [v1.37.6 (2026-10-27)](fork/merge-v1.37.6.md) | Пересечения, проверки, статус выкатки (§18) |
-| [v1.37.8 (2026-11-08)](fork/merge-v1.37.8.md) | Последнее слияние: v1.37.7 + v1.37.8, steering, побочные вопросы, MCP elicitation, шифрование webhook (§19, §20) |
+| [v1.37.8 (2026-11-08)](fork/merge-v1.37.8.md) | v1.37.7 + v1.37.8, steering, побочные вопросы, MCP elicitation, шифрование webhook (§19, §20) |
+| [v1.37.9 (2026-11-16)](fork/merge-v1.37.9.md) | Последнее слияние: очередь, Escape, дерево forks с пинами, подгрузка разговоров, сброс контекста (§25) |
 
 ---
 
@@ -214,6 +215,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | §23 | Локальное подтверждение Mail: подпись только authenticated WS события | средний | [local-mail-approval](fork/local-mail-approval.md) |
 | §23.1 | Понятное письмо, русские поля и одна кнопка отправки без checkbox | средний | [local-mail-approval](fork/local-mail-approval.md) |
 | §24 | Реестр новых пользовательских загрузок для Mail, owner/hash и отзыв | средний | [mail-uploads](fork/mail-uploads.md) |
+| §25 | Слияние v1.37.9: дерево forks без потери пинов и fullTitle, сохранность черновиков и API-каталога | 🟡 | [merge-v1.37.9](fork/merge-v1.37.9.md) |
 
 ---
 

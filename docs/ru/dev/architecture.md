@@ -3,7 +3,7 @@ title: Архитектура форка
 type: dev
 tags: [архитектура, карта-репозитория, провайдеры, claude-agent-sdk, авторизация, jwt, настройки, эндпоинты, голос, indexeddb]
 description: "Карта репозитория CloudCLI (src/ и server/), откуда берутся сессии и что хранит своя БД, провайдер Claude и каталог моделей, ключевые механизмы форка и их эндпоинты: версии CLI, библиотека моделей, генерация картинок, чтение вне проекта, навигатор, очередь надиктовок, авторизация, настройки и секреты."
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # Архитектура форка
@@ -135,6 +135,18 @@ Listener закрывается в `queryClaudeSDK.finally` ([§22.3](../fork/ap
 `POST /api/providers/:provider/cli/update`, во время работы провайдера оно
 запрещено. Это обновление самого CLI, не кода форка и не зависимостей SDK
 ([слияние v1.37.6](../fork/merge-v1.37.6.md)).
+
+## Дополнения upstream v1.37.9
+
+`POST /api/providers/sessions/:sessionId/clear-context` начинает следующий
+запрос с чистого контекста, сохраняя app ID и видимую историю. Старые части —
+`superseded_provider_sessions.reason='context_cleared'`; `sessionsService.fetchHistory`
+склеивает их с текущей частью. `supportsContextClearing` ограничивает UI;
+активный ответ или фоновая работа дают 409. Навигатор читает ту же общую историю.
+Дерево Projects получает `forkAncestors` отдельно от страницы; форк сохраняет
+у предков `fullTitle`/`isPinned`. Пагинация Conversations остаётся плоской.
+API-запуск Claude может явно передать `unattended: false` для MCP-форм;
+по умолчанию он unattended. Подробности — [§25](../fork/merge-v1.37.9.md).
 
 ## Управление выполняющимся ответом (v1.37.8)
 

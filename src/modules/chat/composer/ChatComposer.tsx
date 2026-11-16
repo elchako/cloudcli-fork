@@ -10,7 +10,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { PaperclipIcon, XIcon, Loader2, PencilIcon } from 'lucide-react';
+import { EraserIcon, PaperclipIcon, XIcon, Loader2, PencilIcon } from 'lucide-react';
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
@@ -75,6 +75,8 @@ type ChatComposerProps = {
   modelsLoading: boolean;
   tokenBudget: Record<string, unknown> | null;
   onShowTokenUsage: () => void;
+  /** Clears the session's context; absent when the session cannot be cleared. */
+  onClearContext?: () => void;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
   hasInput: boolean;
@@ -160,6 +162,7 @@ export default function ChatComposer({
   onSelectModel,
   modelsLoading,
   tokenBudget,
+  onClearContext,
   onShowTokenUsage,
   hasInput,
   onClearInput,
@@ -367,6 +370,14 @@ export default function ChatComposer({
         />
       )}
 
+      {/* The question panel replaces the input, but how to answer often depends on
+          how much context is left, so the token usage stays reachable below it. */}
+      {hasQuestionPanel && (
+        <div className="mx-auto flex max-w-[54.25rem] justify-end">
+          <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+        </div>
+      )}
+
       {!hasQuestionPanel && <div className="relative mx-auto max-w-[54.25rem]">
         {showFileDropdown && filteredFiles.length > 0 && (
           <div
@@ -514,6 +525,18 @@ export default function ChatComposer({
             {/* The mic lives in the textarea's corner now — see above. */}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+
+            {onClearContext && (
+              <PromptInputButton
+                tooltip={{ content: t('misc.clearContext') }}
+                onClick={onClearContext}
+                // A running turn is still writing to the context being cleared.
+                disabled={isLoading}
+                aria-label={t('misc.clearContext')}
+              >
+                <EraserIcon />
+              </PromptInputButton>
+            )}
 
             {/* GOLDJAXE fork (реестр §4.17): команды доступны через / и быстрые настройки;
                 место дублирующей кнопки отдаём модели и effort. */}

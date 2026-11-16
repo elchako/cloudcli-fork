@@ -55,7 +55,6 @@ const renderController = (initialProjects: Project[]) => renderHook(
     selectedProject: null,
     selectedSession: null,
     activeSessions: new Set<string>(),
-    // Required since #1347; missing upstream, which failed `npm run typecheck`.
     backgroundSessionIds: new Set<string>(),
     isLoading: false,
     isMobile: false,

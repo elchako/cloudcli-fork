@@ -42,6 +42,8 @@ type SidebarSessionItemProps = {
   isSelecting: boolean;
   /** Ticked for the pending bulk delete. Resolved by the list, which never ticks a running row. */
   isChecked: boolean;
+  /** Project fork trees use denser rows so indentation does not consume the title's space. */
+  treeRow?: boolean;
   /** Takes the owning projectId so this memoized row binds itself without the list making a closure per row. */
   onToggleSessionSelected: (projectId: string, sessionId: string) => void;
   t: TFunction;
@@ -72,6 +74,7 @@ function SidebarSessionItem({
   onForkSession,
   isSelecting,
   isChecked,
+  treeRow = false,
   onToggleSessionSelected,
   t,
 }: SidebarSessionItemProps) {
@@ -198,22 +201,23 @@ function SidebarSessionItem({
           aria-disabled={isSelecting && !isSelectable ? true : undefined}
           tabIndex={isSelecting ? 0 : undefined}
           className={cn(
-            'p-2 mx-3 my-0.5 rounded-md bg-card border active:scale-[0.98] transition-all duration-150 relative overflow-hidden',
-            // The open session must be unmistakable at a glance: accent bar,
-            // filled background and a ring that survives the dark theme.
+            treeRow
+              ? 'mx-0.5 my-px rounded-md border border-transparent bg-transparent px-1.5 py-1 active:scale-[0.98] transition-colors duration-150 relative overflow-hidden'
+              : 'mx-3 my-0.5 rounded-md bg-card border p-2 active:scale-[0.98] transition-all duration-150 relative overflow-hidden',
+            // GOLDJAXE fork (реестр §4.6): явное выделение сохраняется и в плотном дереве.
             isSelected
               ? 'border-primary bg-primary/15 ring-1 ring-primary/40 pl-3 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-[""]'
-              : isProcessing
-              ? 'border-border/60 bg-muted/20'
-              : sessionView.isActive
-              ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
-              : 'border-border/30',
+              : !treeRow && (isProcessing
+                ? 'border-border/60 bg-muted/20'
+                : sessionView.isActive
+                  ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
+                  : 'border-border/30'),
             isChecked && 'border-primary/40 bg-primary/10',
           )}
           onClick={isSelecting ? (isSelectable ? toggleSelected : undefined) : selectMobileSession}
           onKeyDown={isSelecting ? handleSelectionKeyDown : undefined}
         >
-          <div className="flex items-center gap-2">
+          <div className={cn('flex items-center', treeRow ? 'gap-1.5' : 'gap-2')}>
             {selectionIcon}
             <div
               className={cn(
@@ -249,7 +253,7 @@ function SidebarSessionItem({
                       </span>
                     </Tooltip>
                   </span>
-                ) : compactSessionAge && (
+                ) : !treeRow && compactSessionAge && (
                   <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">{compactSessionAge}</span>
                 )}
               </div>
@@ -268,7 +272,10 @@ function SidebarSessionItem({
                 aria-label={`Session options for ${sessionView.sessionName}`}
                 aria-haspopup="dialog"
                 aria-expanded={isMobileOptionsOpen}
-                className="ml-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted active:scale-95"
+                className={cn(
+                  'ml-1 flex flex-shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted active:scale-95',
+                  treeRow ? '-mr-0.5 h-7 w-7 rounded-md' : 'h-8 w-8 rounded-lg',
+                )}
                 onClick={(event) => {
                   event.stopPropagation();
                   setMobileOptionsOpen(true);
@@ -497,17 +504,20 @@ function SidebarSessionItem({
           aria-disabled={isSelecting && !isSelectable ? true : undefined}
           className={cn(
             buttonVariants({ variant: 'ghost' }),
-            'relative h-auto w-full justify-start overflow-hidden rounded-md border bg-card p-2 text-left font-normal transition-all duration-150',
+            treeRow
+              ? 'relative h-auto w-full justify-start overflow-hidden rounded-md border border-transparent bg-transparent px-1.5 py-1 text-left font-normal transition-colors duration-150'
+              : 'relative h-auto w-full justify-start overflow-hidden rounded-md border bg-card p-2 text-left font-normal transition-all duration-150',
             isSelecting ? 'pr-2' : 'pr-11',
-            // Fork: the open session must be unmistakable at a glance: accent
-            // bar, filled background and a ring that survives the dark theme.
+            // GOLDJAXE fork (реестр §4.6): явное выделение сохраняется и в плотном дереве.
             isSelected
               ? 'border-primary bg-primary/15 pl-3 ring-1 ring-primary/40 hover:bg-primary/20 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-[""]'
-              : isProcessing
-                ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
-                : sessionView.isActive
-                  ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
-                  : 'border-border/30 hover:bg-accent/50',
+              : treeRow
+                ? 'border-border/30 hover:bg-accent/50'
+                : isProcessing
+                  ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
+                  : sessionView.isActive
+                    ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
+                    : 'border-border/30 hover:bg-accent/50',
             isChecked && 'border-primary/40 bg-primary/10',
           )}
           // Left-click keeps in-app navigation; Ctrl/Cmd/middle-click and the
@@ -528,7 +538,7 @@ function SidebarSessionItem({
           }}
           onKeyDown={isSelecting ? handleSelectionKeyDown : undefined}
         >
-          <div className="flex w-full min-w-0 items-center gap-2">
+          <div className={cn('flex w-full min-w-0 items-center', treeRow ? 'gap-1.5' : 'gap-2')}>
             {selectionIcon}
             <div
               className={cn(
