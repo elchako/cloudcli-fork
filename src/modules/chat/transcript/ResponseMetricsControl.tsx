@@ -4,7 +4,7 @@ import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import type { ResponseMetrics } from '@/shared/types';
 import { formatGenerationSpeed, formatResponseDuration } from '@/modules/chat/utils/responseMetrics';
 
-/** GOLDJAXE fork (реестр §26): тихий итог хода; native details работает тапом и с клавиатуры. */
+/** GOLDJAXE fork (реестр §26, §26.1): итог наследует стиль футера, подробности остаются читаемыми. */
 export default function ResponseMetricsControl({ metrics }: { metrics: ResponseMetrics }) {
   const { t, i18n } = useTranslation('chat');
   const { showResponseDuration, showGenerationSpeed } = useUiPreferences();
@@ -24,14 +24,14 @@ export default function ResponseMetricsControl({ metrics }: { metrics: ResponseM
     : '';
 
   return (
-    <details className="group min-w-0 max-w-full text-xs text-foreground/75 open:basis-full" data-response-metrics>
+    <details className="group min-w-0 max-w-full open:basis-full" data-response-metrics>
       <summary
         className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-sm px-1 tabular-nums hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
         aria-label={t('responseMetrics.detailsLabel', { summary })}
       >
         {summary}
       </summary>
-      <div className="mb-2 max-w-md space-y-2 rounded-md bg-muted/50 p-3 text-xs leading-relaxed">
+      <div className="mb-2 max-w-md space-y-2 rounded-md bg-muted/50 p-3 text-xs leading-relaxed text-foreground/75">
         <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1">
           <dt>{t('responseMetrics.total')}</dt><dd className="text-right tabular-nums">{exactDuration}</dd>
           <dt>{t('responseMetrics.outcome')}</dt><dd className="text-right">{t(`responseMetrics.${metrics.outcome}`)}</dd>

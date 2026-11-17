@@ -56,6 +56,18 @@ test('по умолчанию видна только длительность; 
   assert.match(container.textContent ?? '', /480/);
 });
 
+test('свёрнутые показатели наследуют стиль футера, подробности сохраняют читаемость', () => {
+  const { container } = render(<UiPreferencesProvider><ResponseMetricsControl metrics={metrics} /></UiPreferencesProvider>);
+  const details = container.querySelector('details')!;
+  const summary = container.querySelector('summary')!;
+  assert.doesNotMatch(details.className, /text-/);
+  assert.ok(summary.classList.contains('min-h-11'), 'область нажатия по-прежнему 44 px');
+  assert.ok(summary.classList.contains('tabular-nums'));
+  const panel = details.querySelector('div')!;
+  assert.ok(panel.classList.contains('text-xs'));
+  assert.ok(panel.classList.contains('text-foreground/75'));
+});
+
 test('переключатели независимы и меняются без перезагрузки', () => {
   const { container } = render(<UiPreferencesProvider><ResponseMetricsControl metrics={metrics} /></UiPreferencesProvider>);
   act(() => writeUserPreference('uiPreferences', { showResponseDuration: false, showGenerationSpeed: true }));
