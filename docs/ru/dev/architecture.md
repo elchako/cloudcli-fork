@@ -3,7 +3,7 @@ title: Архитектура форка
 type: dev
 tags: [архитектура, карта-репозитория, провайдеры, claude-agent-sdk, авторизация, jwt, настройки, эндпоинты, голос, indexeddb]
 description: "Карта репозитория CloudCLI (src/ и server/), откуда берутся сессии и что хранит своя БД, провайдер Claude и каталог моделей, ключевые механизмы форка и их эндпоинты: версии CLI, библиотека моделей, генерация картинок, чтение вне проекта, навигатор, очередь надиктовок, авторизация, настройки и секреты."
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 # Архитектура форка
@@ -147,6 +147,25 @@ Listener закрывается в `queryClaudeSDK.finally` ([§22.3](../fork/ap
 у предков `fullTitle`/`isPinned`. Пагинация Conversations остаётся плоской.
 API-запуск Claude может явно передать `unattended: false` для MCP-форм;
 по умолчанию он unattended. Подробности — [§25](../fork/merge-v1.37.9.md).
+
+## Метрики ответа (§26)
+
+`response-metrics.service.ts` собирает метрики отдельного рана;
+`chat-run-registry` фиксирует стеновое время до первого `complete`.
+`response-metrics.db.ts` хранит результат с точной привязкой к строке ответа.
+Необязательные `responseMetrics` / `responseMetricsTargetId` в `complete` и
+`responseMetrics` на строке истории позволяют показать итог сразу и после reload.
+Нового HTTP-эндпоинта нет. Claude runtime включает `includePartialMessages`:
+скорость считается только по приращениям reported output usage и монотонным
+интервалам завершённых корневых `stream_event`, без tools/subagents; SDK cumulative
+`modelUsage` / `duration_api_ms` не превращаются в статистику текущего рана.
+`status` с `text='generation_metrics'` может нести свежий `generationMetrics`
+(`tokensPerSecond`, `sampledAt`); клиент помечает его `≈` и скрывает устаревший.
+`backgroundRelay` отличает события прежнего фона: они не меняют текущий статус и замер.
+`ResponseMetricsControl` показывает итог возле copy/TTS, `ActivityIndicator` —
+текущий статус. `uiPreferences.showResponseDuration=true` и
+`showGenerationSpeed=false` сохраняются только штатным `user_preferences`, не
+fork-sync ([формула, ограничения и файлы](../fork/response-metrics.md)).
 
 ## Управление выполняющимся ответом (v1.37.8)
 

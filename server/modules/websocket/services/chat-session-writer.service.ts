@@ -24,7 +24,10 @@ type ChatSessionWriterOptions = {
    * Returns `null` when the event must be dropped (duplicate terminal
    * `complete` after an abort already completed the run).
    */
-  decorateOutboundEvent: (message: NormalizedMessage) => NormalizedMessage | null;
+  // GOLDJAXE fork (реестр §26): relay старого фона не участвует в метриках нового хода.
+  decorateOutboundEvent: (message: NormalizedMessage, backgroundRelay?: boolean) => NormalizedMessage | null;
+  /** GOLDJAXE fork (реестр §26): внутренние SDK-события, не WebSocket-кадры. */
+  observeResponseMetrics?: (message: unknown, effort?: string) => void;
 };
 
 /**
@@ -83,7 +86,7 @@ export class ChatSessionWriter {
     this.providerSessionId = options.providerSessionId;
   }
 
-  send(data: unknown): void {
+  send(data: unknown, backgroundRelay = false): void {
     const record = readObjectRecord(data);
     if (!record || typeof record.kind !== 'string') {
       // Provider runtimes only emit kind-based normalized messages. Anything
@@ -108,7 +111,7 @@ export class ChatSessionWriter {
       return;
     }
 
-    const outbound = this.options.decorateOutboundEvent(message);
+    const outbound = this.options.decorateOutboundEvent(message, backgroundRelay);
     if (outbound) {
       this.forward(outbound);
     }
@@ -138,6 +141,11 @@ export class ChatSessionWriter {
    */
   updateWebSocket(newConnection: RealtimeClientConnection): void {
     this.connections.add(newConnection);
+  }
+
+  // GOLDJAXE fork (реестр §26): наблюдение не добавляет seq и не раскрывает raw SDK.
+  observeResponseMetrics(message: unknown, effort?: string): void {
+    this.options.observeResponseMetrics?.(message, effort);
   }
 
   setSessionId(sessionId: string): void {

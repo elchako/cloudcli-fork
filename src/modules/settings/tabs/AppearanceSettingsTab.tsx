@@ -97,6 +97,32 @@ export default function AppearanceSettingsTab({
         </SettingsCard>
       </SettingsSection>
 
+      {/* GOLDJAXE fork (реестр §26): без отдельных мобильных настроек и второго хранилища. */}
+      <SettingsSection title={t('appearanceSettings.responseMetrics.title')}>
+        <SettingsCard divided>
+          <SettingsRow
+            label={t('appearanceSettings.responseMetrics.duration')}
+            description={t('appearanceSettings.responseMetrics.durationDescription')}
+          >
+            <SettingsToggle
+              checked={preferences.showResponseDuration}
+              onChange={(value) => setPreference('showResponseDuration', value)}
+              ariaLabel={t('appearanceSettings.responseMetrics.duration')}
+            />
+          </SettingsRow>
+          <SettingsRow
+            label={t('appearanceSettings.responseMetrics.speed')}
+            description={t('appearanceSettings.responseMetrics.speedDescription')}
+          >
+            <SettingsToggle
+              checked={preferences.showGenerationSpeed}
+              onChange={(value) => setPreference('showGenerationSpeed', value)}
+              ariaLabel={t('appearanceSettings.responseMetrics.speed')}
+            />
+          </SettingsRow>
+        </SettingsCard>
+      </SettingsSection>
+
       {/* GOLDJAXE fork (реестр §4.9-тер): независимо от настроек голоса и модели чата. */}
       <SessionTitleModelSettings />
       {/* GOLDJAXE fork (реестр §13.3): профили картинок не зависят от модели чата. */}

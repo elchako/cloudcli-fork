@@ -79,6 +79,8 @@ export function useSessionProtection() {
           activity?.statusText !== undefined ? activity.statusText : continuing?.statusText ?? null,
         canInterrupt: activity?.canInterrupt ?? continuing?.canInterrupt ?? true,
         startedAt: continuing?.startedAt ?? Date.now(),
+        generationMetrics: activity?.generationMetrics !== undefined
+          ? activity.generationMetrics : continuing?.generationMetrics,
         // The tasks keep running under the new turn; they are reported again
         // when it ends.
         ...(existing?.tasks ? { tasks: existing.tasks } : {}),
@@ -88,6 +90,7 @@ export function useSessionProtection() {
         continuing
         && continuing.statusText === next.statusText
         && continuing.canInterrupt === next.canInterrupt
+        && continuing.generationMetrics === next.generationMetrics
       ) {
         return prev;
       }

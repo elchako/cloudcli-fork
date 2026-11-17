@@ -3,7 +3,7 @@
  * Converts NormalizedMessage[] from the session store into ChatMessage[] for the UI.
  */
 
-import type { ChatMessage, LiveTaskStatus, NormalizedMessage, SubagentActivity } from '@/shared/types';
+import type { ChatMessage, LiveTaskStatus, NormalizedMessage, ResponseMetrics, SubagentActivity } from '@/shared/types';
 import { formatUsageLimitText } from '@/modules/chat/utils/chatFormatting';
 
 function formatToolResultContent(content: unknown): string {
@@ -27,6 +27,7 @@ type CachedMessageProjection = {
   subagentActivitySource: NormalizedMessage | null;
   /** A background launch also depends on the newest `task_status` event folded onto it. */
   taskStatusSource: NormalizedMessage | null;
+  responseMetricsSource?: ResponseMetrics;
   messages: ChatMessage[];
 };
 
@@ -253,7 +254,12 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
   const toolUseIdByTaskId = new Map<string, string>();
   /** Newest event folded per launch, so its cached projection knows to rebuild. */
   const lastTaskSourceByToolUseId = new Map<string, NormalizedMessage>();
+  // GOLDJAXE fork (реестр §26): complete привязывается по ID, не к последней реплике на экране.
+  const responseMetricsById = new Map<string, ResponseMetrics>();
   for (const msg of messages) {
+    if (msg.kind === 'complete' && msg.responseMetrics && msg.responseMetricsTargetId) {
+      responseMetricsById.set(msg.responseMetricsTargetId, msg.responseMetrics);
+    }
     if (msg.kind === 'task_status') {
       foldTaskStatus(msg, liveTasksByToolUseId, toolUseIdByTaskId, lastTaskSourceByToolUseId);
       continue;
@@ -355,6 +361,9 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     const taskStatusSource = msg.kind === 'tool_use' && msg.toolId
       ? lastTaskSourceByToolUseId.get(msg.toolId) ?? null
       : null;
+    const responseMetricsSource = msg.kind === 'text' && msg.role === 'assistant'
+      ? msg.responseMetrics ?? responseMetricsById.get(msg.id)
+      : undefined;
     const cachedProjection = projectionCache.get(msg);
 
     // A tool-use projection must be rebuilt when a matching result arrives,
@@ -365,6 +374,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       cachedProjection?.toolResultSource === toolResultSource
       && cachedProjection.subagentActivitySource === subagentActivitySource
       && cachedProjection.taskStatusSource === taskStatusSource
+      && cachedProjection.responseMetricsSource === responseMetricsSource
     ) {
       converted.push(...cachedProjection.messages);
       continue;
@@ -387,6 +397,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       // Set by the provider only on an assistant reply, and only when it knows
       // which model produced it, so every other row simply carries undefined.
       model: msg.model,
+      responseMetrics: responseMetricsSource,
     };
 
     if (appendCompactionRow(msg, converted, sharedMetadata, {
@@ -595,6 +606,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       toolResultSource,
       subagentActivitySource,
       taskStatusSource,
+      responseMetricsSource,
       // One source record can produce zero, one, or two UI messages (task
       // notifications with a result produce two), so cache the whole slice.
       messages: converted.slice(convertedStart),

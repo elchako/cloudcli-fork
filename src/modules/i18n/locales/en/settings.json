@@ -273,6 +273,13 @@
     }
   },
   "appearanceSettings": {
+    "responseMetrics": {
+      "title": "Response metrics",
+      "duration": "Show duration",
+      "durationDescription": "Elapsed time and the final duration below Claude Code answers, including gateway models. New metrics survive a chat reload.",
+      "speed": "Show generation rate",
+      "speedDescription": "Average rate below the answer when reliable data is available. A live estimate, when available, is marked ≈."
+    },
     "darkMode": {
       "label": "Dark Mode",
       "description": "Toggle between light and dark themes"

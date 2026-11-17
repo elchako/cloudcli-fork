@@ -402,6 +402,23 @@
   "tasks": {
     "nextTaskPrompt": "Start the next task"
   },
+  "responseMetrics": {
+    "rate": "{{value}} tok/s",
+    "detailsLabel": "Response metrics: {{summary}}. Expand details",
+    "total": "Entire turn",
+    "outcome": "Outcome",
+    "completed": "Completed",
+    "stopped": "Stopped",
+    "failed": "Failed",
+    "apiTime": "Model stream",
+    "sampledOutput": "Sampled tokens",
+    "average": "Average rate",
+    "output": "Output tokens",
+    "model": "Model",
+    "unavailable": "Unavailable",
+    "durationMethod": "From execution start to completion or interruption, including tools and permission waits. Queue time is excluded.",
+    "speedMethod": "Observed stream throughput: reported output token increments / completed model stream time. Tools and subagents are excluded. Time before the stream starts is excluded; buffering and network delivery can affect the result. Not pure decoding speed. The rate is hidden without reliable data."
+  },
   "message": {
     "editAndResend": "Edit and resend",
     "forkFromHere": "Fork from here",

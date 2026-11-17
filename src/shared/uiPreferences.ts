@@ -16,6 +16,9 @@ export type UiPreferences = {
   sidebarVisible: boolean;
   keepProjectsExpanded: boolean;
   voiceEnabled: boolean;
+  // GOLDJAXE fork (реестр §26): один механизм user_preferences для всех устройств.
+  showResponseDuration: boolean;
+  showGenerationSpeed: boolean;
 };
 
 export type UiPreferenceKey = keyof UiPreferences;
@@ -31,6 +34,8 @@ const DEFAULTS: UiPreferences = {
   sidebarVisible: true,
   keepProjectsExpanded: false,
   voiceEnabled: false,
+  showResponseDuration: true,
+  showGenerationSpeed: false,
 };
 
 const PREFERENCE_KEYS = Object.keys(DEFAULTS) as UiPreferenceKey[];

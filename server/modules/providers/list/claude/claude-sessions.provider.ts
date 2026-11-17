@@ -1271,6 +1271,10 @@ export class ClaudeSessionsProvider implements IProviderSessions {
       return [];
     }
 
+    // GOLDJAXE fork (реестр §26): partial SDK-обёртки идут только измерителю;
+    // текст уже приходит полными assistant-блоками, второй поток создаст дубли.
+    if (raw.type === 'stream_event') return [];
+
     if (raw.type === 'content_block_delta' && raw.delta?.text) {
       return [createNormalizedMessage({ kind: 'stream_delta', content: raw.delta.text, sessionId, provider: PROVIDER })];
     }

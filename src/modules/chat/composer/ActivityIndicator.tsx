@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
 import { Shimmer } from '@/shared/ui';
+import { formatGenerationSpeed, formatResponseDuration } from '@/modules/chat/utils/responseMetrics';
 import type { BackgroundTaskSummary, SessionActivity } from '@/shared/types';
 import { describeBackgroundTask, ownBackgroundTasks } from '@/modules/chat/utils/backgroundTasks';
 
@@ -10,6 +11,8 @@ type ActivityIndicatorProps = {
   activity: SessionActivity | null;
   onAbort?: () => void;
   isInputFocused?: boolean;
+  showDuration?: boolean;
+  showGenerationSpeed?: boolean;
 };
 
 const ACTION_KEYS = [
@@ -45,12 +48,13 @@ function describeBackgroundTasks(allTasks: BackgroundTaskSummary[], t: TFunction
  * Rendered by chat's ChatComposer above the input so the user can see and
  * interrupt the in-flight turn without leaving the composer.
  */
-export default function ActivityIndicator({ activity, onAbort, isInputFocused = false }: ActivityIndicatorProps) {
-  const { t } = useTranslation('chat');
+export default function ActivityIndicator({ activity, onAbort, isInputFocused = false, showDuration = true, showGenerationSpeed = false }: ActivityIndicatorProps) {
+  const { t, i18n } = useTranslation('chat');
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
   const startedAt = renderedActivity?.startedAt ?? null;
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [now, setNow] = useState(Date.now);
+  const elapsedSeconds = startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1000));
 
   useEffect(() => {
     if (activity) {
@@ -72,7 +76,7 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
 
   useEffect(() => {
     if (startedAt === null) return;
-    const update = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    const update = () => setNow(Date.now());
     update();
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
@@ -90,9 +94,17 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
 
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
-  const elapsedLabel = minutes < 1
+  const elapsedLabel = elapsedSeconds >= 3600
+    ? formatResponseDuration(elapsedSeconds * 1000, i18n.resolvedLanguage || i18n.language)
+    : minutes < 1
     ? t('claudeStatus.elapsed.seconds', { count: seconds, defaultValue: '{{count}}s' })
     : t('claudeStatus.elapsed.minutesSeconds', { minutes, seconds, defaultValue: '{{minutes}}m {{seconds}}s' });
+  // GOLDJAXE fork (реестр §26): без устаревшей скорости во время tools/фоновой работы.
+  const sample = renderedActivity.generationMetrics;
+  const sampleAge = sample ? now - sample.sampledAt : Infinity;
+  const speed = showGenerationSpeed && !isBackground && sample && sampleAge >= 0 && sampleAge < 5000
+    ? formatGenerationSpeed(sample.tokensPerSecond, i18n.resolvedLanguage || i18n.language)
+    : null;
   const tabSurfaceClassName = [
     'chat-activity-tab inline-flex h-8 items-center rounded-b-none rounded-t-lg border border-b-0 bg-card px-3 text-xs transition-all duration-200',
     isInputFocused
@@ -114,11 +126,12 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
             }`}
             aria-hidden
           />
-          <Shimmer className="shrink-0 font-medium">{`${label}…`}</Shimmer>
+          <Shimmer className="min-w-0 truncate font-medium">{`${label}…`}</Shimmer>
           {detail && (
             <span className="min-w-0 truncate text-muted-foreground" title={detail}>{detail}</span>
           )}
-          <span className="shrink-0 tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+          {showDuration && <span className="shrink-0 tabular-nums text-foreground/75">{elapsedLabel}</span>}
+          {speed && <span className="shrink-0 tabular-nums text-foreground/75">≈{t('responseMetrics.rate', { value: speed })}</span>}
         </div>
 
         {renderedActivity.canInterrupt && onAbort && (

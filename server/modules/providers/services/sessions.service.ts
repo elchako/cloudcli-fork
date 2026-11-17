@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, responseMetricsDb, sessionsDb } from '@/modules/database/index.js';
 import { broadcastSessionUpserted, chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { generateSessionTitle } from '@/modules/providers/services/session-title.service.js';
@@ -102,6 +102,19 @@ type SessionDetails = {
   } | null;
 };
 
+// GOLDJAXE fork (реестр §26): только точное совпадение в том же transcript.
+// Никаких fallback по времени/порядку: edit и fork могут переиспользовать UUID.
+function attachResponseMetrics(sessionId: string, providerSessionId: string, messages: NormalizedMessage[]): NormalizedMessage[] {
+  const byTarget = new Map(responseMetricsDb.listForTranscript(sessionId, providerSessionId)
+    .map((record) => [record.targetId, record]));
+  return messages.map((message) => {
+    const record = byTarget.get(message.id);
+    return record && message.kind === 'text' && message.role === 'assistant'
+      && !message.parentToolUseId && (message.id === record.anchorId || message.id.startsWith(`${record.anchorId}_`))
+      ? { ...message, responseMetrics: record.metrics } : message;
+  });
+}
+
 const MAX_CLOUDCLI_SESSION_NAME_WORDS = 4;
 
 function buildCloudCliSessionName(initialMessage: string): string {
@@ -191,7 +204,7 @@ async function readClearedContextSegment(
       loadFull,
     }) ?? await loadFull();
 
-  const messages: NormalizedMessage[] = (full?.messages ?? [])
+  const messages: NormalizedMessage[] = attachResponseMetrics(sessionId, segment.providerSessionId, full?.messages ?? [])
     .map((message) => ({ ...message, transcriptAnchorId: undefined }));
   messages.push(createNormalizedMessage({
     // Stable across reads, so the client can tell it already has this row.
@@ -278,7 +291,9 @@ async function readCurrentContextHistory(
 
   return {
     ...result,
-    messages: result.messages.map((message) => ({
+    // GOLDJAXE fork (реестр §26): вне кэша JSONL — метрики записываются позже
+    // последней строки файла и должны появляться даже при неизменном stat.
+    messages: attachResponseMetrics(sessionId, providerSessionId, result.messages).map((message) => ({
       ...message,
       sessionId,
     })),

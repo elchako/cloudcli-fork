@@ -271,6 +271,12 @@ export function useChatRealtimeHandlers({
       /*  Provider NormalizedMessage handling                            */
       /* -------------------------------------------------------------- */
 
+      // GOLDJAXE fork (реестр §26): sample не переживает смену фазы/вызов инструмента.
+      if (sid && !msg.parentToolUseId && !msg.backgroundRelay && getSessionActivity?.(sid)?.generationMetrics
+        && (msg.kind === 'tool_use' || msg.kind === 'tool_result' || msg.kind === 'thinking' || msg.kind === 'permission_request')) {
+        onSessionProcessing?.(sid, { generationMetrics: null });
+      }
+
       // --- Streaming: buffer for performance ---
       if (msg.kind === 'stream_delta') {
         const text = (msg.content as string) || '';
@@ -308,7 +314,7 @@ export function useChatRealtimeHandlers({
 
       // --- All other messages: route to store ---
       const shouldPersist =
-        msg.kind !== 'complete'
+        (msg.kind !== 'complete' || Boolean(msg.responseMetrics && msg.responseMetricsTargetId))
         && msg.kind !== 'status'
         && msg.kind !== 'permission_request'
         && msg.kind !== 'permission_resolved'
@@ -427,14 +433,22 @@ export function useChatRealtimeHandlers({
         }
 
         case 'status': {
+          // GOLDJAXE fork (реестр §26): старый фон не сбрасывает свежий sample/статус нового хода.
+          if (msg.backgroundRelay) break;
           if (msg.text === 'token_budget' && msg.tokenBudget) {
             // The counter shows the viewed session's context; budgets from
             // other concurrently running sessions must not overwrite it.
             if (sid === activeViewSessionId) {
               setTokenBudget(msg.tokenBudget as Record<string, unknown>);
             }
+          } else if (msg.text === 'generation_metrics') {
+            const sample = msg.generationMetrics as NormalizedMessage['generationMetrics'];
+            if (sid && !msg.parentToolUseId && sample && Number.isFinite(sample.tokensPerSecond) && sample.tokensPerSecond > 0 && Number.isFinite(sample.sampledAt)) {
+              onSessionProcessing?.(sid, { generationMetrics: sample });
+            }
           } else if (msg.text && sid) {
             onSessionProcessing?.(sid, {
+              generationMetrics: null,
               statusText: msg.text as string,
               canInterrupt: msg.canInterrupt !== false,
             });

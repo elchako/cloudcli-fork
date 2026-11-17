@@ -14,6 +14,7 @@ import StreamingMarkdown from '@/modules/chat/transcript/StreamingMarkdown';
 import MessageCopyControl from '@/modules/chat/transcript/MessageCopyControl';
 import MessageModelLabel from '@/modules/chat/transcript/MessageModelLabel';
 import MessageSpeakControl from '@/modules/chat/transcript/MessageSpeakControl';
+import ResponseMetricsControl from '@/modules/chat/transcript/ResponseMetricsControl';
 import { useIsExportingTranscript } from '@/modules/chat/context/TranscriptRenderContext';
 import { MemoryCitations } from '@/modules/chat/transcript/MemoryCitations';
 import { useDismissSideQuestion } from '@/modules/chat/hooks/useSideQuestions';
@@ -500,7 +501,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
             )}
 
             {(shouldShowAssistantCopyControl || !isGrouped) && (
-              <div className="mt-1 flex w-full items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
+              <div className="mt-1 flex w-full flex-wrap items-center gap-x-2 text-[11px] text-gray-400 dark:text-gray-500">
                 {shouldShowAssistantCopyControl && (
                   <MessageCopyControl content={assistantCopyContent} messageType="assistant" />
                 )}
@@ -511,6 +512,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     on this row. Provenance rather than an affordance, so unlike
                     copy and speak it is not gated on the copy control, and an
                     exported transcript keeps it wherever the footer renders. */}
+                {!isExporting && message.responseMetrics && (
+                  <ResponseMetricsControl metrics={message.responseMetrics} />
+                )}
                 <MessageModelLabel model={message.model} />
                 {!isGrouped && <span>{formattedTime}</span>}
               </div>

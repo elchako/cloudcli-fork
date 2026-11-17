@@ -1,4 +1,7 @@
-import { sessionsDb } from '@/modules/database/index.js';
+import { randomUUID } from 'node:crypto';
+
+import { responseMetricsDb, sessionsDb } from '@/modules/database/index.js';
+import { ResponseMetricsCollector } from '@/modules/websocket/services/response-metrics.service.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastSessionUpserted } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
 import type {
@@ -6,6 +9,7 @@ import type {
   NormalizedMessage,
   RealtimeClientConnection,
 } from '@/shared/types.js';
+import { createNormalizedMessage } from '@/shared/utils.js';
 
 type ChatRunStatus = 'running' | 'completed';
 
@@ -24,6 +28,9 @@ type ChatRunStatus = 'running' | 'completed';
  *   can replay exactly the events it missed via `chat.subscribe`.
  */
 type ChatRun = {
+  // GOLDJAXE fork (реестр §26): идентичность попытки не совпадает с session ID.
+  runId: string;
+  responseMetrics?: ResponseMetricsCollector;
   appSessionId: string;
   provider: LLMProvider;
   providerSessionId: string | null;
@@ -100,7 +107,15 @@ function evictRunLater(run: ChatRun): void {
  * 3. Buffer the event for `chat.subscribe` replay.
  * 4. Flip the run to `completed` when the terminal `complete` event passes by.
  */
-function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): NormalizedMessage | null {
+function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage, backgroundRelay = false): NormalizedMessage | null {
+  const current = runs.get(run.appSessionId);
+  // GOLDJAXE fork (реестр §26): фон старого хода продолжает доставляться с seq
+  // актуального writer, но не меняет его метрики, цель ответа и terminal state.
+  if (current !== run) {
+    if (current && message.kind !== 'complete') current.writer.send(message, true);
+    return null;
+  }
+  if (run.status === 'running' && !backgroundRelay) run.responseMetrics?.observeMessage(message);
   // Exactly-one-complete contract: when a run is aborted the chat handler
   // emits the terminal `complete` immediately, but the killed runtime may
   // still emit its own `complete` from its exit handler moments later.
@@ -115,6 +130,7 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     ...message,
     sessionId: run.appSessionId,
     seq: run.lastSeq,
+    ...(backgroundRelay ? { backgroundRelay: true } : {}),
   };
 
   if (message.kind === 'complete') {
@@ -123,6 +139,23 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     outbound.actualSessionId = run.appSessionId;
     run.status = 'completed';
     run.completedAt = Date.now();
+    // GOLDJAXE fork (реестр §26): wall time включает tools/permissions, но не очередь.
+    if (run.responseMetrics) {
+      outbound.responseMetrics = run.responseMetrics.finish(run.runId, run.startedAt, run.completedAt, message);
+      outbound.responseMetricsTargetId = run.responseMetrics.targetId;
+      try {
+        responseMetricsDb.save({
+          sessionId: run.appSessionId,
+          providerSessionId: run.providerSessionId,
+          targetId: run.responseMetrics.targetId,
+          anchorId: run.responseMetrics.anchorId,
+          metrics: outbound.responseMetrics,
+        });
+      } catch (error) {
+        // Ошибка хранилища не должна оставлять run в состоянии «выполняется».
+        console.error('[ChatRunRegistry] Не удалось сохранить метрики ответа', { runId: run.runId, error });
+      }
+    }
     evictRunLater(run);
     notifyRunSettled(run.appSessionId);
   }
@@ -179,6 +212,8 @@ function notifyRunSettled(appSessionId: string): void {
  * happens first wins; later calls with the same id are no-ops.
  */
 function recordProviderSessionId(run: ChatRun, providerSessionId: string): void {
+  // GOLDJAXE fork (реестр §26): запоздалый setSessionId не меняет новый контекст.
+  if (runs.get(run.appSessionId) !== run || run.status !== 'running') return;
   if (!providerSessionId || run.providerSessionId === providerSessionId) {
     return;
   }
@@ -242,6 +277,9 @@ export const chatRunRegistry = {
     }
 
     const run: ChatRun = {
+      runId: randomUUID(),
+      // GOLDJAXE fork (реестр §26): первый этап — Claude SDK, включая GPT-шлюз.
+      responseMetrics: input.provider === 'claude' ? new ResponseMetricsCollector() : undefined,
       appSessionId: input.appSessionId,
       provider: input.provider,
       providerSessionId: input.providerSessionId,
@@ -261,7 +299,20 @@ export const chatRunRegistry = {
       onProviderSessionId: (providerSessionId) => {
         recordProviderSessionId(run, providerSessionId);
       },
-      decorateOutboundEvent: (message) => decorateAndRecordEvent(run, message),
+      decorateOutboundEvent: (message, backgroundRelay) => decorateAndRecordEvent(run, message, backgroundRelay),
+      observeResponseMetrics: (message, effort) => {
+        // GOLDJAXE fork (реестр §26): ни фоновые follow-up, ни старый runtime
+        // не дописывают уже зафиксированный итог.
+        if (runs.get(run.appSessionId) === run && run.status === 'running') {
+          const sample = run.responseMetrics?.observeSdkMessage(message, effort);
+          if (sample) {
+            run.writer.send(createNormalizedMessage({
+              provider: run.provider, sessionId: run.appSessionId,
+              kind: 'status', text: 'generation_metrics', generationMetrics: sample,
+            }));
+          }
+        }
+      },
     });
 
     runs.set(input.appSessionId, run);

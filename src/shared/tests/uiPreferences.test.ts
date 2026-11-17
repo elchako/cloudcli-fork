@@ -38,6 +38,8 @@ test('a fresh install gets the documented defaults', () => {
     sidebarVisible: true,
     keepProjectsExpanded: false,
     voiceEnabled: false,
+    showResponseDuration: true,
+    showGenerationSpeed: false,
   });
 });
 

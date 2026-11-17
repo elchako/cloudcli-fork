@@ -208,6 +208,7 @@ export type BackgroundTaskSummary = {
 
 /** What a busy session is doing, as shown by the activity indicator: producing a response, or only running background tasks. */
 export type SessionActivity = {
+  generationMetrics?: GenerationMetrics | null;
   /** Provider-supplied status line; null renders the default activity label. */
   statusText: string | null;
   canInterrupt: boolean;
@@ -233,7 +234,7 @@ export type SessionActivityMap = ReadonlyMap<string, SessionActivity>;
 /** Marks a session as producing a response; call it as soon as a send is dispatched so the UI reacts immediately. */
 export type MarkSessionProcessing = (
   sessionId?: string | null,
-  activity?: { statusText?: string | null; canInterrupt?: boolean },
+  activity?: { statusText?: string | null; canInterrupt?: boolean; generationMetrics?: GenerationMetrics | null },
 ) => void;
 
 /** Marks a session's response as finished; `ifStartedBefore` lets a late acknowledgement clear only a stale run. Leaves background-only work alone, which it says nothing about. */
@@ -376,7 +377,25 @@ export type SubagentInfo = {
 };
 
 /** One rendered entry in a chat transcript — user turn, assistant turn, tool call and result, local command output, or subagent container — and the shape the chat message list and message components consume. */
+/** GOLDJAXE fork (реестр §26): метрики одного хода, не накопление всей сессии. */
+export type ResponseMetrics = {
+  runId: string;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+  outcome: 'completed' | 'stopped' | 'failed';
+  outputTokens?: number;
+  apiDurationMs?: number;
+  sampledOutputTokens?: number;
+  tokensPerSecond?: number;
+  model?: string;
+  effort?: string;
+};
+
+export type GenerationMetrics = { tokensPerSecond: number; sampledAt: number };
+
 export type ChatMessage = {
+  responseMetrics?: ResponseMetrics;
   type: string;
   content?: string;
   displayText?: string;
@@ -558,6 +577,12 @@ export type SideQuestionEvent = {
 
 /** A provider-agnostic transcript event as normalized by the backend adapters, with all kind-specific fields kept flat; it is the shape the session store holds and that chat converts into ChatMessage for rendering, so treat it as the wire contract rather than a view model. */
 export type NormalizedMessage = {
+  /** GOLDJAXE fork (реестр §26): на ответе истории или терминальном событии. */
+  responseMetrics?: ResponseMetrics;
+  responseMetricsTargetId?: string;
+  /** GOLDJAXE fork (реестр §26): фон предыдущего хода, не активность текущего. */
+  backgroundRelay?: boolean;
+  generationMetrics?: GenerationMetrics;
   id: string;
   /**
    * The provider's own id for the transcript row behind this message, when the

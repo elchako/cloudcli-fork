@@ -398,6 +398,10 @@ function mapCliOptionsToSDK(options: AnyRecord = {}) {
 
   const sdkOptions: AnyRecord = {};
 
+  // GOLDJAXE fork (реестр §26): root message_start/delta/stop нужны измерителю.
+  // Обёртки stream_event не нормализуются в UI; полные assistant-блоки остаются
+  // единственным источником текста, без дублирования ответа.
+  sdkOptions.includePartialMessages = true;
   sdkOptions.env = buildClaudeSdkEnv();
 
   // Kimi (Moonshot) models ride the same Claude CLI through the Anthropic-compatible
@@ -1733,6 +1737,9 @@ async function queryClaudeSDK(
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const rawMessage of queryInstance) {
       const message = rawMessage as AnyRecord;
+      // GOLDJAXE fork (реестр §26): result.usage теряется при нормализации; сборщик
+      // видит raw до неё. Промежуточный usage и modelUsage не считаются итогом.
+      ws.observeResponseMetrics?.(message, typeof sdkOptions.effort === 'string' ? sdkOptions.effort : undefined);
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
 

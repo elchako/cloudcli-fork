@@ -490,6 +490,24 @@ export type CompactionInfo = {
   error?: string | null;
 };
 
+// GOLDJAXE fork (реестр §26): метрики одного серверного рана, не всей сессии.
+export type ResponseMetrics = {
+  runId: string;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+  outcome: 'completed' | 'stopped' | 'failed';
+  outputTokens?: number;
+  /** GOLDJAXE fork (реестр §26): приращения reported tokens только полных root-stream spans. */
+  sampledOutputTokens?: number;
+  /** Измеренное время этих spans, не SDK duration_api_ms и не полный API latency. */
+  apiDurationMs?: number;
+  /** Наблюдаемая скорость стрима sampledOutputTokens / apiDurationMs, не decoding TPS. */
+  tokensPerSecond?: number;
+  model?: string;
+  effort?: string;
+};
+
 export type NormalizedMessage = {
   id: string;
   /**
@@ -521,6 +539,14 @@ export type NormalizedMessage = {
    * with a model it did not run on.
    */
   model?: string;
+  /** GOLDJAXE fork (реестр §26): на complete и ровно одной строке REST-истории. */
+  responseMetrics?: ResponseMetrics;
+  /** Точный normalized ID строки ответа; без него привязка по позиции запрещена. */
+  responseMetricsTargetId?: string;
+  /** GOLDJAXE fork (реестр §26): фон прежнего рана не меняет текущую активность UI. */
+  backgroundRelay?: boolean;
+  /** Свежий sample основного потока; сервер не синтезирует его из символов/чанков. */
+  generationMetrics?: { tokensPerSecond: number; sampledAt: number };
   /**
    * Optional display-oriented metadata used by providers that need to expose
    * richer transcript artifacts without introducing a brand-new message kind.
@@ -798,6 +824,8 @@ export type ProviderRuntimeWriter = {
   setSessionId?(sessionId: string): void;
   userId?: string | number | null;
   isWebSocketWriter?: boolean;
+  /** GOLDJAXE fork (реестр §26): внутренний сбор точных SDK-метрик до нормализации. */
+  observeResponseMetrics?(message: unknown, effort?: string): void;
 };
 
 export type ProviderPermissionDecision = {

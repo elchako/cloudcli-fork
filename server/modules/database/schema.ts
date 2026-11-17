@@ -309,6 +309,21 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
 );
 `;
 
+// GOLDJAXE fork (реестр §26): запись отдельно от CLI JSONL и UI-настроек.
+export const RESPONSE_METRICS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS response_metrics (
+    run_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    provider_session_id TEXT,
+    target_id TEXT,
+    anchor_id TEXT,
+    metrics_json TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_response_metrics_transcript
+ON response_metrics(session_id, provider_session_id);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
