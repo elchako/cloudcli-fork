@@ -75,7 +75,7 @@ for (const model of ['gemini-4-argon-high', 'claude-sonnet-5-5-high', 'vendor/fu
 }
 
 test('новые GPT текущего шлюза получают подтверждённые пять уровней, не шаблонный ultra', async () => {
-  for (const id of ['gpt-6-sol', 'gpt-6-chat-thinking', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.6-terra']) {
+  for (const id of ['gpt-6-sol', 'gpt-6-chat-thinking', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-6.2-sol', 'gpt-6.2-astra']) {
     assert.deepEqual(knownGatewayModelReasoning(id)?.effort?.values.map(v => v.value), ['low', 'medium', 'high', 'xhigh', 'max']);
   }
 });

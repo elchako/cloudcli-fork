@@ -5,8 +5,9 @@ type Reasoning = Pick<ProviderModelOption, 'effort' | 'reasoningStatus'>;
 
 // GOLDJAXE fork (реестр §22.2): это только подтверждённые метаданные, НЕ каталог
 // доступности. Модель появляется исключительно из API. Источник уровней:
-// CLIProxyAPI v8.0.58 internal/registry/models/models.json; не Codex-client шаблоны.
-// https://github.com/router-for-me/CLIProxyAPI/blob/v8.0.58/internal/registry/models/models.json
+// CLIProxyAPI internal/registry/models/models.json (проверено на 8.0.77, 18.11.2026);
+// не Codex-client шаблоны.
+// https://github.com/router-for-me/CLIProxyAPI/blob/v8.0.77/internal/registry/models/models.json
 const THREE_LEVEL_MODELS = new Set([
   'gemini-4-argon-high', 'gemini-3.8-flash-high',
   'claude-opus-5-5-high', 'claude-sonnet-5-5-high',
@@ -14,6 +15,7 @@ const THREE_LEVEL_MODELS = new Set([
 const FIVE_LEVEL_MODELS = new Set([
   'gpt-6-astra', 'gpt-6-sol', 'gpt-6-chat-thinking', 'gpt-6.1-sol',
   'gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.6-terra',
+  'gpt-6.2-sol', 'gpt-6.2-astra',
 ]);
 
 export function knownGatewayModelReasoning(model: string): Reasoning | null {
