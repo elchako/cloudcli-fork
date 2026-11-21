@@ -9,7 +9,7 @@ export type ProtectedDataProfile = {
   label: string;
   requiredFields: string[];
   urlField?: string;
-  operation?: 'local-check';
+  operation?: 'local-check' | 'apply';
 };
 
 export const MAX_PROTECTED_FIELDS = 12;
@@ -50,8 +50,9 @@ function readProfile(value: unknown): ProtectedDataProfile {
       || !Array.isArray(requiredFields) || requiredFields.length > MAX_PROTECTED_FIELDS
       || !requiredFields.every(isAlias) || new Set(requiredFields).size !== requiredFields.length
       || (urlField !== undefined && !isAlias(urlField))
-      || (operation !== undefined && operation !== 'local-check')
-      || (operation === 'local-check' && (urlField !== undefined || requiredFields.length !== 0))) {
+      || (operation !== undefined && operation !== 'local-check' && operation !== 'apply')
+      || (operation === 'local-check' && (urlField !== undefined || requiredFields.length !== 0))
+      || (operation === 'apply' && (urlField !== undefined || requiredFields.length !== 1))) {
     throw new ProtectedDataError('invalidProfile');
   }
   return { revision, publicKey, label, requiredFields: [...requiredFields],

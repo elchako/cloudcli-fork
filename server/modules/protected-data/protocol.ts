@@ -28,7 +28,7 @@ export interface ProtectedDataProfile {
   label: string;
   requiredFields: string[];
   urlField?: string;
-  operation?: 'local-check';
+  operation?: 'local-check' | 'apply';
 }
 
 export interface ProtectedDataEnvelope {
@@ -43,7 +43,7 @@ export interface ProtectedDataEnvelope {
   ciphertext: string;
 }
 
-export type ProtectedDataStatus = 'ok' | 'received' | 'denied' | 'failed' | 'invalid' | 'expired' | 'used';
+export type ProtectedDataStatus = 'ok' | 'received' | 'applied' | 'denied' | 'failed' | 'invalid' | 'expired' | 'used';
 
 function hasOnlyFields(value: unknown, fields: string[]): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -97,6 +97,9 @@ export function readProtectedDataProfile(value: unknown): ProtectedDataProfile |
     return { revision, publicKey, label, requiredFields: [], operation };
   }
   const requiredFields = readNames(value.requiredFields);
+  if (operation === 'apply' && urlField === undefined && requiredFields?.length === 1) {
+    return { revision, publicKey, label, requiredFields, operation };
+  }
   if (operation !== undefined || !requiredFields) return null;
   if (urlField === undefined) return { revision, publicKey, label, requiredFields };
   if (!isProtectedDataAlias(urlField) || requiredFields.length >= PROTECTED_DATA_MAX_FIELDS
@@ -119,7 +122,7 @@ export function readProtectedDataEnvelope(value: unknown): ProtectedDataEnvelope
 
 export function readProtectedDataStatus(value: unknown): ProtectedDataStatus | null {
   switch (value) {
-    case 'ok': case 'received': case 'denied': case 'failed': case 'invalid': case 'expired': case 'used':
+    case 'ok': case 'received': case 'applied': case 'denied': case 'failed': case 'invalid': case 'expired': case 'used':
       return value;
     default:
       return null;

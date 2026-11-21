@@ -42,7 +42,6 @@ import {
   createProtectedDataMcp,
   protectedDataRelay,
   PROTECTED_DATA_MCP_SERVER,
-  PROTECTED_DATA_TOOL_ID,
 } from '@/modules/protected-data/index.js';
 import {
   createImageGenerationMcpServer,
@@ -1433,8 +1432,8 @@ async function queryClaudeSDK(
         && !abortedSessionIds.has(sessionKey() ?? '') && !supersededInstances.has(queryInstance),
       ));
       sdkOptions.mcpServers = { ...sdkOptions.mcpServers, [PROTECTED_DATA_MCP_SERVER]: protectedDataTool.server };
-      if (!sdkOptions.allowedTools.includes(PROTECTED_DATA_TOOL_ID)) {
-        sdkOptions.allowedTools.push(PROTECTED_DATA_TOOL_ID);
+      if (!sdkOptions.allowedTools.includes(protectedDataTool.toolId)) {
+        sdkOptions.allowedTools.push(protectedDataTool.toolId);
       }
     }
 

@@ -23,6 +23,7 @@ import {
   type ProtectedDataProfile,
   type ProtectedDataStatus,
 } from './protocol.js';
+import { applyToReceiver, type ApplyReceiver } from './apply-receiver.js';
 
 // GOLDJAXE fork (реестр §27, §27.1): проверка доставки без сети или один настроенный HTTPS GET.
 const CHECK_TIMEOUT_MS = 5_000;
@@ -33,11 +34,12 @@ const CONTROLS = /[\u0000-\u001f\u007f]/u;
 const CONFIG_FIELDS = ['socketPath', 'privateKeyPath', 'label', 'target', 'auth', 'urlField', 'operation'];
 
 type Auth = { type: 'bearer'; tokenField: string } | { type: 'basic'; loginField: string; passwordField: string };
-type ExecutorOperation = { label: string } & (
+type SocketOperation = { label: string } & (
   | { operation: 'local-check' }
   | { operation: 'https-check'; target: string; auth: Auth; urlField?: string }
 );
-type ExecutorConfig = ExecutorOperation & { socketPath: string; privateKeyPath: string };
+type ExecutorOperation = SocketOperation | ({ label: string; operation: 'apply'; receiver: ApplyReceiver });
+type ExecutorConfig = SocketOperation & { socketPath: string; privateKeyPath: string };
 type Check = (target: string, authorization: string, signal: AbortSignal) => Promise<number | undefined>;
 type ExecutorOptions = { check?: Check; now?: () => number };
 
@@ -225,17 +227,18 @@ function createEnvelopeExecutor(
   wrappedKeyBytes: number,
   { check = checkHttps, now = Date.now }: ExecutorOptions = {},
 ) {
-  const localOnly = config.operation === 'local-check';
-  const requiredFields = localOnly ? [] : authFields(config.auth);
+  const { operation } = config;
+  const requiredFields = operation === 'https-check' ? authFields(config.auth)
+    : operation === 'apply' ? [config.receiver.field] : [];
   const selectedFields = new Set(requiredFields);
-  const urlField = localOnly ? undefined : config.urlField;
+  const urlField = operation === 'https-check' ? config.urlField : undefined;
   if (urlField !== undefined) selectedFields.add(urlField);
   const profile: ProtectedDataProfile = {
     revision: randomBytes(32).toString('hex'),
     publicKey: createPublicKey(key).export({ type: 'spki', format: 'der' }).toString('base64'),
     label: config.label,
     requiredFields,
-    ...(localOnly ? { operation: 'local-check' } : {}),
+    ...(operation === 'https-check' ? {} : { operation }),
     ...(urlField === undefined ? {} : { urlField }),
   };
   const nonces = new Map<string, number>();
@@ -252,7 +255,7 @@ function createEnvelopeExecutor(
     if (age >= PROTECTED_DATA_TTL_MS) return 'expired';
     if (age < -PROTECTED_DATA_CLOCK_SKEW_MS || !requiredFields.every((name) => envelope.names.includes(name))) return 'invalid';
 
-    let remote: { target: string; authorization: string } | undefined;
+    let action: ((signal: AbortSignal) => Promise<ProtectedDataStatus>) | undefined;
     try {
       const fields = openEnvelope(key, wrappedKeyBytes, envelope, selectedFields);
       if (!fields) return 'invalid';
@@ -260,7 +263,13 @@ function createEnvelopeExecutor(
         if (urlField !== undefined && fields.has(urlField) && fields.get(urlField) !== config.target) return 'invalid';
         const authorization = authorizationHeader(config.auth, fields);
         if (!authorization) return 'invalid';
-        remote = { target: config.target, authorization };
+        const target = config.target;
+        action = async (signal) => statusFor(await check(target, authorization, signal));
+      } else if (config.operation === 'apply') {
+        const { receiver } = config;
+        const selected = fields.get(receiver.field);
+        if (selected === undefined) return 'invalid';
+        action = async (signal) => await applyToReceiver(receiver, selected, signal) ? 'applied' : 'failed';
       }
     } catch {
       return 'invalid';
@@ -276,13 +285,13 @@ function createEnvelopeExecutor(
     nonces.set(nonce, envelope.issuedAt + PROTECTED_DATA_TTL_MS);
     if (shutdown.signal.aborted) return 'failed';
     // GOLDJAXE fork (реестр §27.1): в локальном режиме значения не используются вне проверки конверта.
-    if (!remote) return 'received';
+    if (!action) return 'received';
     if (pending >= MAX_PENDING_CHECKS) return 'failed';
     pending += 1;
     try {
       const signal = AbortSignal.any([shutdown.signal, AbortSignal.timeout(CHECK_TIMEOUT_MS)]);
-      const code = await check(remote.target, remote.authorization, signal);
-      return signal.aborted ? 'failed' : statusFor(code);
+      const status = await action(signal);
+      return signal.aborted ? 'failed' : status;
     } catch {
       return 'failed';
     } finally {
@@ -293,12 +302,13 @@ function createEnvelopeExecutor(
   return { profile, execute, abort: () => shutdown.abort() };
 }
 
-// GOLDJAXE fork (реестр §27.2): этот режим доверяет хосту, но не передаёт
-// значения в SDK. Ключ живёт только в памяти, конфигурации адресов нет.
-export function createMemoryProtectedDataExecutor(now = Date.now) {
+// GOLDJAXE fork (реестр §27.2–27.3): ключ живёт только в памяти. Без
+// зарегистрированного получателя доступна только локальная проверка.
+export function createMemoryProtectedDataExecutor(now = Date.now, receiver?: ApplyReceiver) {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: PROTECTED_DATA_MIN_RSA_BITS });
   return createEnvelopeExecutor(
-    { operation: 'local-check', label: 'Локальная проверка доставки' },
+    receiver ? { operation: 'apply', label: receiver.label, receiver }
+      : { operation: 'local-check', label: 'Локальная проверка доставки' },
     privateKey, PROTECTED_DATA_MIN_RSA_BITS / 8,
     { now, check: async () => undefined },
   );

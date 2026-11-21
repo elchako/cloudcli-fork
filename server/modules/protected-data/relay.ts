@@ -15,6 +15,7 @@ import {
   type ProtectedDataStatus,
 } from './protocol.js';
 import { createMemoryProtectedDataExecutor } from './executor.js';
+import { readApplyReceiver } from './apply-receiver.js';
 
 // GOLDJAXE fork (реестр §27): на стороне CloudCLI только конверты и метки.
 const STAGED_LIMIT = 128;
@@ -77,6 +78,7 @@ function executorRequest(route: '/v1/profile' | '/v1/execute', body?: ProtectedD
 export type ProtectedDataRunGrant = {
   envelope: ProtectedDataEnvelope;
   operation?: ProtectedDataProfile['operation'];
+  destinationLabel?: string;
 };
 
 type StagedGrant = ProtectedDataRunGrant & { userId: string };
@@ -90,7 +92,8 @@ export function createProtectedDataRelay({
   // GOLDJAXE fork (реестр §27.2): не обращаться к сокету или настроенному API
   // в режиме памяти. Ключ создаём только при первом обращении к профилю.
   let memory: ReturnType<typeof createMemoryProtectedDataExecutor> | undefined;
-  const memoryExecutor = () => (memory ??= createMemoryProtectedDataExecutor(now));
+  const memoryExecutor = () => (memory ??= createMemoryProtectedDataExecutor(now,
+    readApplyReceiver(process.env.CLOUDCLI_PROTECTED_DATA_APPLY_CONFIG)));
   const staged = new Map<string, StagedGrant>();
   const nonces = new Set<string>();
   const bound = new WeakMap<ProviderRuntimeWriter, ProtectedDataRunGrant>();
@@ -128,7 +131,8 @@ export function createProtectedDataRelay({
         staged.delete(id);
         nonces.delete(nonce);
       }, envelope.issuedAt + PROTECTED_DATA_TTL_MS - now()).unref();
-      staged.set(id, { userId, envelope, operation: profile.operation });
+      staged.set(id, { userId, envelope, operation: profile.operation,
+        ...(profile.operation === 'apply' ? { destinationLabel: profile.label } : {}) });
       return id;
     },
     prepare(userId: string, sessionId: string, id: unknown) {
@@ -138,7 +142,8 @@ export function createProtectedDataRelay({
       return (writer: ProviderRuntimeWriter) => {
         if (staged.get(id) !== entry || !isFresh(entry.envelope)) return false;
         staged.delete(id);
-        bound.set(writer, { envelope: entry.envelope, operation: entry.operation });
+        const { userId: _userId, ...grant } = entry;
+        bound.set(writer, grant);
         active.set(writer, entry.envelope.issuedAt + PROTECTED_DATA_TTL_MS);
         return true;
       };

@@ -1,21 +1,26 @@
 import assert from 'node:assert/strict';
 import { randomUUID, webcrypto } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
+import { applyToReceiver, readApplyReceiver } from '../apply-receiver.js';
+import { createMemoryProtectedDataExecutor } from '../executor.js';
 import { protectedDataAad, type ProtectedDataEnvelope, type ProtectedDataProfile } from '../protocol.js';
 import { createProtectedDataRelay } from '../relay.js';
 
 const marker = 'synthetic-memory-check';
 
-async function seal(profile: ProtectedDataProfile, issuedAt: number): Promise<ProtectedDataEnvelope> {
-  const meta = { version: 1 as const, revision: profile.revision, sessionId: 'session-memory', nonce: randomUUID(), issuedAt, names: ['TOKEN'] };
+async function seal(profile: ProtectedDataProfile, issuedAt: number, names = ['TOKEN'], values = [marker]): Promise<ProtectedDataEnvelope> {
+  const meta = { version: 1 as const, revision: profile.revision, sessionId: 'session-memory', nonce: randomUUID(), issuedAt, names };
   const { subtle } = webcrypto;
   const iv = webcrypto.getRandomValues(new Uint8Array(12));
   const contentKey = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
   const publicKey = await subtle.importKey('spki', Buffer.from(profile.publicKey, 'base64'),
     { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['wrapKey']);
   const ciphertext = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: protectedDataAad(meta) },
-    contentKey, Buffer.from(JSON.stringify([marker])));
+    contentKey, Buffer.from(JSON.stringify(values)));
   const wrappedKey = await subtle.wrapKey('raw', contentKey, publicKey, 'RSA-OAEP');
   return { ...meta, wrappedKey: Buffer.from(wrappedKey).toString('base64'), iv: Buffer.from(iv).toString('base64'), ciphertext: Buffer.from(ciphertext).toString('base64') };
 }
@@ -69,4 +74,38 @@ test('после нового запуска старые конверты не�
   assert.notEqual(restarted.revision, profile.revision);
   assert.equal(await second.stage('user', envelope), null);
   assert.equal(await second.execute(envelope), 'invalid');
+});
+
+test('получатель получает только выбранное значение в stdin, не в аргументах или окружении', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'cloudcli-receiver-fixture-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const program = join(dir, 'receive.mjs');
+  const output = join(dir, 'expected.txt');
+  const config = join(dir, 'receiver.json');
+  await writeFile(program, [
+    'import { readFileSync, writeFileSync } from "node:fs";',
+    'const value = readFileSync(0, "utf8");',
+    'if ([...process.argv, ...Object.values(process.env)].some(s => s?.includes(value))) process.exit(4);',
+    'writeFileSync(process.argv[2], value, { mode: 0o600 });',
+    'console.log(value);',
+  ].join('\n'));
+  await writeFile(config, JSON.stringify({ label: 'Тестовый получатель', field: 'TOKEN', executable: process.execPath, args: [program, output] }), { mode: 0o600 });
+  const receiver = readApplyReceiver(config);
+  assert.ok(receiver);
+  const executor = createMemoryProtectedDataExecutor(Date.now, receiver);
+  assert.equal(executor.profile.operation, 'apply');
+  assert.deepEqual(executor.profile.requiredFields, ['TOKEN']);
+  assert.ok(!JSON.stringify(executor.profile).includes(program));
+  const invalid = await seal(executor.profile, Date.now(), ['WRONG'], [marker]);
+  assert.equal(await executor.execute(invalid), 'invalid');
+  const cancelled = AbortSignal.abort();
+  assert.equal(await applyToReceiver(receiver, marker, cancelled), false);
+  await assert.rejects(readFile(output));
+
+  const valid = await seal(executor.profile, Date.now(), ['TOKEN', 'OTHER'], [marker, 'synthetic-unselected']);
+  assert.equal(await executor.execute(valid), 'applied');
+  assert.equal(await readFile(output, 'utf8'), marker);
+  await writeFile(output, 'changed externally');
+  assert.equal(await executor.execute(valid), 'used');
+  assert.equal(await readFile(output, 'utf8'), 'changed externally');
 });
