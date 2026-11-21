@@ -14,6 +14,7 @@ import {
   type ProtectedDataProfile,
   type ProtectedDataStatus,
 } from './protocol.js';
+import { createMemoryProtectedDataExecutor } from './executor.js';
 
 // GOLDJAXE fork (реестр §27): на стороне CloudCLI только конверты и метки.
 const STAGED_LIMIT = 128;
@@ -84,7 +85,12 @@ export function createProtectedDataRelay({
   call = executorRequest,
   pinnedKey = () => process.env.CLOUDCLI_PROTECTED_DATA_KEY_SHA256,
   now = Date.now,
-}: { call?: ExecutorRequest; pinnedKey?: () => string | undefined; now?: () => number } = {}) {
+  mode = process.env.CLOUDCLI_PROTECTED_DATA_MODE === 'memory' ? 'memory' : 'socket',
+}: { call?: ExecutorRequest; pinnedKey?: () => string | undefined; now?: () => number; mode?: 'memory' | 'socket' } = {}) {
+  // GOLDJAXE fork (реестр §27.2): не обращаться к сокету или настроенному API
+  // в режиме памяти. Ключ создаём только при первом обращении к профилю.
+  let memory: ReturnType<typeof createMemoryProtectedDataExecutor> | undefined;
+  const memoryExecutor = () => (memory ??= createMemoryProtectedDataExecutor(now));
   const staged = new Map<string, StagedGrant>();
   const nonces = new Set<string>();
   const bound = new WeakMap<ProviderRuntimeWriter, ProtectedDataRunGrant>();
@@ -92,6 +98,7 @@ export function createProtectedDataRelay({
 
   async function getProfile(): Promise<ProtectedDataProfile | null> {
     try {
+      if (mode === 'memory') return memoryExecutor().profile;
       const pin = pinnedKey();
       if (!pin || !/^[0-9a-f]{64}$/.test(pin)) return null;
       const profile = readProtectedDataProfile(await call('/v1/profile'));
@@ -154,6 +161,7 @@ export function createProtectedDataRelay({
     async execute(envelope: ProtectedDataEnvelope): Promise<ProtectedDataStatus> {
       if (!isFresh(envelope)) return 'expired';
       try {
+        if (mode === 'memory') return await memoryExecutor().execute(envelope);
         const result = await call('/v1/execute', envelope);
         return result && typeof result === 'object' && 'status' in result
           ? readProtectedDataStatus(result.status) ?? 'failed'

@@ -5,7 +5,7 @@ import { createPublicKey } from 'node:crypto';
 export const PROTECTED_DATA_MAX_FIELDS = 12;
 export const PROTECTED_DATA_MAX_VALUE_BYTES = 4096;
 export const PROTECTED_DATA_MAX_BODY_BYTES = 400 * 1024;
-export const PROTECTED_DATA_TTL_MS = 10 * 60_000;
+export const PROTECTED_DATA_TTL_MS = 30 * 60_000;
 export const PROTECTED_DATA_CLOCK_SKEW_MS = 30_000;
 export const PROTECTED_DATA_MIN_RSA_BITS = 2048;
 export const PROTECTED_DATA_MAX_RSA_BITS = 8192;

@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { constants, createDecipheriv, createPrivateKey, createPublicKey, privateDecrypt, randomBytes, type KeyObject } from 'node:crypto';
+import { constants, createDecipheriv, createPrivateKey, createPublicKey, generateKeyPairSync, privateDecrypt, randomBytes, type KeyObject } from 'node:crypto';
 import { once } from 'node:events';
 import { chmodSync, closeSync, constants as fsConstants, fstatSync, openSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -33,15 +33,13 @@ const CONTROLS = /[\u0000-\u001f\u007f]/u;
 const CONFIG_FIELDS = ['socketPath', 'privateKeyPath', 'label', 'target', 'auth', 'urlField', 'operation'];
 
 type Auth = { type: 'bearer'; tokenField: string } | { type: 'basic'; loginField: string; passwordField: string };
-type ExecutorConfig = {
-  label: string;
-  socketPath: string;
-  privateKeyPath: string;
-} & (
+type ExecutorOperation = { label: string } & (
   | { operation: 'local-check' }
   | { operation: 'https-check'; target: string; auth: Auth; urlField?: string }
 );
+type ExecutorConfig = ExecutorOperation & { socketPath: string; privateKeyPath: string };
 type Check = (target: string, authorization: string, signal: AbortSignal) => Promise<number | undefined>;
+type ExecutorOptions = { check?: Check; now?: () => number };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -221,20 +219,12 @@ function sendJson(res: ServerResponse, body: ProtectedDataProfile | { status: Pr
   res.end(json);
 }
 
-export async function startProtectedDataExecutor(
-  configPath: string | undefined,
-  { check = checkHttps, now = Date.now }: { check?: Check; now?: () => number } = {},
-): Promise<{ close(): Promise<void> }> {
-  const uid = process.geteuid?.();
-  if (process.platform !== 'linux' || uid === undefined || !isLocalPath(configPath)) {
-    throw new Error('Исполнитель не настроен');
-  }
-  const config = readConfig(configPath, uid);
-  const directory = statSync(dirname(config.socketPath));
-  if (!directory.isDirectory() || (directory.uid !== uid && directory.uid !== 0) || (directory.mode & 0o022) !== 0) {
-    throw new Error('Недопустимый каталог сокета исполнителя');
-  }
-  const { key, wrappedKeyBytes } = readPrivateKey(config.privateKeyPath, uid);
+function createEnvelopeExecutor(
+  config: ExecutorOperation,
+  key: KeyObject,
+  wrappedKeyBytes: number,
+  { check = checkHttps, now = Date.now }: ExecutorOptions = {},
+) {
   const localOnly = config.operation === 'local-check';
   const requiredFields = localOnly ? [] : authFields(config.auth);
   const selectedFields = new Set(requiredFields);
@@ -300,15 +290,44 @@ export async function startProtectedDataExecutor(
     }
   }
 
+  return { profile, execute, abort: () => shutdown.abort() };
+}
+
+// GOLDJAXE fork (реестр §27.2): этот режим доверяет хосту, но не передаёт
+// значения в SDK. Ключ живёт только в памяти, конфигурации адресов нет.
+export function createMemoryProtectedDataExecutor(now = Date.now) {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: PROTECTED_DATA_MIN_RSA_BITS });
+  return createEnvelopeExecutor(
+    { operation: 'local-check', label: 'Локальная проверка доставки' },
+    privateKey, PROTECTED_DATA_MIN_RSA_BITS / 8,
+    { now, check: async () => undefined },
+  );
+}
+
+export async function startProtectedDataExecutor(
+  configPath: string | undefined,
+  options: ExecutorOptions = {},
+): Promise<{ close(): Promise<void> }> {
+  const uid = process.geteuid?.();
+  if (process.platform !== 'linux' || uid === undefined || !isLocalPath(configPath)) {
+    throw new Error('Исполнитель не настроен');
+  }
+  const config = readConfig(configPath, uid);
+  const directory = statSync(dirname(config.socketPath));
+  if (!directory.isDirectory() || (directory.uid !== uid && directory.uid !== 0) || (directory.mode & 0o022) !== 0) {
+    throw new Error('Недопустимый каталог сокета исполнителя');
+  }
+  const { key, wrappedKeyBytes } = readPrivateKey(config.privateKeyPath, uid);
+  const executor = createEnvelopeExecutor(config, key, wrappedKeyBytes, options);
   const server = createServer({
     maxHeaderSize: 8 * 1024,
     requestTimeout: 5_000,
     headersTimeout: 5_000,
     connectionsCheckingInterval: 1_000,
   }, (req, res) => {
-    if (req.method === 'GET' && req.url === '/v1/profile') return sendJson(res, profile);
+    if (req.method === 'GET' && req.url === '/v1/profile') return sendJson(res, executor.profile);
     if (req.method !== 'POST' || req.url !== '/v1/execute') return sendJson(res, { status: 'invalid' }, 404);
-    void readBody(req).then(execute).catch(() => 'invalid' as const)
+    void readBody(req).then(executor.execute).catch(() => 'invalid' as const)
       .then((status) => sendJson(res, { status })).catch(() => res.destroy());
   });
   server.maxConnections = 32;
@@ -319,7 +338,7 @@ export async function startProtectedDataExecutor(
   let closing: Promise<void> | undefined;
   function close(): Promise<void> {
     if (!closing) {
-      shutdown.abort();
+      executor.abort();
       closing = new Promise((resolve) => server.close(() => resolve()));
       server.closeAllConnections();
     }
