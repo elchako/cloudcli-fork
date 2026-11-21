@@ -10,7 +10,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { EraserIcon, PaperclipIcon, XIcon, Loader2, PencilIcon } from 'lucide-react';
+import { LockIcon, PaperclipIcon, XIcon, Loader2, PencilIcon } from 'lucide-react';
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
@@ -41,6 +41,9 @@ import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageLi
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
 import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
 import ComposerSendMenu from '@/modules/chat/composer/ComposerSendMenu';
+import type { ProtectedDataComposer } from '@/modules/chat/hooks/useProtectedDataComposer';
+import { ProtectedDataChip } from '@/modules/chat/protected-data/ProtectedDataChip';
+import { ProtectedDataForm } from '@/modules/chat/protected-data/ProtectedDataForm';
 
 type MentionableFile = {
   name: string;
@@ -76,8 +79,7 @@ type ChatComposerProps = {
   modelsLoading: boolean;
   tokenBudget: Record<string, unknown> | null;
   onShowTokenUsage: () => void;
-  /** Clears the session's context; absent when the session cannot be cleared. */
-  onClearContext?: () => void;
+  protectedData?: ProtectedDataComposer;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
   hasInput: boolean;
@@ -163,7 +165,7 @@ export default function ChatComposer({
   onSelectModel,
   modelsLoading,
   tokenBudget,
-  onClearContext,
+  protectedData,
   onShowTokenUsage,
   hasInput,
   onClearInput,
@@ -219,6 +221,7 @@ export default function ChatComposer({
   const { showResponseDuration, showGenerationSpeed } = useUiPreferences();
   const fileDropdownRef = useRef<HTMLDivElement | null>(null);
   const selectedFileRef = useRef<HTMLDivElement | null>(null);
+  const protectedDataAnchor = useRef<HTMLButtonElement | null>(null);
   const commandMenuPosition = useMemo(() => {
     if (!isCommandMenuOpen) {
       return { top: 0, left: 16, bottom: 90 };
@@ -447,10 +450,17 @@ export default function ChatComposer({
             </div>
           )}
 
-          {attachedFiles.length > 0 && (
+          {(attachedFiles.length > 0 || protectedData?.draft) && (
             <PromptInputHeader>
               <div className="rounded-xl bg-muted/40 p-2">
                 <div className="flex flex-wrap gap-2">
+                  {protectedData?.draft && (
+                    <ProtectedDataChip
+                      count={protectedData.draft.fields.length}
+                      onEdit={() => void protectedData.open()}
+                      onRemove={protectedData.remove}
+                    />
+                  )}
                   {attachedFiles.map((file, index) => (
                     <ComposerAttachment
                       key={`${file.name}-${file.lastModified}-${index}`}
@@ -470,6 +480,11 @@ export default function ChatComposer({
             </PromptInputHeader>
           )}
 
+          {protectedData?.issue && (
+            <PromptInputHeader role="alert" className="text-sm text-destructive">
+              {t(`protectedData.${protectedData.issue}`)}
+            </PromptInputHeader>
+          )}
           <input {...getInputProps()} />
 
           <PromptInputBody>
@@ -524,21 +539,22 @@ export default function ChatComposer({
               <PaperclipIcon />
             </PromptInputButton>
 
-            {/* The mic lives in the textarea's corner now — see above. */}
-
-            <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
-
-            {onClearContext && (
+            {/* GOLDJAXE fork (реестр §27): нейтральный замок вместо ластика; /clear остаётся. */}
+            {protectedData && (
               <PromptInputButton
-                tooltip={{ content: t('misc.clearContext') }}
-                onClick={onClearContext}
-                // A running turn is still writing to the context being cleared.
-                disabled={isLoading}
-                aria-label={t('misc.clearContext')}
+                ref={protectedDataAnchor}
+                tooltip={{ content: t(protectedData.loading ? 'protectedData.loading' : 'protectedData.title') }}
+                aria-label={t('protectedData.title')}
+                aria-expanded={Boolean(protectedData.editor)}
+                aria-haspopup="dialog"
+                disabled={protectedData.loading}
+                onClick={() => protectedData.editor ? protectedData.close() : void protectedData.open()}
               >
-                <EraserIcon />
+                <LockIcon />
               </PromptInputButton>
             )}
+
+            <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
 
             {/* GOLDJAXE fork (реестр §4.17): команды доступны через / и быстрые настройки;
                 место дублирующей кнопки отдаём модели и effort. */}
@@ -629,6 +645,15 @@ export default function ChatComposer({
 
         </PromptInputFooter>
       </PromptInput>
+      {protectedData?.editor && (
+        <ProtectedDataForm
+          anchorRef={protectedDataAnchor}
+          profile={protectedData.editor}
+          fields={protectedData.draft?.fields ?? []}
+          onAttach={protectedData.attach}
+          onClose={protectedData.close}
+        />
+      )}
       </div>}
     </div>
   );

@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { protectedDataRelay } from '@/modules/protected-data/index.js';
 import {
   MAX_CONCURRENT_SIDE_QUESTIONS_PER_SESSION,
   providerCapabilitiesService,
@@ -172,6 +173,39 @@ async function handleChatSend(
     return;
   }
 
+  // GOLDJAXE fork (реестр §27): ID только для этой прямой отправки; не в options SDK.
+  if (data.protectedDataId !== undefined) {
+    const bind = userId != null && resolved.provider === 'claude'
+      ? protectedDataRelay.prepare(String(userId), resolved.sessionId, data.protectedDataId)
+      : null;
+    const text = typeof data.content === 'string' ? data.content.trim() : '';
+    if (!bind || !text || text.startsWith('/') || dependencies.runtime.hasBackgroundWork(resolved.sessionId)) {
+      sendProtocolError(ws, 'PROTECTED_DATA_UNAVAILABLE', 'Не удалось прикрепить защищённые данные. Проверьте подключение и повторите отправку.', resolved.sessionId);
+      return;
+    }
+    const options = (data.options ?? {}) as AnyRecord;
+    // Настройки сообщения допустимы, подмена cwd/точки возобновления — нет.
+    const frame = {
+      content: data.content,
+      options: {
+        model: options.model,
+        effort: options.effort,
+        permissionMode: options.permissionMode,
+        toolsSettings: options.toolsSettings,
+        skipPermissions: options.skipPermissions,
+        sessionSummary: options.sessionSummary,
+        attachments: options.attachments,
+      },
+    };
+    await dispatchRun(ws, userId, resolved.sessionId, resolved.session, frame, dependencies, {}, (run) => {
+      if (!bind(run.writer)) {
+        sendProtocolError(ws, 'PROTECTED_DATA_UNAVAILABLE', 'Срок действия защищённых данных истёк.', resolved.sessionId);
+        throw new Error('Срок действия защищённых данных истёк.');
+      }
+    });
+    return;
+  }
+
   await dispatchRun(ws, userId, resolved.sessionId, resolved.session, data, dependencies);
 }
 
@@ -317,6 +351,7 @@ async function dispatchRun(
     failure = error instanceof Error ? error.message : String(error);
     console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: failure });
   } finally {
+    protectedDataRelay.forget(run.writer);
     // Safety net: a runtime that crashed (or resolved) without emitting its
     // terminal `complete` would otherwise leave the session stuck in
     // "processing" forever on every connected client. Scoped to THIS run —
@@ -677,6 +712,8 @@ async function handleChatAbort(
     return;
   }
 
+  // GOLDJAXE fork (реестр §27): отозвать доступ даже до инициализации SDK.
+  protectedDataRelay.forget(run.writer);
   const success = await dependencies.runtime.abort(run.provider, sessionId);
 
   // Scoped to the run that was stopped: a stop can take a round trip, and a
@@ -934,6 +971,10 @@ export function handleChatConnection(
 
       const data = parsed as AnyRecord;
       const messageType = typeof data.type === 'string' ? data.type : '';
+      if (data.protectedDataId !== undefined && messageType !== 'chat.send') {
+        sendProtocolError(ws, 'PROTECTED_DATA_UNAVAILABLE', 'Защищённые данные доступны только при прямой отправке сообщения.', readRequiredSessionId(data) ?? undefined);
+        return;
+      }
 
       switch (messageType) {
         case 'chat.edit-send':

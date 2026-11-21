@@ -39,6 +39,12 @@ import { createAntigravityTransport, isAntigravityModel } from '@/modules/provid
 import { loadClaudeSettingsEnv } from '@/shared/small-model.js';
 import { isLocalMailApprovalRequest, localMailApproval } from '@/shared/mail-approval/index.js';
 import {
+  createProtectedDataMcp,
+  protectedDataRelay,
+  PROTECTED_DATA_MCP_SERVER,
+  PROTECTED_DATA_TOOL_ID,
+} from '@/modules/protected-data/index.js';
+import {
   createImageGenerationMcpServer,
   IMAGE_GENERATION_MCP_SERVER_NAME,
   IMAGE_GENERATION_TOOL_ID
@@ -1224,6 +1230,9 @@ async function queryClaudeSDK(
   // stream exists; the finally block calls it no matter how the run ends.
   let releasePromptStream: () => void = () => {};
   let antigravityTransport: Awaited<ReturnType<typeof createAntigravityTransport>> | undefined;
+  let protectedDataTool: ReturnType<typeof createProtectedDataMcp> | undefined;
+  const protectedTurn = protectedDataRelay.wasBound(ws);
+  if (protectedTurn && !protectedDataRelay.isActive(ws)) return;
   // Writes one more message to the held stdin stream (steering). Replaced
   // once the stream exists; refuses until then and after the release.
   let pushPromptMessage: (message: unknown) => boolean = () => false;
@@ -1340,7 +1349,7 @@ async function queryClaudeSDK(
   // Refused once the turn has been reported complete: the client then sends
   // it as an ordinary new turn.
   const steerIntoTurn: SteerInput = async ({ command: steerCommand, images, files, messageId }) => {
-    if (turnCompleteSent) {
+    if (turnCompleteSent || protectedTurn) {
       return false;
     }
     const [steerMessage] = await buildPromptMessages(steerCommand, images, files, options.cwd);
@@ -1412,6 +1421,20 @@ async function queryClaudeSDK(
       sdkOptions.mcpServers = { ...sdkOptions.mcpServers, [IMAGE_GENERATION_MCP_SERVER_NAME]: imageMcpServer };
       if (!sdkOptions.allowedTools.includes(IMAGE_GENERATION_TOOL_ID)) {
         sdkOptions.allowedTools.push(IMAGE_GENERATION_TOOL_ID);
+      }
+    }
+
+    // GOLDJAXE fork (реестр §27): через SDK только имена и статус, не конверт.
+    const protectedData = protectedDataRelay.take(ws);
+    if (protectedTurn && !protectedData) return;
+    if (protectedData) {
+      protectedDataTool = createProtectedDataMcp(protectedData, () => Boolean(
+        protectedDataRelay.isActive(ws) && queryInstance && !turnCompleteSent
+        && !abortedSessionIds.has(sessionKey() ?? '') && !supersededInstances.has(queryInstance),
+      ));
+      sdkOptions.mcpServers = { ...sdkOptions.mcpServers, [PROTECTED_DATA_MCP_SERVER]: protectedDataTool.server };
+      if (!sdkOptions.allowedTools.includes(PROTECTED_DATA_TOOL_ID)) {
+        sdkOptions.allowedTools.push(PROTECTED_DATA_TOOL_ID);
       }
     }
 
@@ -1626,6 +1649,7 @@ async function queryClaudeSDK(
 
     // The SDK's own `query`, unless the caller supplies one (tests script the
     // stream to drive the hold logic below without a CLI process).
+    if (protectedTurn && !protectedDataRelay.isActive(ws)) return;
     const createQuery = context.createQuery ?? query;
     let heldPrompt = createHeldPromptStream(promptMessages);
     releasePromptStream = heldPrompt.release;
@@ -1873,6 +1897,11 @@ async function queryClaudeSDK(
       }
 
       if (message.type === 'result') {
+        // Первое завершение закрывает набор, даже если SDK останется на фоне.
+        if (protectedDataTool) {
+          protectedDataTool.revoke();
+          protectedDataRelay.forget(ws);
+        }
         const abortPending = sessionKey() ? abortedSessionIds.has(sessionKey()) : false;
         if (pendingSteerIds.size > 0 && !abortPending) {
           // The turn ended before Claude reached a tool-call boundary, so the
@@ -1973,6 +2002,7 @@ async function queryClaudeSDK(
       error
     });
   } finally {
+    protectedDataTool?.revoke();
     // Always close stdin — otherwise an aborted or failed run leaves the CLI
     // process (and its MCP servers) alive until the server exits.
     if (idleReleaseTimer) {
@@ -2252,7 +2282,8 @@ async function askSideQuestion(
   // `session &&` (not just `instance &&`) narrows `session` itself for the
   // rest of this block, since `instance` was read off it through a cast TS
   // cannot trace back.
-  if (session && instance && typeof instance.askSideQuestion === 'function' && !session.inputReleased) {
+  if (session && instance && typeof instance.askSideQuestion === 'function' && !session.inputReleased
+    && (!session.writer || !protectedDataRelay.isActive(session.writer))) {
     // Counted on the session entry so `queryClaudeSDK`'s
     // `maybeReleasePromptStream` defers a release requested while this is
     // still above zero, instead of closing stdin under the question.

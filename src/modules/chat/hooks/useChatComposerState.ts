@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -39,6 +39,8 @@ import {
   isSupportedAttachment,
 } from '@/modules/chat/utils/attachmentSupport';
 import { useAskSideQuestion } from '@/modules/chat/hooks/useSideQuestions';
+import { useProtectedDataComposer } from '@/modules/chat/hooks/useProtectedDataComposer';
+import { stageProtectedData } from '@/modules/chat/protected-data/protected-data-client';
 
 type UseChatComposerStateArgs = {
   selectedProject: Project | null;
@@ -349,6 +351,9 @@ export function useChatComposerState({
   const draftScope = sessionKey ?? (selectedProjectId ? `project:${selectedProjectId}` : null);
   const draftScopeRef = useRef(draftScope);
   draftScopeRef.current = draftScope;
+  const protectedData = useProtectedDataComposer(draftScope, provider);
+  const connectedRef = useRef(isConnected);
+  useLayoutEffect(() => { connectedRef.current = isConnected; }, [isConnected]);
   // Файлы остаются локальными, но принадлежат черновику своей сессии: поздний
   // отказ очереди должен вернуть их в A, не затронув вложения открытой B.
   const [attachedFilesByScope, setAttachedFilesByScope] = useState<Map<string | null, File[]>>(() => new Map());
@@ -1207,6 +1212,15 @@ export function useChatComposerState({
       const currentInput = queuedSubmission?.content ?? inputValueRef.current;
       const currentAttachments = queuedSubmission?.attachments ?? attachedFiles;
       const previouslyUploadedAttachments = queuedSubmission?.uploadedAttachments ?? [];
+      // GOLDJAXE fork (реестр §27): только следующий прямой текстовый ход.
+      const secretDraft = queuedSubmission ? null : protectedData.draft;
+      if (secretDraft) {
+        if (!currentInput.trim() || currentInput.trimStart().startsWith('/') || currentInput.trim().toLowerCase() === 'help'
+          || isLoading || editingAnchorId || !connectedRef.current || submitOptions?.steerIntoTurn) {
+          protectedData.setIssue('directOnly');
+          return;
+        }
+      }
       if (
         (
           !currentInput.trim()
@@ -1355,6 +1369,7 @@ export function useChatComposerState({
       // via the session gateway. There is no client-visible session-id
       // handoff later — this id stays valid for the conversation's lifetime.
       let targetSessionId = selectedSession?.id || currentSessionId || null;
+      let announceProtectedSession: (() => void) | undefined;
       if (!targetSessionId) {
         let createdSessionName = sessionSummary;
         try {
@@ -1396,11 +1411,15 @@ export function useChatComposerState({
           return;
         }
 
-        onSessionEstablished?.(targetSessionId, {
+        const establishedId = targetSessionId;
+        const announce = () => onSessionEstablished?.(establishedId, {
           provider,
           project: selectedProject,
           summary: createdSessionName,
         });
+        // Не менять область защищённого набора до завершения подготовки рана.
+        if (secretDraft) announceProtectedSession = announce;
+        else announce();
       }
 
       // A new turn replaces the CLI process a session's background work runs
@@ -1410,6 +1429,10 @@ export function useChatComposerState({
       // which the server holds until it finishes, is the safe alternative.
       const backgroundActivity = processingSessionsRef.current?.get(targetSessionId);
       if (backgroundActivity?.background) {
+        if (secretDraft) {
+          protectedData.setIssue('directOnly');
+          return;
+        }
         const work = ownBackgroundTasks(backgroundActivity.tasks ?? [])
           .map((task) => describeBackgroundTask(task, t));
         const choice = submitOptions?.presetBackgroundChoice ?? await askBeforeSendingOverBackgroundWork(work);
@@ -1435,6 +1458,23 @@ export function useChatComposerState({
           }, targetSessionId);
           return;
         }
+      }
+
+      let protectedDataId: string | undefined;
+      if (secretDraft) {
+        if (!protectedData.isCurrent(secretDraft) || inputValueRef.current !== currentInput) return;
+        try {
+          protectedDataId = await stageProtectedData(secretDraft.profile, targetSessionId, secretDraft.fields);
+        } catch {
+          if (protectedData.isCurrent(secretDraft)) protectedData.setIssue('stageFailed');
+          return;
+        }
+        if (!protectedData.isCurrent(secretDraft) || inputValueRef.current !== currentInput) return;
+        if (!connectedRef.current || processingSessionsRef.current?.has(targetSessionId)) {
+          protectedData.setIssue('directOnly');
+          return;
+        }
+        announceProtectedSession?.();
       }
 
       const attachmentRecords = uploadedAttachments as ChatAttachment[];
@@ -1472,12 +1512,14 @@ export function useChatComposerState({
         type: editingAnchorId ? 'chat.edit-send' : 'chat.send',
         sessionId: targetSessionId,
         ...(editingAnchorId ? { anchorId: editingAnchorId } : {}),
+        ...(protectedDataId ? { protectedDataId } : {}),
         content: messageContent,
         options: {
           ...(queuedSubmission?.options ?? buildSendOptions(messageContent)),
           attachments: uploadedAttachments,
         },
       });
+      if (secretDraft) protectedData.remove();
       // Only this send's edit: an edit begun in another chat during the upload stays.
       setEditingAnchorId((current) => (current === editingAnchorId ? null : current));
 
@@ -1525,6 +1567,7 @@ export function useChatComposerState({
       isLoading,
       onSessionProcessing,
       onSessionEstablished,
+      protectedData,
       provider,
       queueMessage,
       recordSentMessage,
@@ -1581,6 +1624,10 @@ export function useChatComposerState({
   // only diverges once the message is ready to leave the composer.
   const handleSendMenuChoice = useCallback(
     async (choice: 'queue' | 'steer' | 'sideQuestion' | 'send'): Promise<void> => {
+      if (protectedData.draft) {
+        protectedData.setIssue('directOnly');
+        return;
+      }
       if (choice === 'sideQuestion') {
         askSideQuestionAndClear(sessionKey, inputValueRef.current);
         return;
@@ -1591,7 +1638,7 @@ export function useChatComposerState({
       }
       await handleSubmit(createFakeSubmitEvent(), undefined, { presetBackgroundChoice: choice });
     },
-    [askSideQuestionAndClear, handleSubmit, sessionKey],
+    [askSideQuestionAndClear, handleSubmit, protectedData, sessionKey],
   );
 
   useEffect(() => {
@@ -1979,6 +2026,7 @@ export function useChatComposerState({
     renderInputWithMentions,
     selectFile,
     attachedFiles,
+    protectedData,
     setAttachedFiles,
     fileErrors,
     getRootProps,

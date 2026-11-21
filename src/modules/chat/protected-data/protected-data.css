@@ -1,0 +1,82 @@
+/* GOLDJAXE fork (реестр §27): на телефоне низ панели следует за видимой областью, а не за layout viewport. */
+.protected-data-layer {
+  position: fixed;
+  z-index: 110;
+}
+
+.protected-data-layer:not([data-mobile]) {
+  bottom: var(--protected-anchor-bottom);
+  left: var(--protected-anchor-left);
+  width: var(--protected-anchor-width);
+}
+
+.protected-data-layer:not([data-mobile], [data-positioned]) {
+  /* Не наследовать visibility: глобальный transition полей мешает первому focus(). */
+  display: none;
+}
+
+.protected-data-layer[data-mobile] {
+  top: var(--protected-viewport-top, 0px);
+  left: var(--protected-viewport-left, 0px);
+  width: var(--protected-viewport-width, 100%);
+  height: var(--protected-viewport-height, 100%);
+  height: var(--protected-viewport-height, 100dvh);
+  display: flex;
+  align-items: end;
+  justify-content: center;
+}
+
+.protected-data-panel {
+  max-height: var(--protected-anchor-space);
+}
+
+[data-mobile] .protected-data-panel {
+  max-height: calc(100% - max(8px, env(safe-area-inset-top, 0px)));
+  border-bottom: 0;
+  border-radius: 1rem 1rem 0 0;
+}
+
+[data-mobile] .protected-data-inset {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+[data-mobile] .protected-data-footer {
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+.protected-data-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 2rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+[data-mobile] .protected-data-row {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 3rem;
+}
+
+[data-mobile] .protected-data-entry,
+[data-mobile] .protected-data-action {
+  min-height: 3rem;
+}
+
+[data-mobile] .protected-data-entry {
+  font-size: 1rem;
+}
+
+[data-mobile] .protected-data-icon-button {
+  width: 3rem;
+}
+
+@media (pointer: coarse) {
+  .protected-data-chip-remove {
+    width: 3rem;
+  }
+
+  .protected-data-chip-button::after {
+    content: '';
+    position: absolute;
+    inset: -8px 0;
+  }
+}

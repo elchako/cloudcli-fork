@@ -11,6 +11,15 @@
     "copyAsMarkdown": "Copy as markdown",
     "copyAsText": "Copy as text"
   },
+  "protectedData": {
+    "title": "Protected data",
+    "loading": "Checking the connection…",
+    "unavailable": "The local protected-data executor is not configured or unavailable.",
+    "unsupported": "Protected data currently requires the Claude Code provider.",
+    "notSecure": "Open CloudCLI over HTTPS to attach protected data.",
+    "directOnly": "Send a new text message after the current work ends. Queues, commands, and edits do not support protected data.",
+    "stageFailed": "Could not prepare protected data. Reopen the attachment and check the connection."
+  },
   "promptNavigator": {
     "label": "Your prompts",
     "previous": "Previous prompt",

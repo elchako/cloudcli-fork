@@ -243,13 +243,6 @@ function ChatInterface({
     }
   }, [addMessage, currentSessionId, requestLatestMessages, selectedSession?.id, setTokenBudget, supportsContextClearing, t]);
 
-  // The button asks first: unlike a typed `/clear`, a click can be a slip.
-  const handleClearContextClick = useCallback(() => {
-    if (window.confirm(t('misc.clearContextConfirm'))) {
-      void handleClearContext();
-    }
-  }, [handleClearContext, t]);
-
   const {
     input,
     setInput,
@@ -271,6 +264,7 @@ function ChatInterface({
     renderInputWithMentions,
     selectFile,
     attachedFiles,
+    protectedData,
     setAttachedFiles,
     fileErrors,
     getRootProps,
@@ -438,6 +432,10 @@ function ChatInterface({
    * the box as a send would — the message has left the composer either way.
    */
   const handleScheduleMessage = useCallback(async (scheduledFor: Date) => {
+    if (protectedData?.draft) {
+      protectedData.setIssue('directOnly');
+      return;
+    }
     const content = input.trim();
     if (!content) return;
 
@@ -449,7 +447,7 @@ function ChatInterface({
     if (scheduled) {
       setInput('');
     }
-  }, [currentProviderEffort, currentProviderModel, input, permissionMode, scheduleMessage, setInput]);
+  }, [currentProviderEffort, currentProviderModel, input, permissionMode, protectedData, scheduleMessage, setInput]);
 
   const permissionContextValue = useMemo(() => ({
     pendingPermissionRequests,
@@ -628,7 +626,7 @@ function ChatInterface({
           modelsLoading={providerModelsLoading}
           tokenBudget={tokenBudget}
           onShowTokenUsage={showCostModal}
-          onClearContext={supportsContextClearing && (currentSessionId || selectedSession?.id) ? handleClearContextClick : undefined}
+          protectedData={protectedData}
           isEditingSentMessage={Boolean(editingAnchorId)}
           onCancelEditMessage={cancelEditMessage}
           scheduledMessages={scheduledMessages}

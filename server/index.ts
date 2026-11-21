@@ -45,6 +45,7 @@ import providerRoutes from './modules/providers/provider.routes.js';
 import { voiceRoutes } from './modules/voice/index.js';
 // GOLDJAXE fork (реестр §4.16): read-aloud summary on the user's own model access.
 import { speechSummaryRoutes } from './modules/speech-summary/index.js';
+import { protectedDataRoutes } from './modules/protected-data/index.js';
 import {
     closeScheduledMessageDispatcher,
     initializeScheduledMessageDispatcher,
@@ -128,6 +129,8 @@ createWebSocketServer(server, {
 });
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token', 'X-Auth-Error'] }));
+// GOLDJAXE fork (реестр §27): отдельный малый парсер, до общего JSON middleware.
+app.use('/api/protected-data', validateApiKey, authenticateToken, protectedDataRoutes);
 app.use(express.json({
     limit: '50mb',
     type: (req) => {
