@@ -73,10 +73,12 @@ function executorRequest(route: '/v1/profile' | '/v1/execute', body?: ProtectedD
   });
 }
 
-type StagedGrant = {
-  userId: string;
+export type ProtectedDataRunGrant = {
   envelope: ProtectedDataEnvelope;
+  operation?: ProtectedDataProfile['operation'];
 };
+
+type StagedGrant = ProtectedDataRunGrant & { userId: string };
 
 export function createProtectedDataRelay({
   call = executorRequest,
@@ -85,7 +87,7 @@ export function createProtectedDataRelay({
 }: { call?: ExecutorRequest; pinnedKey?: () => string | undefined; now?: () => number } = {}) {
   const staged = new Map<string, StagedGrant>();
   const nonces = new Set<string>();
-  const bound = new WeakMap<ProviderRuntimeWriter, ProtectedDataEnvelope>();
+  const bound = new WeakMap<ProviderRuntimeWriter, ProtectedDataRunGrant>();
   const active = new WeakMap<ProviderRuntimeWriter, number>();
 
   async function getProfile(): Promise<ProtectedDataProfile | null> {
@@ -119,7 +121,7 @@ export function createProtectedDataRelay({
         staged.delete(id);
         nonces.delete(nonce);
       }, envelope.issuedAt + PROTECTED_DATA_TTL_MS - now()).unref();
-      staged.set(id, { userId, envelope });
+      staged.set(id, { userId, envelope, operation: profile.operation });
       return id;
     },
     prepare(userId: string, sessionId: string, id: unknown) {
@@ -129,15 +131,15 @@ export function createProtectedDataRelay({
       return (writer: ProviderRuntimeWriter) => {
         if (staged.get(id) !== entry || !isFresh(entry.envelope)) return false;
         staged.delete(id);
-        bound.set(writer, entry.envelope);
+        bound.set(writer, { envelope: entry.envelope, operation: entry.operation });
         active.set(writer, entry.envelope.issuedAt + PROTECTED_DATA_TTL_MS);
         return true;
       };
     },
-    take(writer: ProviderRuntimeWriter): ProtectedDataEnvelope | undefined {
-      const envelope = bound.get(writer);
+    take(writer: ProviderRuntimeWriter): ProtectedDataRunGrant | undefined {
+      const grant = bound.get(writer);
       bound.delete(writer);
-      return envelope && isFresh(envelope) ? envelope : undefined;
+      return grant && isFresh(grant.envelope) ? grant : undefined;
     },
     wasBound(writer: ProviderRuntimeWriter): boolean {
       return active.has(writer);

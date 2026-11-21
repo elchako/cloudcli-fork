@@ -24,21 +24,23 @@ import {
   type ProtectedDataStatus,
 } from './protocol.js';
 
-// GOLDJAXE fork (реестр §27): отдельный процесс с доверенной конфигурацией и одним HTTPS GET.
+// GOLDJAXE fork (реестр §27, §27.1): проверка доставки без сети или один настроенный HTTPS GET.
 const CHECK_TIMEOUT_MS = 5_000;
 const MAX_PENDING_CHECKS = 16;
 const MAX_NONCES = 4096;
 const UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const CONTROLS = /[\u0000-\u001f\u007f]/u;
-const CONFIG_FIELDS = ['socketPath', 'privateKeyPath', 'label', 'target', 'auth', 'urlField'];
+const CONFIG_FIELDS = ['socketPath', 'privateKeyPath', 'label', 'target', 'auth', 'urlField', 'operation'];
 
 type Auth = { type: 'bearer'; tokenField: string } | { type: 'basic'; loginField: string; passwordField: string };
-type ExecutorConfig = Pick<ProtectedDataProfile, 'label' | 'urlField'> & {
+type ExecutorConfig = {
+  label: string;
   socketPath: string;
   privateKeyPath: string;
-  target: string;
-  auth: Auth;
-};
+} & (
+  | { operation: 'local-check' }
+  | { operation: 'https-check'; target: string; auth: Auth; urlField?: string }
+);
 type Check = (target: string, authorization: string, signal: AbortSignal) => Promise<number | undefined>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,15 +103,20 @@ function readConfig(path: string, uid: number): ExecutorConfig {
   if (!isRecord(value) || Object.keys(value).some((key) => !CONFIG_FIELDS.includes(key))) {
     throw new Error('Недопустимая конфигурация исполнителя');
   }
-  const { socketPath, privateKeyPath, label, target, urlField } = value;
-  const auth = readAuth(value.auth);
+  const { socketPath, privateKeyPath, label, target, urlField, operation } = value;
   // Linux sun_path: 108 байт вместе с завершающим NUL.
-  if (!isLocalPath(socketPath, 107) || !isLocalPath(privateKeyPath) || !isProtectedDataLabel(label)
-    || !isHttpsTarget(target) || !auth
+  if (!isLocalPath(socketPath, 107) || !isLocalPath(privateKeyPath) || !isProtectedDataLabel(label)) {
+    throw new Error('Недопустимая конфигурация исполнителя');
+  }
+  if (operation === 'local-check' && !('target' in value || 'auth' in value || 'urlField' in value)) {
+    return { socketPath, privateKeyPath, label, operation };
+  }
+  const auth = readAuth(value.auth);
+  if (operation !== undefined || !isHttpsTarget(target) || !auth
     || (urlField !== undefined && (!isProtectedDataAlias(urlField) || authFields(auth).includes(urlField)))) {
     throw new Error('Недопустимая конфигурация исполнителя');
   }
-  return { socketPath, privateKeyPath, label, target, auth, urlField };
+  return { socketPath, privateKeyPath, label, operation: 'https-check', target, auth, urlField };
 }
 
 function readPrivateKey(path: string, uid: number): { key: KeyObject; wrappedKeyBytes: number } {
@@ -148,7 +155,7 @@ function openEnvelope(
       const fields = new Map<string, string>();
       for (let index = 0; index < values.length; index += 1) {
         const value: unknown = values[index];
-        if (typeof value !== 'string' || value.length > PROTECTED_DATA_MAX_VALUE_BYTES
+        if (typeof value !== 'string' || value.length === 0 || value.length > PROTECTED_DATA_MAX_VALUE_BYTES
           || Buffer.byteLength(value, 'utf8') > PROTECTED_DATA_MAX_VALUE_BYTES || /[\uD800-\uDFFF]/u.test(value)) return null;
         const name = envelope.names[index];
         if (selectedFields.has(name)) fields.set(name, value);
@@ -228,15 +235,18 @@ export async function startProtectedDataExecutor(
     throw new Error('Недопустимый каталог сокета исполнителя');
   }
   const { key, wrappedKeyBytes } = readPrivateKey(config.privateKeyPath, uid);
-  const requiredFields = authFields(config.auth);
+  const localOnly = config.operation === 'local-check';
+  const requiredFields = localOnly ? [] : authFields(config.auth);
   const selectedFields = new Set(requiredFields);
-  if (config.urlField !== undefined) selectedFields.add(config.urlField);
+  const urlField = localOnly ? undefined : config.urlField;
+  if (urlField !== undefined) selectedFields.add(urlField);
   const profile: ProtectedDataProfile = {
     revision: randomBytes(32).toString('hex'),
     publicKey: createPublicKey(key).export({ type: 'spki', format: 'der' }).toString('base64'),
     label: config.label,
     requiredFields,
-    ...(config.urlField === undefined ? {} : { urlField: config.urlField }),
+    ...(localOnly ? { operation: 'local-check' } : {}),
+    ...(urlField === undefined ? {} : { urlField }),
   };
   const nonces = new Map<string, number>();
   const shutdown = new AbortController();
@@ -252,16 +262,19 @@ export async function startProtectedDataExecutor(
     if (age >= PROTECTED_DATA_TTL_MS) return 'expired';
     if (age < -PROTECTED_DATA_CLOCK_SKEW_MS || !requiredFields.every((name) => envelope.names.includes(name))) return 'invalid';
 
-    let authorization: string | null;
+    let remote: { target: string; authorization: string } | undefined;
     try {
       const fields = openEnvelope(key, wrappedKeyBytes, envelope, selectedFields);
-      if (!fields || (config.urlField !== undefined && fields.has(config.urlField)
-        && fields.get(config.urlField) !== config.target)) return 'invalid';
-      authorization = authorizationHeader(config.auth, fields);
+      if (!fields) return 'invalid';
+      if (config.operation === 'https-check') {
+        if (urlField !== undefined && fields.has(urlField) && fields.get(urlField) !== config.target) return 'invalid';
+        const authorization = authorizationHeader(config.auth, fields);
+        if (!authorization) return 'invalid';
+        remote = { target: config.target, authorization };
+      }
     } catch {
       return 'invalid';
     }
-    if (!authorization) return 'invalid';
 
     const nonce = envelope.nonce.toLowerCase();
     if ((nonces.get(nonce) ?? 0) > time) return 'used';
@@ -271,11 +284,14 @@ export async function startProtectedDataExecutor(
     }
     // Резервируем до первого await; ошибка или обрыв не разрешают повтор.
     nonces.set(nonce, envelope.issuedAt + PROTECTED_DATA_TTL_MS);
-    if (shutdown.signal.aborted || pending >= MAX_PENDING_CHECKS) return 'failed';
+    if (shutdown.signal.aborted) return 'failed';
+    // GOLDJAXE fork (реестр §27.1): в локальном режиме значения не используются вне проверки конверта.
+    if (!remote) return 'received';
+    if (pending >= MAX_PENDING_CHECKS) return 'failed';
     pending += 1;
     try {
       const signal = AbortSignal.any([shutdown.signal, AbortSignal.timeout(CHECK_TIMEOUT_MS)]);
-      const code = await check(config.target, authorization, signal);
+      const code = await check(remote.target, remote.authorization, signal);
       return signal.aborted ? 'failed' : statusFor(code);
     } catch {
       return 'failed';

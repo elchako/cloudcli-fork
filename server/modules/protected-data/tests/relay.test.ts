@@ -9,7 +9,7 @@ const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export
 const pin = createHash('sha256').update(key).digest('hex');
 const profile = { revision: 'a'.repeat(64), label: 'Проверка API', publicKey: key.toString('base64'), requiredFields: ['TOKEN'] };
 
-function fixture() {
+function fixture(operation?: 'local-check') {
   let now = Date.now();
   const envelope: ProtectedDataEnvelope = {
     version: 1,
@@ -28,9 +28,9 @@ function fixture() {
     now: () => now,
     pinnedKey: () => activePin,
     call: async (route) => {
-      if (route === '/v1/profile') return profile;
+      if (route === '/v1/profile') return operation ? { ...profile, requiredFields: [], operation } : profile;
       executions++;
-      return { status: 'unrecognized', extra: 'private-output-marker' };
+      return { status: operation ? 'received' : 'unrecognized', extra: 'private-output-marker' };
     },
   });
   return {
@@ -55,7 +55,7 @@ test('нельзя получить набор другого пользоват
   assert.equal(first?.(a), true);
   assert.equal(racing?.(b), false);
   assert.equal(relay.take(b), undefined);
-  assert.equal(relay.take(a), envelope);
+  assert.equal(relay.take(a)?.envelope, envelope);
   assert.equal(relay.take(a), undefined);
   assert.equal(relay.prepare('user-a', envelope.sessionId, id), null);
   assert.equal(await relay.stage('user-a', envelope), null, 'неиспользованный конверт нельзя заново привязать');
@@ -87,6 +87,17 @@ test('не совпадающий PIN, старый профиль и проср
   assert.equal(relay.prepare('user-a', envelope.sessionId, id), null);
   assert.equal(await relay.execute(envelope), 'expired');
   assert.equal(executions(), 0);
+});
+
+test('локальная операция определяется проверенным профилем и сохраняется для одного хода', async () => {
+  const { relay, envelope } = fixture('local-check');
+  const arbitrary = { ...envelope, names: ['LABEL'] };
+  const id = await relay.stage('user-a', arbitrary);
+  assert.ok(id);
+  const writer = { send: () => {} };
+  assert.equal(relay.prepare('user-a', envelope.sessionId, id)?.(writer), true);
+  assert.deepEqual(relay.take(writer), { envelope: arbitrary, operation: 'local-check' });
+  assert.equal(await relay.execute(arbitrary), 'received');
 });
 
 test('неожиданный ответ исполнителя не попадает в результат проверки', async () => {

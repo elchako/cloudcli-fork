@@ -1,17 +1,17 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 
-import type { ProtectedDataEnvelope, ProtectedDataStatus } from './protocol.js';
-import { PROTECTED_DATA_TTL_MS } from './protocol.js';
-import { protectedDataRelay } from './relay.js';
+import { PROTECTED_DATA_TTL_MS, type ProtectedDataEnvelope, type ProtectedDataStatus } from './protocol.js';
+import { protectedDataRelay, type ProtectedDataRunGrant } from './relay.js';
 
 export const PROTECTED_DATA_MCP_SERVER = 'cloudcli-protected-data';
 export const PROTECTED_DATA_TOOL_ID = `mcp__${PROTECTED_DATA_MCP_SERVER}__check_connection`;
 
 const STATUS_TEXT: Record<ProtectedDataStatus, string> = {
   ok: 'Доступ к настроенному API подтверждён.',
+  received: 'Защищённый набор получен и проверен локально. Сетевых запросов не было.',
   denied: 'Настроенный API отклонил авторизацию.',
   failed: 'Проверка не удалась; дополнительный ответ сервера недоступен.',
-  invalid: 'Поля не соответствуют настройкам подключения; запрос не отправлен.',
+  invalid: 'Защищённый набор не прошёл проверку; значения не использованы.',
   expired: 'Срок действия защищённых данных истёк.',
   used: 'Защищённые данные больше недоступны для этой проверки.',
 };
@@ -19,7 +19,7 @@ const STATUS_TEXT: Record<ProtectedDataStatus, string> = {
 // GOLDJAXE fork (реестр §27): модель предлагает только фиксированное действие;
 // инструмент не получает URL, имя пользователя, произвольные аргументы или вывод API.
 export function createProtectedDataMcp(
-  envelope: ProtectedDataEnvelope,
+  { envelope, operation }: ProtectedDataRunGrant,
   isCurrent: () => boolean,
   execute = protectedDataRelay.execute,
 ) {
@@ -46,7 +46,7 @@ export function createProtectedDataMcp(
         status = 'failed';
       }
     }
-    return { content: [{ type: 'text' as const, text: STATUS_TEXT[status] }], isError: status !== 'ok' };
+    return { content: [{ type: 'text' as const, text: STATUS_TEXT[status] }], isError: status !== 'ok' && status !== 'received' };
   };
 
   return {
@@ -58,8 +58,10 @@ export function createProtectedDataMcp(
       timeout: 15_000,
       tools: [tool('check_connection', [
         `В этом сообщении предоставлены защищённые поля: ${envelope.names.join(', ')}.`,
-        'Вызови только если пользователь просит проверить подключение к настроенному API.',
-        'Это одноразовая проверка доступа. Она не принимает аргументов и возвращает только статус.',
+        operation === 'local-check'
+          ? 'Вызови только если пользователь просит локально проверить доставку защищённых полей. Сетевого запроса и проверки пароля в сервисе не будет.'
+          : 'Вызови только если пользователь просит проверить подключение к настроенному API.',
+        'Это одноразовая проверка. Она не принимает аргументов и возвращает только статус.',
         'Не пытайся читать значения или направлять их через другие инструменты.',
       ].join(' '), {}, check)],
     }),

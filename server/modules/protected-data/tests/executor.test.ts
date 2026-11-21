@@ -120,6 +120,26 @@ async function seal(
   };
 }
 
+test('локальная проверка подтверждает только доставку и не вызывает сетевой обработчик', async (t) => {
+  const fx = fixture(t, { operation: 'local-check', target: undefined, auth: undefined, urlField: undefined });
+  let calls = 0;
+  await fx.start({ check: async () => { calls++; return 200; } });
+  const profile = await fx.profile();
+  assert.equal(profile.operation, 'local-check');
+  assert.deepEqual(profile.requiredFields, []);
+  const sealed = await seal(profile, { names: ['FIRST', 'SECOND'], values: ['sample-a', 'sample-b'] });
+  assert.equal(await fx.execute(sealed), 'received');
+  assert.equal(await fx.execute(sealed), 'used');
+  assert.equal(await fx.execute(await seal(profile, { values: [''] })), 'invalid');
+  assert.equal(calls, 0);
+});
+
+test('локальный исполнитель отказывается запускаться с сетевым назначением', async (t) => {
+  const fx = fixture(t, { operation: 'local-check' });
+  await assert.rejects(fx.start({}), /Недопустимая конфигурация/);
+  assert.equal(existsSync(fx.socketPath), false);
+});
+
 test('профиль и режим сокета; nonce резервируется до окончания HTTPS-проверки', async (t) => {
   const fx = fixture(t);
   const calls: [string, string][] = [];

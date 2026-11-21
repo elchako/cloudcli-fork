@@ -268,7 +268,7 @@ export function ProtectedDataForm({ anchorRef, fields, profile, onAttach, onClos
           <div ref={scrollRef} className="protected-data-inset min-h-0 overflow-y-auto overscroll-contain px-4 pb-1">
             <div className="mb-3 space-y-0.5 border-b border-border pb-3 text-sm">
               <p className="break-words font-medium">{profile.label}</p>
-              <p className="text-xs text-muted-foreground">{copy.readOnly}</p>
+              <p className="text-xs text-muted-foreground">{profile.operation === 'local-check' ? copy.localOnly : copy.readOnly}</p>
               {profile.requiredFields.length > 0 && (
                 <p className="break-words text-xs text-muted-foreground">
                   {copy.required}: <span className="font-mono" dir="ltr">{profile.requiredFields.join(', ')}</span>

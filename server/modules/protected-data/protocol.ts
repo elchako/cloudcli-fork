@@ -19,7 +19,7 @@ const REVISION = /^[0-9a-f]{64}$/i;
 const SESSION_ID = /^[A-Za-z0-9_.:-]{1,256}$/;
 const NONCE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALIAS = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
-const PROFILE_FIELDS = ['revision', 'publicKey', 'label', 'requiredFields', 'urlField'];
+const PROFILE_FIELDS = ['revision', 'publicKey', 'label', 'requiredFields', 'urlField', 'operation'];
 const ENVELOPE_FIELDS = ['version', 'revision', 'sessionId', 'nonce', 'issuedAt', 'names', 'wrappedKey', 'iv', 'ciphertext'];
 
 export interface ProtectedDataProfile {
@@ -28,6 +28,7 @@ export interface ProtectedDataProfile {
   label: string;
   requiredFields: string[];
   urlField?: string;
+  operation?: 'local-check';
 }
 
 export interface ProtectedDataEnvelope {
@@ -42,7 +43,7 @@ export interface ProtectedDataEnvelope {
   ciphertext: string;
 }
 
-export type ProtectedDataStatus = 'ok' | 'denied' | 'failed' | 'invalid' | 'expired' | 'used';
+export type ProtectedDataStatus = 'ok' | 'received' | 'denied' | 'failed' | 'invalid' | 'expired' | 'used';
 
 function hasOnlyFields(value: unknown, fields: string[]): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -90,10 +91,13 @@ function isPublicKey(value: unknown): value is string {
 
 export function readProtectedDataProfile(value: unknown): ProtectedDataProfile | null {
   if (!hasOnlyFields(value, PROFILE_FIELDS)) return null;
-  const { revision, publicKey, label, urlField } = value;
+  const { revision, publicKey, label, urlField, operation } = value;
+  if (typeof revision !== 'string' || !REVISION.test(revision) || !isProtectedDataLabel(label) || !isPublicKey(publicKey)) return null;
+  if (operation === 'local-check' && urlField === undefined && Array.isArray(value.requiredFields) && value.requiredFields.length === 0) {
+    return { revision, publicKey, label, requiredFields: [], operation };
+  }
   const requiredFields = readNames(value.requiredFields);
-  if (typeof revision !== 'string' || !REVISION.test(revision) || !isProtectedDataLabel(label)
-    || !requiredFields || !isPublicKey(publicKey)) return null;
+  if (operation !== undefined || !requiredFields) return null;
   if (urlField === undefined) return { revision, publicKey, label, requiredFields };
   if (!isProtectedDataAlias(urlField) || requiredFields.length >= PROTECTED_DATA_MAX_FIELDS
     || requiredFields.includes(urlField)) return null;
@@ -115,7 +119,7 @@ export function readProtectedDataEnvelope(value: unknown): ProtectedDataEnvelope
 
 export function readProtectedDataStatus(value: unknown): ProtectedDataStatus | null {
   switch (value) {
-    case 'ok': case 'denied': case 'failed': case 'invalid': case 'expired': case 'used':
+    case 'ok': case 'received': case 'denied': case 'failed': case 'invalid': case 'expired': case 'used':
       return value;
     default:
       return null;

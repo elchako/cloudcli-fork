@@ -9,6 +9,7 @@ export type ProtectedDataProfile = {
   label: string;
   requiredFields: string[];
   urlField?: string;
+  operation?: 'local-check';
 };
 
 export const MAX_PROTECTED_FIELDS = 12;
@@ -42,16 +43,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readProfile(value: unknown): ProtectedDataProfile {
   if (!isRecord(value)) throw new ProtectedDataError('invalidProfile');
-  const { revision, publicKey, label, requiredFields, urlField } = value;
+  const { revision, publicKey, label, requiredFields, urlField, operation } = value;
   if (typeof revision !== 'string' || !/^[0-9a-f]{64}$/i.test(revision)
       || typeof publicKey !== 'string' || publicKey.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(publicKey)
       || typeof label !== 'string' || !label.trim()
       || !Array.isArray(requiredFields) || requiredFields.length > MAX_PROTECTED_FIELDS
       || !requiredFields.every(isAlias) || new Set(requiredFields).size !== requiredFields.length
-      || (urlField !== undefined && !isAlias(urlField))) {
+      || (urlField !== undefined && !isAlias(urlField))
+      || (operation !== undefined && operation !== 'local-check')
+      || (operation === 'local-check' && (urlField !== undefined || requiredFields.length !== 0))) {
     throw new ProtectedDataError('invalidProfile');
   }
-  return { revision, publicKey, label, requiredFields: [...requiredFields], ...(urlField === undefined ? {} : { urlField }) };
+  return { revision, publicKey, label, requiredFields: [...requiredFields],
+    ...(urlField === undefined ? {} : { urlField }), ...(operation === undefined ? {} : { operation }) };
 }
 
 export async function loadProtectedDataProfile(signal?: AbortSignal): Promise<ProtectedDataProfile | null> {

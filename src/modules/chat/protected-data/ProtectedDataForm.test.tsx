@@ -17,7 +17,7 @@ const existing = [
   { name: 'TOKEN', value: 'synthetic-test-token' },
 ];
 
-function renderEditor(fields: readonly ProtectedField[] = [], disabled = false) {
+function renderEditor(fields: readonly ProtectedField[] = [], disabled = false, selectedProfile = profile) {
   const onAttach = vi.fn();
   const onClose = vi.fn();
   const composerSubmit = vi.fn();
@@ -32,7 +32,7 @@ function renderEditor(fields: readonly ProtectedField[] = [], disabled = false) 
         onPaste={composerPaste} onDrop={composerDrop}>
         <button ref={anchorRef} type="button" onClick={() => setOpen((value) => !value)}>Lock</button>
         <textarea aria-label="Chat input" />
-        {open && <ProtectedDataForm anchorRef={anchorRef} profile={profile} fields={fields} disabled={disabled}
+        {open && <ProtectedDataForm anchorRef={anchorRef} profile={selectedProfile} fields={fields} disabled={disabled}
           onAttach={(edited) => { onAttach(edited); setOpen(false); }}
           onClose={() => { onClose(); setOpen(false); }} />}
       </form>
@@ -48,6 +48,18 @@ beforeEach(() => { language = 'en'; });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('форма защищённых данных §27', () => {
+  it('показывает локальный режим и не требует имён API', () => {
+    const fields = [{ name: 'LABEL', value: 'synthetic-value' }];
+    const { onAttach } = renderEditor(fields, false, {
+      revision: profile.revision, publicKey: profile.publicKey, label: 'Local profile',
+      operation: 'local-check', requiredFields: [],
+    });
+    expect(screen.getByText('Delivery check · no network')).toBeTruthy();
+    expect(screen.queryByText(/Required fields/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Attach to message' }));
+    expect(onAttach).toHaveBeenCalledExactlyOnceWith(fields);
+  });
+
   it('отдельной формой принимает локальный черновик, не запускает события композера', () => {
     const { onAttach, onClose, composerKeyDown, composerSubmit, composerPaste, composerDrop } = renderEditor(existing);
     const dialog = screen.getByRole('dialog');
