@@ -15,7 +15,7 @@ import {
   type ProtectedDataStatus,
 } from './protocol.js';
 import { createMemoryProtectedDataExecutor } from './executor.js';
-import { readApplyReceiver } from './apply-receiver.js';
+import { PROJECT_ENV_ID, readApplyReceiver } from './apply-receiver.js';
 
 // GOLDJAXE fork (реестр §27): на стороне CloudCLI только конверты и метки.
 const STAGED_LIMIT = 128;
@@ -79,6 +79,7 @@ export type ProtectedDataRunGrant = {
   envelope: ProtectedDataEnvelope;
   operation?: ProtectedDataProfile['operation'];
   destinationLabel?: string;
+  projectRoot?: string;
 };
 
 type StagedGrant = ProtectedDataRunGrant & { userId: string };
@@ -93,7 +94,7 @@ export function createProtectedDataRelay({
   // в режиме памяти. Ключ создаём только при первом обращении к профилю.
   let memory: ReturnType<typeof createMemoryProtectedDataExecutor> | undefined;
   const memoryExecutor = () => (memory ??= createMemoryProtectedDataExecutor(now,
-    readApplyReceiver(process.env.CLOUDCLI_PROTECTED_DATA_APPLY_CONFIG)));
+    readApplyReceiver(process.env.CLOUDCLI_PROTECTED_DATA_APPLY_CONFIG), true));
   const staged = new Map<string, StagedGrant>();
   const nonces = new Set<string>();
   const bound = new WeakMap<ProviderRuntimeWriter, ProtectedDataRunGrant>();
@@ -122,7 +123,8 @@ export function createProtectedDataRelay({
     async stage(userId: string, envelope: ProtectedDataEnvelope): Promise<string | null> {
       const profile = await getProfile();
       const nonce = `${envelope.revision}:${envelope.nonce}`.toLowerCase();
-      if (!profile || envelope.revision !== profile.revision || !isFresh(envelope)
+      const target = profile?.targets?.find(item => item.id === envelope.target);
+      if (!profile || (profile.operation === 'env-apply' ? !target : envelope.target !== undefined) || envelope.revision !== profile.revision || !isFresh(envelope)
         || !profile.requiredFields.every((name) => envelope.names.includes(name))
         || staged.size >= STAGED_LIMIT || nonces.size >= NONCE_LIMIT || nonces.has(nonce)) return null;
       const id = randomUUID();
@@ -132,10 +134,11 @@ export function createProtectedDataRelay({
         nonces.delete(nonce);
       }, envelope.issuedAt + PROTECTED_DATA_TTL_MS - now()).unref();
       staged.set(id, { userId, envelope, operation: profile.operation,
+        ...(target ? { destinationLabel: target.label } : {}),
         ...(profile.operation === 'apply' ? { destinationLabel: profile.label } : {}) });
       return id;
     },
-    prepare(userId: string, sessionId: string, id: unknown) {
+    prepare(userId: string, sessionId: string, id: unknown, projectRoot?: string | null) {
       if (typeof id !== 'string' || !GRANT_ID.test(id)) return null;
       const entry = staged.get(id);
       if (!entry || entry.userId !== userId || entry.envelope.sessionId !== sessionId || !isFresh(entry.envelope)) return null;
@@ -143,6 +146,7 @@ export function createProtectedDataRelay({
         if (staged.get(id) !== entry || !isFresh(entry.envelope)) return false;
         staged.delete(id);
         const { userId: _userId, ...grant } = entry;
+        if (grant.operation === 'env-apply' && grant.envelope.target === PROJECT_ENV_ID && projectRoot) grant.projectRoot = projectRoot;
         bound.set(writer, grant);
         active.set(writer, entry.envelope.issuedAt + PROTECTED_DATA_TTL_MS);
         return true;
@@ -163,10 +167,10 @@ export function createProtectedDataRelay({
       if (active.has(writer)) active.set(writer, 0);
       bound.delete(writer);
     },
-    async execute(envelope: ProtectedDataEnvelope): Promise<ProtectedDataStatus> {
+    async execute(envelope: ProtectedDataEnvelope, projectRoot?: string): Promise<ProtectedDataStatus> {
       if (!isFresh(envelope)) return 'expired';
       try {
-        if (mode === 'memory') return await memoryExecutor().execute(envelope);
+        if (mode === 'memory') return await memoryExecutor().execute(envelope, projectRoot);
         const result = await call('/v1/execute', envelope);
         return result && typeof result === 'object' && 'status' in result
           ? readProtectedDataStatus(result.status) ?? 'failed'

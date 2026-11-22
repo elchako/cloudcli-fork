@@ -124,7 +124,7 @@ systemctl --user restart cloudcli-fork
 | `read-roots.conf` | `CLOUDCLI_READ_ROOTS=%h:/tmp:/var/tmp:/dev/shm:/mnt/goldjaxe-files` | Файлы вне проекта открываются на чтение (реестр [§15](fork/file-viewer.md)) |
 | `media-dirs.conf` | `CLOUDCLI_MEDIA_DIRS=…` | Каталоги превью медиа без проекта ([§4.5](fork/file-viewer.md)); перекрыт `read-roots.conf` |
 | `context-tokens.conf` | `CLAUDE_CODE_MAX_CONTEXT_TOKENS=930000` | Окно контекста GPT шлюза: без него CLI сжимает сессию на 200k, при 1M не успевает сжать до отказа шлюза на ~930k ([§1.3-бис](fork/gpt-gateway.md)) |
-| `protected-data-memory.conf` | `CLOUDCLI_PROTECTED_DATA_MODE=memory` | Проверка доставки защищённых полей только в памяти CloudCLI, без отдельной службы и внешнего API ([§27.2](fork/protected-data.md)) |
+| `protected-data-memory.conf` | `CLOUDCLI_PROTECTED_DATA_MODE=memory` | Встроенный исполнитель: временный ключ в памяти, пользователь выбирает проверку доставки или применение в проекте; внешние получатели требуют настройки ([§27.4](fork/protected-data.md)) |
 
 Появился новый диск/каталог, куда пишет агент, и его файлы не открываются —
 допишите его в `read-roots.conf` через `:` и перезапустите службу.

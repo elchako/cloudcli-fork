@@ -19,8 +19,8 @@ const REVISION = /^[0-9a-f]{64}$/i;
 const SESSION_ID = /^[A-Za-z0-9_.:-]{1,256}$/;
 const NONCE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALIAS = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
-const PROFILE_FIELDS = ['revision', 'publicKey', 'label', 'requiredFields', 'urlField', 'operation'];
-const ENVELOPE_FIELDS = ['version', 'revision', 'sessionId', 'nonce', 'issuedAt', 'names', 'wrappedKey', 'iv', 'ciphertext'];
+const PROFILE_FIELDS = ['revision', 'publicKey', 'label', 'requiredFields', 'urlField', 'operation', 'targets'];
+const ENVELOPE_FIELDS = ['version', 'revision', 'sessionId', 'nonce', 'issuedAt', 'names', 'wrappedKey', 'iv', 'ciphertext', 'target'];
 
 export interface ProtectedDataProfile {
   revision: string;
@@ -28,7 +28,8 @@ export interface ProtectedDataProfile {
   label: string;
   requiredFields: string[];
   urlField?: string;
-  operation?: 'local-check' | 'apply';
+  operation?: 'local-check' | 'apply' | 'env-apply';
+  targets?: Array<{ id: string; label: string }>;
 }
 
 export interface ProtectedDataEnvelope {
@@ -41,6 +42,7 @@ export interface ProtectedDataEnvelope {
   wrappedKey: string;
   iv: string;
   ciphertext: string;
+  target?: string;
 }
 
 export type ProtectedDataStatus = 'ok' | 'received' | 'applied' | 'denied' | 'failed' | 'invalid' | 'expired' | 'used';
@@ -52,6 +54,10 @@ function hasOnlyFields(value: unknown, fields: string[]): value is Record<string
 
 export function isProtectedDataAlias(value: unknown): value is string {
   return typeof value === 'string' && ALIAS.test(value);
+}
+
+export function isProtectedDataTargetId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(value);
 }
 
 export function isProtectedDataLabel(value: unknown): value is string {
@@ -93,6 +99,18 @@ export function readProtectedDataProfile(value: unknown): ProtectedDataProfile |
   if (!hasOnlyFields(value, PROFILE_FIELDS)) return null;
   const { revision, publicKey, label, urlField, operation } = value;
   if (typeof revision !== 'string' || !REVISION.test(revision) || !isProtectedDataLabel(label) || !isPublicKey(publicKey)) return null;
+  if (operation === 'env-apply') {
+    if (!Array.isArray(value.targets) || !value.targets.length || value.targets.length > 16
+      || urlField !== undefined || !Array.isArray(value.requiredFields) || value.requiredFields.length) return null;
+    const targets: NonNullable<ProtectedDataProfile['targets']> = [];
+    for (const item of value.targets) {
+      if (!hasOnlyFields(item, ['id', 'label']) || !isProtectedDataTargetId(item.id) || !isProtectedDataLabel(item.label)
+        || targets.some(t => t.id === item.id)) return null;
+      targets.push({ id: item.id, label: item.label });
+    }
+    return { revision, publicKey, label, requiredFields: [], operation, targets };
+  }
+  if (value.targets !== undefined) return null;
   if (operation === 'local-check' && urlField === undefined && Array.isArray(value.requiredFields) && value.requiredFields.length === 0) {
     return { revision, publicKey, label, requiredFields: [], operation };
   }
@@ -117,7 +135,9 @@ export function readProtectedDataEnvelope(value: unknown): ProtectedDataEnvelope
     || typeof wrappedKey !== 'string' || !readBase64(wrappedKey, PROTECTED_DATA_MIN_RSA_BITS / 8, PROTECTED_DATA_MAX_RSA_BITS / 8)
     || typeof iv !== 'string' || !readBase64(iv, 12, 12)
     || typeof ciphertext !== 'string' || !readBase64(ciphertext, PROTECTED_DATA_GCM_TAG_BYTES + 1, MAX_CIPHERTEXT_BYTES)) return null;
-  return { version, revision, sessionId, nonce, issuedAt, names, wrappedKey, iv, ciphertext };
+  const { target } = value;
+  if (target !== undefined && !isProtectedDataTargetId(target)) return null;
+  return { version, revision, sessionId, nonce, issuedAt, names, wrappedKey, iv, ciphertext, ...(target === undefined ? {} : { target }) };
 }
 
 export function readProtectedDataStatus(value: unknown): ProtectedDataStatus | null {
@@ -129,6 +149,7 @@ export function readProtectedDataStatus(value: unknown): ProtectedDataStatus | n
   }
 }
 
-export function protectedDataAad(envelope: Pick<ProtectedDataEnvelope, 'revision' | 'sessionId' | 'nonce' | 'issuedAt' | 'names'>): Buffer {
-  return Buffer.from(JSON.stringify([1, envelope.revision, envelope.sessionId, envelope.nonce, envelope.issuedAt, envelope.names]), 'utf8');
+export function protectedDataAad(envelope: Pick<ProtectedDataEnvelope, 'revision' | 'sessionId' | 'nonce' | 'issuedAt' | 'names' | 'target'>): Buffer {
+  return Buffer.from(JSON.stringify([1, envelope.revision, envelope.sessionId, envelope.nonce, envelope.issuedAt, envelope.names,
+    ...(envelope.target === undefined ? [] : [envelope.target])]), 'utf8');
 }

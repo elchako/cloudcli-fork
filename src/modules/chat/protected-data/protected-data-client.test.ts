@@ -17,6 +17,7 @@ type Envelope = {
   nonce: string;
   issuedAt: number;
   names: string[];
+  target?: string;
   wrappedKey: string;
   iv: string;
   ciphertext: string;
@@ -68,6 +69,7 @@ async function unwrapKey(envelope: Envelope) {
 function decrypt(envelope: Envelope, key: CryptoKey) {
   const additionalData = new TextEncoder().encode(JSON.stringify([
     1, envelope.revision, envelope.sessionId, envelope.nonce, envelope.issuedAt, envelope.names,
+    ...(envelope.target === undefined ? [] : [envelope.target]),
   ]));
   return webcrypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(envelope.iv), additionalData, tagLength: 128 }, key, decode(envelope.ciphertext));
 }
@@ -78,6 +80,20 @@ describe('публичный профиль §27', () => {
     const { signal } = new AbortController();
     expect(await loadProtectedDataProfile(signal)).toEqual(profile);
     expect(fetchMock).toHaveBeenCalledWith('/api/protected-data', expect.objectContaining({ method: 'GET', cache: 'no-store', redirect: 'error', signal }));
+  });
+
+  it('принимает только корректные и однозначные назначения env-apply', async () => {
+    const target = { id: 'backup_1-east', label: 'Резерв' };
+    const env = { ...profile, operation: 'env-apply', requiredFields: [], urlField: undefined, targets: [target] };
+    fetchMock.mockResolvedValueOnce(Response.json({ ...env, targets: [{ ...target, extra: 'ignore' }] }));
+    await expect(loadProtectedDataProfile()).resolves.toEqual(env);
+    for (const patch of [
+      { targets: undefined }, { targets: [] }, { targets: [target, target] }, { targets: [{ ...target, id: 'Bad' }] },
+      { targets: [{ ...target, label: '' }] }, { requiredFields: ['TOKEN'] }, { urlField: 'URL' }, { operation: 'local-check' },
+    ]) {
+      fetchMock.mockResolvedValueOnce(Response.json({ ...env, ...patch }));
+      await expect(loadProtectedDataProfile()).rejects.toMatchObject({ code: 'invalidProfile' });
+    }
   });
 
   it('возвращает null на 503 и не раскрывает ответ при другой ошибке', async () => {
@@ -156,6 +172,25 @@ describe('шифрование и staging §27', () => {
     expect(decode(first.ciphertext)).toHaveLength(Buffer.byteLength(plaintext) + 16);
     await expect(decrypt({ ...first, sessionId: 'another-session' }, key1)).rejects.toThrow();
     await expect(decrypt({ ...first, names: [...first.names].reverse() }, key1)).rejects.toThrow();
+  });
+
+  it('привязывает env-apply к ID в конце AAD; без выбора запрос не уходит', async () => {
+    const target = 'project-env';
+    const env: ProtectedDataProfile = { ...profile, operation: 'env-apply', urlField: undefined, requiredFields: [],
+      targets: [{ id: target, label: 'Проект' }, { id: 'other', label: 'Другое' }] };
+    for (const id of [undefined, '', 'unknown']) {
+      await expect(stageProtectedData(env, sessionId, fields, id)).rejects.toMatchObject({ code: 'invalidTarget' });
+    }
+    await expect(stageProtectedData(profile, sessionId, fields, target)).rejects.toMatchObject({ code: 'invalidTarget' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValueOnce(Response.json({ id: 'grant' }));
+    await stageProtectedData(env, sessionId, fields, target);
+    const envelope = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as Envelope;
+    expect(envelope.target).toBe(target);
+    const key = await unwrapKey(envelope);
+    expect(JSON.parse(Buffer.from(await decrypt(envelope, key)).toString())).toEqual(fields.map(({ value }) => value));
+    await expect(decrypt({ ...envelope, target: 'other' }, key)).rejects.toThrow();
+    await expect(decrypt({ ...envelope, target: undefined }, key)).rejects.toThrow();
   });
 
   it('не делает HTTP-запрос в небезопасном контексте, с неверным вводом или при сбое шифрования', async () => {

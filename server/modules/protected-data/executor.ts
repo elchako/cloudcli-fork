@@ -23,7 +23,8 @@ import {
   type ProtectedDataProfile,
   type ProtectedDataStatus,
 } from './protocol.js';
-import { applyToReceiver, type ApplyReceiver } from './apply-receiver.js';
+import { applyToReceiver, DELIVERY_CHECK_ID, PROJECT_ENV_ID, type ApplyConfig, type ApplyReceiver, type NamedApplyReceiver } from './apply-receiver.js';
+import { applyProjectEnv } from './project-env.js';
 
 // GOLDJAXE fork (реестр §27, §27.1): проверка доставки без сети или один настроенный HTTPS GET.
 const CHECK_TIMEOUT_MS = 5_000;
@@ -38,7 +39,13 @@ type SocketOperation = { label: string } & (
   | { operation: 'local-check' }
   | { operation: 'https-check'; target: string; auth: Auth; urlField?: string }
 );
-type ExecutorOperation = SocketOperation | ({ label: string; operation: 'apply'; receiver: ApplyReceiver });
+const projectTargets = [
+  { id: PROJECT_ENV_ID, label: 'Текущий проект · .env' },
+  { id: DELIVERY_CHECK_ID, label: 'Только проверить доставку' },
+];
+type ExecutorOperation = SocketOperation
+  | { label: string; operation: 'apply'; receiver: ApplyReceiver }
+  | { label: string; operation: 'env-apply'; targets: NamedApplyReceiver[] | 'project' };
 type ExecutorConfig = SocketOperation & { socketPath: string; privateKeyPath: string };
 type Check = (target: string, authorization: string, signal: AbortSignal) => Promise<number | undefined>;
 type ExecutorOptions = { check?: Check; now?: () => number };
@@ -239,6 +246,9 @@ function createEnvelopeExecutor(
     label: config.label,
     requiredFields,
     ...(operation === 'https-check' ? {} : { operation }),
+    ...(operation === 'env-apply' ? {
+      targets: (config.targets === 'project' ? projectTargets : config.targets).map(({ id, label }) => ({ id, label })),
+    } : {}),
     ...(urlField === undefined ? {} : { urlField }),
   };
   const nonces = new Map<string, number>();
@@ -246,7 +256,7 @@ function createEnvelopeExecutor(
   let pending = 0;
   let lastNow = 0;
 
-  async function execute(value: unknown): Promise<ProtectedDataStatus> {
+  async function execute(value: unknown, projectRoot?: string): Promise<ProtectedDataStatus> {
     const envelope = readProtectedDataEnvelope(value);
     if (!envelope || envelope.revision !== profile.revision) return 'invalid';
     // Перевод часов назад не должен возвращать к жизни просроченные конверты.
@@ -255,11 +265,24 @@ function createEnvelopeExecutor(
     if (age >= PROTECTED_DATA_TTL_MS) return 'expired';
     if (age < -PROTECTED_DATA_CLOCK_SKEW_MS || !requiredFields.every((name) => envelope.names.includes(name))) return 'invalid';
 
+    if (config.operation !== 'env-apply' && envelope.target !== undefined) return 'invalid';
     let action: ((signal: AbortSignal) => Promise<ProtectedDataStatus>) | undefined;
     try {
-      const fields = openEnvelope(key, wrappedKeyBytes, envelope, selectedFields);
+      const names = config.operation === 'env-apply' && envelope.target !== DELIVERY_CHECK_ID ? new Set(envelope.names) : selectedFields;
+      const fields = openEnvelope(key, wrappedKeyBytes, envelope, names);
       if (!fields) return 'invalid';
-      if (config.operation === 'https-check') {
+      if (config.operation === 'env-apply') {
+        if (config.targets === 'project') {
+          if (envelope.target === PROJECT_ENV_ID) {
+            if (!projectRoot) return 'invalid'; // Корень только из серверного разрешения, не из конверта.
+            action = async () => { await applyProjectEnv(projectRoot, fields); return 'applied'; };
+          } else if (envelope.target !== DELIVERY_CHECK_ID) return 'invalid';
+        } else {
+          const receiver = config.targets.find(({ id }) => id === envelope.target);
+          if (!receiver) return 'invalid';
+          action = async (signal) => await applyToReceiver(receiver, JSON.stringify([...fields]), signal) ? 'applied' : 'failed';
+        }
+      } else if (config.operation === 'https-check') {
         if (urlField !== undefined && fields.has(urlField) && fields.get(urlField) !== config.target) return 'invalid';
         const authorization = authorizationHeader(config.auth, fields);
         if (!authorization) return 'invalid';
@@ -302,16 +325,14 @@ function createEnvelopeExecutor(
   return { profile, execute, abort: () => shutdown.abort() };
 }
 
-// GOLDJAXE fork (реестр §27.2–27.3): ключ живёт только в памяти. Без
-// зарегистрированного получателя доступна только локальная проверка.
-export function createMemoryProtectedDataExecutor(now = Date.now, receiver?: ApplyReceiver) {
+// GOLDJAXE fork (реестр §27.4): каталог оператора заменяет, а не дополняет встроенные цели.
+export function createMemoryProtectedDataExecutor(now = Date.now, config?: ApplyConfig, projectMode = false) {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: PROTECTED_DATA_MIN_RSA_BITS });
-  return createEnvelopeExecutor(
-    receiver ? { operation: 'apply', label: receiver.label, receiver }
-      : { operation: 'local-check', label: 'Локальная проверка доставки' },
-    privateKey, PROTECTED_DATA_MIN_RSA_BITS / 8,
-    { now, check: async () => undefined },
-  );
+  let operation: ExecutorOperation;
+  if (config && 'field' in config) operation = { operation: 'apply', label: config.label, receiver: config };
+  else if (config || projectMode) operation = { operation: 'env-apply', label: 'Получатель защищённых данных', targets: config?.targets ?? 'project' };
+  else operation = { operation: 'local-check', label: 'Локальная проверка доставки' };
+  return createEnvelopeExecutor(operation, privateKey, PROTECTED_DATA_MIN_RSA_BITS / 8, { now, check: async () => undefined });
 }
 
 export async function startProtectedDataExecutor(

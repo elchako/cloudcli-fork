@@ -176,7 +176,7 @@ async function handleChatSend(
   // GOLDJAXE fork (реестр §27): ID только для этой прямой отправки; не в options SDK.
   if (data.protectedDataId !== undefined) {
     const bind = userId != null && resolved.provider === 'claude'
-      ? protectedDataRelay.prepare(String(userId), resolved.sessionId, data.protectedDataId)
+      ? protectedDataRelay.prepare(String(userId), resolved.sessionId, data.protectedDataId, resolved.session.project_path)
       : null;
     const text = typeof data.content === 'string' ? data.content.trim() : '';
     if (!bind || !text || text.startsWith('/') || dependencies.runtime.hasBackgroundWork(resolved.sessionId)) {

@@ -650,6 +650,7 @@ export default function ChatComposer({
           anchorRef={protectedDataAnchor}
           profile={protectedData.editor}
           fields={protectedData.draft?.fields ?? []}
+          target={protectedData.draft?.profile.revision === protectedData.editor.revision ? protectedData.draft.target : undefined}
           onAttach={protectedData.attach}
           onClose={protectedData.close}
         />

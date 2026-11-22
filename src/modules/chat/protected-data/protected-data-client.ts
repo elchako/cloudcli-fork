@@ -9,7 +9,8 @@ export type ProtectedDataProfile = {
   label: string;
   requiredFields: string[];
   urlField?: string;
-  operation?: 'local-check' | 'apply';
+  operation?: 'local-check' | 'apply' | 'env-apply';
+  targets?: { id: string; label: string }[];
 };
 
 export const MAX_PROTECTED_FIELDS = 12;
@@ -24,7 +25,7 @@ export type ProtectedDataIssue =
   | { code: 'invalidName' | 'duplicateName' | 'emptyValue' | 'valueTooLarge'; row: number; field: keyof ProtectedField };
 
 type ErrorCode = ProtectedDataIssue['code']
-  | 'profileUnavailable' | 'invalidProfile' | 'insecureContext' | 'invalidSession' | 'encryptionFailed' | 'stageFailed';
+  | 'profileUnavailable' | 'invalidProfile' | 'invalidTarget' | 'insecureContext' | 'invalidSession' | 'encryptionFailed' | 'stageFailed';
 
 export class ProtectedDataError extends Error {
   constructor(readonly code: ErrorCode) {
@@ -41,6 +42,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function readTargets(value: unknown): NonNullable<ProtectedDataProfile['targets']> {
+  if (!Array.isArray(value) || value.length === 0) throw new ProtectedDataError('invalidProfile');
+  const ids = new Set<string>();
+  return value.map((item: unknown) => {
+    if (!isRecord(item) || typeof item.id !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(item.id)
+        || ids.has(item.id) || typeof item.label !== 'string' || !item.label.trim()) {
+      throw new ProtectedDataError('invalidProfile');
+    }
+    ids.add(item.id);
+    return { id: item.id, label: item.label };
+  });
+}
+
 function readProfile(value: unknown): ProtectedDataProfile {
   if (!isRecord(value)) throw new ProtectedDataError('invalidProfile');
   const { revision, publicKey, label, requiredFields, urlField, operation } = value;
@@ -50,12 +64,14 @@ function readProfile(value: unknown): ProtectedDataProfile {
       || !Array.isArray(requiredFields) || requiredFields.length > MAX_PROTECTED_FIELDS
       || !requiredFields.every(isAlias) || new Set(requiredFields).size !== requiredFields.length
       || (urlField !== undefined && !isAlias(urlField))
-      || (operation !== undefined && operation !== 'local-check' && operation !== 'apply')
-      || (operation === 'local-check' && (urlField !== undefined || requiredFields.length !== 0))
+      || (operation !== undefined && operation !== 'local-check' && operation !== 'apply' && operation !== 'env-apply')
+      || (operation !== 'env-apply' && value.targets !== undefined)
+      || ((operation === 'local-check' || operation === 'env-apply') && (urlField !== undefined || requiredFields.length !== 0))
       || (operation === 'apply' && (urlField !== undefined || requiredFields.length !== 1))) {
     throw new ProtectedDataError('invalidProfile');
   }
   return { revision, publicKey, label, requiredFields: [...requiredFields],
+    ...(operation === 'env-apply' ? { targets: readTargets(value.targets) } : {}),
     ...(urlField === undefined ? {} : { urlField }), ...(operation === undefined ? {} : { operation }) };
 }
 
@@ -116,6 +132,7 @@ export async function stageProtectedData(
   profile: ProtectedDataProfile,
   sessionId: string,
   fields: readonly ProtectedField[],
+  target?: string,
 ): Promise<string> {
   const crypto = globalThis.crypto;
   if (globalThis.isSecureContext !== true || !crypto?.subtle || typeof crypto.randomUUID !== 'function') {
@@ -123,7 +140,10 @@ export async function stageProtectedData(
   }
   if (typeof sessionId !== 'string' || !/^[A-Za-z0-9_.:-]{1,256}$/.test(sessionId)) throw new ProtectedDataError('invalidSession');
   const safeProfile = readProfile(profile);
-  const { revision, publicKey } = safeProfile;
+  const { revision, publicKey, targets } = safeProfile;
+  if (targets ? !targets.some(({ id }) => id === target) : target !== undefined) {
+    throw new ProtectedDataError('invalidTarget');
+  }
   const prepared = prepareFields(safeProfile, fields);
   if ('issue' in prepared) throw new ProtectedDataError(prepared.issue.code);
   const { names, plaintext } = prepared;
@@ -138,11 +158,11 @@ export async function stageProtectedData(
     const nonce = crypto.randomUUID();
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const issuedAt = Date.now();
-    const aad = encoder.encode(JSON.stringify([1, revision, sessionId, nonce, issuedAt, names]));
+    const aad = encoder.encode(JSON.stringify([1, revision, sessionId, nonce, issuedAt, names, ...(target === undefined ? [] : [target])]));
     const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad, tagLength: 128 }, aesKey, plaintext);
     const wrappedKey = await crypto.subtle.wrapKey('raw', aesKey, rsaKey, 'RSA-OAEP');
     body = JSON.stringify({
-      version: 1, revision, sessionId, nonce, issuedAt, names,
+      version: 1, revision, sessionId, nonce, issuedAt, names, target,
       wrappedKey: toBase64(wrappedKey), iv: toBase64(iv.buffer), ciphertext: toBase64(ciphertext),
     });
   } catch {

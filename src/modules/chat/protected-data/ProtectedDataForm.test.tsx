@@ -17,7 +17,7 @@ const existing = [
   { name: 'TOKEN', value: 'synthetic-test-token' },
 ];
 
-function renderEditor(fields: readonly ProtectedField[] = [], disabled = false, selectedProfile = profile) {
+function renderEditor(fields: readonly ProtectedField[] = [], disabled = false, selectedProfile = profile, target?: string) {
   const onAttach = vi.fn();
   const onClose = vi.fn();
   const composerSubmit = vi.fn();
@@ -33,7 +33,7 @@ function renderEditor(fields: readonly ProtectedField[] = [], disabled = false, 
         <button ref={anchorRef} type="button" onClick={() => setOpen((value) => !value)}>Lock</button>
         <textarea aria-label="Chat input" />
         {open && <ProtectedDataForm anchorRef={anchorRef} profile={selectedProfile} fields={fields} disabled={disabled}
-          onAttach={(edited) => { onAttach(edited); setOpen(false); }}
+          target={target} onAttach={(edited, id) => { onAttach(edited, id); setOpen(false); }}
           onClose={() => { onClose(); setOpen(false); }} />}
       </form>
     );
@@ -48,16 +48,48 @@ beforeEach(() => { language = 'en'; });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('форма защищённых данных §27', () => {
-  it('показывает локальный режим и не требует имён API', () => {
+  const target = { id: 'project-env', label: 'Проект' };
+  const envProfile: ProtectedDataProfile = { ...profile, urlField: undefined, operation: 'env-apply', requiredFields: [], targets: [target] };
+
+  it.each([undefined, 'retired'])('требует явного выбора даже для одного назначения (черновик: %s)', (initial) => {
+    language = 'ru';
+    const { onAttach } = renderEditor(existing, false, envProfile, initial);
+    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Назначение' });
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: 'Прикрепить к сообщению' });
+    expect(select.value).toBe('');
+    expect(button.disabled).toBe(true);
+    fireEvent.submit(button.form!);
+    expect(onAttach).not.toHaveBeenCalled();
+    fireEvent.change(select, { target: { value: target.id } });
+    expect(button.disabled).toBe(false);
+    expect(screen.getByRole('button', { description: /\.env текущего проекта, не на VPS/ })).toBe(button);
+    fireEvent.click(button);
+    expect(onAttach).toHaveBeenCalledExactlyOnceWith(existing, target.id);
+  });
+
+  it('восстанавливает явно выбранное назначение при редактировании, а не первый вариант', () => {
+    const { onAttach } = renderEditor(existing, false, { ...envProfile, targets: [{ id: 'other', label: 'Other' }, target] }, target.id);
+    expect(screen.getByRole<HTMLSelectElement>('combobox').value).toBe(target.id);
+    fireEvent.click(screen.getByRole('button', { name: 'Attach to message' }));
+    expect(onAttach).toHaveBeenCalledExactlyOnceWith(existing, target.id);
+  });
+
+  it('показывает фиксированного получателя apply у кнопки', () => {
+    renderEditor(existing, false, { ...profile, operation: 'apply', urlField: undefined });
+    expect(screen.getByRole('button', { name: 'Attach to message', description: 'Destination: Test profile' })).toBeTruthy();
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  it('не описывает локальный режим и не требует имён API', () => {
     const fields = [{ name: 'LABEL', value: 'synthetic-value' }];
     const { onAttach } = renderEditor(fields, false, {
       revision: profile.revision, publicKey: profile.publicKey, label: 'Local profile',
       operation: 'local-check', requiredFields: [],
     });
-    expect(screen.getByText('Delivery check · no network')).toBeTruthy();
+    expect(screen.queryByText('Delivery check · no network')).toBeNull();
     expect(screen.queryByText(/Required fields/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Attach to message' }));
-    expect(onAttach).toHaveBeenCalledExactlyOnceWith(fields);
+    expect(onAttach).toHaveBeenCalledExactlyOnceWith(fields, undefined);
   });
 
   it('отдельной формой принимает локальный черновик, не запускает события композера', () => {
@@ -66,8 +98,9 @@ describe('форма защищённых данных §27', () => {
     expect(screen.getByRole('form', { name: 'Composer' }).contains(dialog)).toBe(false);
     expect(dialog.getAttribute('aria-modal')).toBeNull();
     expect(dialog.querySelector('form')?.getAttribute('autocomplete')).toBe('off');
-    expect(dialog.textContent).toContain('Test profile');
-    expect(dialog.textContent).toContain('Connection check · read-only');
+    expect(screen.getByRole('button', { name: 'Attach to message', description: 'Destination: Test profile' })).toBeTruthy();
+    expect(screen.getByRole('heading').parentElement?.textContent).toBe('Protected data');
+    expect(dialog.textContent).not.toContain('Connection check · read-only');
     expect(dialog.textContent).toContain('Required fields: TOKEN');
     const name = getInput('Name 1');
     const url = getInput('Value 1');
@@ -91,7 +124,7 @@ describe('форма защищённых данных §27', () => {
     fireEvent.input(getInput('Value 2'), { target: { value: newToken } });
     expect(onAttach).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Attach to message' }));
-    expect(onAttach).toHaveBeenCalledExactlyOnceWith([existing[0], { name: 'TOKEN', value: newToken }]);
+    expect(onAttach).toHaveBeenCalledExactlyOnceWith([existing[0], { name: 'TOKEN', value: newToken }], undefined);
     expect(existing[1].value).toBe('synthetic-test-token');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Lock' }));
@@ -151,7 +184,7 @@ describe('форма защищённых данных §27', () => {
     const attach = screen.getByRole('button', { name: 'Прикрепить к сообщению' });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(document.activeElement).toBe(dialog);
-    expect(dialog.textContent).toContain('Проверка подключения · только чтение');
+    expect(dialog.textContent).toContain('Назначение: Test profile');
     fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(attach);
     fireEvent.keyDown(attach, { key: 'Tab' });

@@ -18,7 +18,8 @@ export type ProtectedDataFormProps = {
   /** Снимок на открытие; монтировать форму заново при смене черновика. */
   fields: readonly ProtectedField[];
   profile: ProtectedDataProfile;
-  onAttach: (fields: ProtectedField[]) => void;
+  target?: string;
+  onAttach: (fields: ProtectedField[], target?: string) => void;
   onClose: () => void;
   disabled?: boolean;
 };
@@ -61,12 +62,17 @@ function keepVisible(scroll: HTMLElement | null, target: Element | null) {
 }
 
 // GOLDJAXE fork (реестр §27): отдельная DOM-форма в портале, без значений в React state и атрибутах.
-export function ProtectedDataForm({ anchorRef, fields, profile, onAttach, onClose, disabled }: ProtectedDataFormProps) {
+export function ProtectedDataForm({ anchorRef, fields, profile, target, onAttach, onClose, disabled }: ProtectedDataFormProps) {
   const copy = useProtectedDataCopy();
   const id = useId();
   const mobile = useSyncExternalStore(subscribeMobile, () => window.matchMedia(MOBILE_QUERY).matches, () => false);
   const [rows, setRows] = useState(() => Array.from({ length: Math.min(MAX_PROTECTED_FIELDS, Math.max(1, fields.length)) }, (_, i) => i));
   const [issue, setIssue] = useState<ProtectedDataIssue | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState(target);
+  const targetRef = useRef<HTMLSelectElement>(null);
+  const targetId = profile.targets?.find(({ id }) => id === selectedTarget)?.id;
+  const missingTarget = profile.operation === 'env-apply' && !targetId;
+  const fixedDestination = profile.operation === 'apply' || profile.operation === undefined;
   const nextId = useRef(MAX_PROTECTED_FIELDS);
   const initialFields = useRef<readonly ProtectedField[] | null>(fields);
   const pendingFocus = useRef<number | 'add' | null>(null);
@@ -198,7 +204,7 @@ export function ProtectedDataForm({ anchorRef, fields, profile, onAttach, onClos
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     block(event);
-    if (disabled) return;
+    if (disabled || missingTarget) return;
     const displayedRows = event.currentTarget.querySelectorAll(ROW_SELECTOR);
     const edited = Array.from(displayedRows, (row) => {
       const { name, value } = entries(row);
@@ -211,7 +217,7 @@ export function ProtectedDataForm({ anchorRef, fields, profile, onAttach, onClos
       return;
     }
     clearInputs(true);
-    onAttach(edited);
+    onAttach(edited, targetId);
   };
 
   const handleKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -224,9 +230,9 @@ export function ProtectedDataForm({ anchorRef, fields, profile, onAttach, onClos
       // Enter переключает поле, а не прикрепляет данные и не отправляет чат.
       event.preventDefault();
       const inputs = Array.from(formRef.current?.querySelectorAll<HTMLInputElement>('input:enabled') ?? []);
-      (inputs[inputs.indexOf(event.target) + 1] ?? attachRef.current)?.focus({ preventScroll: true });
+      (inputs[inputs.indexOf(event.target) + 1] ?? targetRef.current ?? attachRef.current)?.focus({ preventScroll: true });
     } else if (mobile && event.key === 'Tab') {
-      const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:enabled, input:enabled'));
+      const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:enabled, input:enabled, select:enabled'));
       const first = controls[0];
       const last = controls[controls.length - 1];
       const active = document.activeElement;
@@ -243,7 +249,7 @@ export function ProtectedDataForm({ anchorRef, fields, profile, onAttach, onClos
       onClick={stop} onPointerDown={stop} onPaste={stop} onDragOver={block} onDrop={block}>
       {mobile && <div className="absolute inset-0 bg-black/30 dark:bg-black/50" aria-hidden="true" onClick={() => dismiss(true)} />}
       <div ref={panelRef} role="dialog" aria-modal={mobile || undefined} aria-labelledby={`${id}-title`}
-        aria-describedby={`${id}-hint`} tabIndex={-1} data-escape-layer=""
+        tabIndex={-1} data-escape-layer=""
         className="protected-data-panel relative flex min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl outline-none"
         onKeyDown={handleKey} onKeyUp={stop}
         onFocus={(event) => keepVisible(scrollRef.current, event.target)}
@@ -254,29 +260,14 @@ export function ProtectedDataForm({ anchorRef, fields, profile, onAttach, onClos
         <form ref={formRef} autoComplete="off" noValidate onSubmit={handleSubmit}
           onInput={(event) => { stop(event); if (issue) setIssue(null); }}
           className="flex min-h-0 flex-col">
-          <div className="protected-data-inset shrink-0 px-4 pb-2 pt-2">
-            {mobile && <div className="mx-auto mb-1.5 h-1 w-9 rounded-full bg-border" aria-hidden="true" />}
-            <div className="flex items-center justify-between gap-2">
-              <h2 id={`${id}-title`} className="text-lg font-semibold leading-tight">{copy.title}</h2>
-              <button type="button" onClick={() => dismiss(true)} className={ICON_BUTTON} aria-label={copy.close}>
-                <XIcon className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-              </button>
-            </div>
-            <p id={`${id}-hint`} className="text-sm text-muted-foreground">{copy.privateHint}</p>
+          <div className="protected-data-inset flex shrink-0 items-center justify-between gap-2 px-4 py-2">
+            <h2 id={`${id}-title`} className="text-lg font-semibold leading-tight">{copy.title}</h2>
+            <button type="button" onClick={() => dismiss(true)} className={ICON_BUTTON} aria-label={copy.close}>
+              <XIcon className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+            </button>
           </div>
 
           <div ref={scrollRef} className="protected-data-inset min-h-0 overflow-y-auto overscroll-contain px-4 pb-1">
-            <div className="mb-3 space-y-0.5 border-b border-border pb-3 text-sm">
-              <p className="break-words font-medium">{profile.label}</p>
-              <p className="text-xs text-muted-foreground">{profile.operation === 'apply' ? copy.apply
-                : profile.operation === 'local-check' ? copy.localOnly : copy.readOnly}</p>
-              {profile.requiredFields.length > 0 && (
-                <p className="break-words text-xs text-muted-foreground">
-                  {copy.required}: <span className="font-mono" dir="ltr">{profile.requiredFields.join(', ')}</span>
-                </p>
-              )}
-            </div>
-
             {rows.length > 0 && (
               <div className="protected-data-row mb-1 text-xs font-semibold text-muted-foreground" aria-hidden="true">
                 <span>{copy.name}</span><span>{copy.value}</span>
@@ -308,11 +299,32 @@ export function ProtectedDataForm({ anchorRef, fields, profile, onAttach, onClos
               <PlusIcon className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
               {copy.add}
             </button>
+            {profile.requiredFields.length > 0 && (
+              <p className="break-words text-xs text-muted-foreground">
+                {copy.required}: <span className="font-mono" dir="ltr">{profile.requiredFields.join(', ')}</span>
+              </p>
+            )}
+            {profile.targets && (
+              <div className="mt-2 flex items-center gap-2">
+                <label htmlFor={`${id}-target`} className="text-sm font-medium">{copy.destination}</label>
+                <select id={`${id}-target`} ref={targetRef} required disabled={disabled} className={ENTRY}
+                  value={targetId ?? ''} onChange={(event) => setSelectedTarget(event.currentTarget.value)}>
+                  <option value="" disabled>{copy.chooseDestination}</option>
+                  {profile.targets.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="protected-data-inset protected-data-footer shrink-0 px-4 pb-3 pt-1.5">
             {issue && <p id={`${id}-error`} role="alert" className="mb-2 text-xs text-red-700 dark:text-red-400">{copy.errors[issue.code]}</p>}
-            <button ref={attachRef} type="submit" disabled={disabled || rows.length === 0}
+            {(fixedDestination || targetId === 'project-env') && (
+              <p id={`${id}-destination`} className="mb-1.5 break-words text-sm">
+                {fixedDestination ? <>{copy.destination}: <bdi>{profile.label}</bdi></> : copy.projectEnv}
+              </p>
+            )}
+            <button ref={attachRef} type="submit" disabled={disabled || rows.length === 0 || missingTarget}
+              aria-describedby={fixedDestination || targetId === 'project-env' ? `${id}-destination` : undefined}
               className={`protected-data-action min-h-10 w-full rounded-lg bg-primary px-3 py-2 text-base font-semibold text-primary-foreground enabled:hover:bg-primary/90 disabled:opacity-50 md:text-sm ${FOCUS_OUTLINE} focus-visible:outline-primary-foreground`}>
               {copy.attach}
             </button>

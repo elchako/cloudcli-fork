@@ -1464,7 +1464,7 @@ export function useChatComposerState({
       if (secretDraft) {
         if (!protectedData.isCurrent(secretDraft) || inputValueRef.current !== currentInput) return;
         try {
-          protectedDataId = await stageProtectedData(secretDraft.profile, targetSessionId, secretDraft.fields);
+          protectedDataId = await stageProtectedData(secretDraft.profile, targetSessionId, secretDraft.fields, secretDraft.target);
         } catch {
           if (protectedData.isCurrent(secretDraft)) protectedData.setIssue('stageFailed');
           return;

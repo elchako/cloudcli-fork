@@ -6,10 +6,9 @@ const ruPlural = new Intl.PluralRules('ru');
 
 const en = {
   title: 'Protected data',
-  privateHint: 'The model will only see the field names',
-  readOnly: 'Connection check · read-only',
-  localOnly: 'Delivery check · no network',
-  apply: 'Apply once to the configured destination',
+  destination: 'Destination',
+  chooseDestination: 'Choose a destination',
+  projectEnv: 'Values will be saved in the current project’s .env file, not on the VPS.',
   required: 'Required fields',
   name: 'Name',
   value: 'Value',
@@ -33,10 +32,9 @@ const en = {
 
 const ru: typeof en = {
   title: 'Защищённые данные',
-  privateHint: 'Модель увидит только названия полей',
-  readOnly: 'Проверка подключения · только чтение',
-  localOnly: 'Проверка доставки · без сети',
-  apply: 'Одноразовое применение у настроенного получателя',
+  destination: 'Назначение',
+  chooseDestination: 'Выберите назначение',
+  projectEnv: 'Значения сохранятся в .env текущего проекта, не на VPS.',
   required: 'Обязательные поля',
   name: 'Название',
   value: 'Значение',

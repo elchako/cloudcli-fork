@@ -10,6 +10,7 @@ export type ProtectedDataDraft = {
   scope: string;
   profile: ProtectedDataProfile;
   fields: ProtectedField[];
+  target?: string;
 };
 
 type Issue = 'unavailable' | 'unsupported' | 'notSecure' | 'directOnly' | 'stageFailed';
@@ -76,9 +77,9 @@ export function useProtectedDataComposer(draftScope: string | null, provider: st
   }, [provider, scope, setIssue, update]);
 
   const close = useCallback(() => update({ editor: null }), [update]);
-  const attach = useCallback((fields: ProtectedField[]) => {
+  const attach = useCallback((fields: ProtectedField[], target?: string) => {
     if (!scope || !state.editor || scope !== scopeRef.current) return;
-    const draft = { scope, profile: state.editor, fields };
+    const draft = { scope, profile: state.editor, fields, target };
     draftRef.current = draft;
     update({ draft, editor: null, issue: null });
   }, [scope, state.editor, update]);

@@ -12,7 +12,9 @@ vi.mock('@/modules/chat/protected-data/protected-data-client', () => ({
   stageProtectedData: vi.fn(),
 }));
 
-const profile = { revision: 'a'.repeat(64), publicKey: 'test', label: 'Тест', requiredFields: ['TOKEN'] };
+const target = 'project-env';
+const profile = { revision: 'a'.repeat(64), publicKey: 'test', label: 'Тест', operation: 'env-apply' as const,
+  requiredFields: [], targets: [{ id: target, label: 'Проект' }] };
 const fields = [{ name: 'TOKEN', value: 'only-local-test-marker' }, { name: 'LOGIN', value: 'other-local-test-marker' }];
 const project = { projectId: 'project', displayName: 'Project', fullPath: '/tmp/project' };
 const sessions = { 'session-a': { id: 'session-a' }, 'session-b': { id: 'session-b' } };
@@ -44,7 +46,7 @@ function setup() {
     attach: async () => {
       await act(async () => view.result.current.protectedData.open());
       act(() => {
-        view.result.current.protectedData.attach(fields);
+        view.result.current.protectedData.attach(fields, target);
         view.result.current.setInput('Проверь подключение');
       });
     },
@@ -71,9 +73,32 @@ test('обычный ход получает только ID набора; ло�
   const { view, sendMessage, addMessage, attach, submit } = setup();
   await attach();
   await act(submit);
-  expect(stageProtectedData).toHaveBeenCalledWith(profile, 'session-a', fields);
+  expect(stageProtectedData).toHaveBeenCalledWith(profile, 'session-a', fields, target);
   expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'chat.send', protectedDataId: 'opaque-id', content: 'Проверь подключение' }));
-  expect(JSON.stringify([sendMessage.mock.calls, addMessage.mock.calls])).not.toMatch(/local-test-marker|TOKEN|LOGIN/);
+  expect(JSON.stringify([sendMessage.mock.calls, addMessage.mock.calls])).not.toMatch(/local-test-marker|TOKEN|LOGIN|project-env/);
+  expect(view.result.current.protectedData.draft).toBeNull();
+});
+
+test('на небезопасном HTTP просит HTTPS, не открывает форму и не отправляет данные', async () => {
+  vi.stubGlobal('isSecureContext', false);
+  const { view, sendMessage } = setup();
+  await act(async () => view.result.current.protectedData.open());
+  expect(view.result.current.protectedData.issue).toBe('notSecure');
+  expect(view.result.current.protectedData.editor).toBeNull();
+  expect(loadProtectedDataProfile).not.toHaveBeenCalled();
+  expect(stageProtectedData).not.toHaveBeenCalled();
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
+test('отмена редактирования сохраняет выбор, смена чата стирает его и при возврате', async () => {
+  const { view, attach } = setup();
+  await attach();
+  await act(async () => view.result.current.protectedData.open());
+  expect(view.result.current.protectedData.draft?.target).toBe(target);
+  act(() => view.result.current.protectedData.close());
+  expect(view.result.current.protectedData.draft?.target).toBe(target);
+  view.rerender({ session: 'session-b', busy: false });
+  view.rerender({ session: 'session-a', busy: false });
   expect(view.result.current.protectedData.draft).toBeNull();
 });
 
