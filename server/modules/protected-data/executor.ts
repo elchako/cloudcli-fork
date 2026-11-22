@@ -17,13 +17,15 @@ import {
   PROTECTED_DATA_TTL_MS,
   isProtectedDataAlias,
   isProtectedDataLabel,
+  validSelection,
   protectedDataAad,
   readProtectedDataEnvelope,
   type ProtectedDataEnvelope,
   type ProtectedDataProfile,
   type ProtectedDataStatus,
 } from './protocol.js';
-import { applyToReceiver, DELIVERY_CHECK_ID, PROJECT_ENV_ID, type ApplyConfig, type ApplyReceiver, type NamedApplyReceiver } from './apply-receiver.js';
+import type { ConfirmedDelivery } from './chat-destination.js';
+import { applyToReceiver, CHAT_DESTINATION_ID, DELIVERY_CHECK_ID, PROJECT_ENV_ID, type ApplyConfig, type ApplyReceiver, type NamedApplyReceiver } from './apply-receiver.js';
 import { applyProjectEnv } from './project-env.js';
 
 // GOLDJAXE fork (реестр §27, §27.1): проверка доставки без сети или один настроенный HTTPS GET.
@@ -40,6 +42,7 @@ type SocketOperation = { label: string } & (
   | { operation: 'https-check'; target: string; auth: Auth; urlField?: string }
 );
 const projectTargets = [
+  { id: CHAT_DESTINATION_ID, label: 'По заданию в чате' },
   { id: PROJECT_ENV_ID, label: 'Текущий проект · .env' },
   { id: DELIVERY_CHECK_ID, label: 'Только проверить доставку' },
 ];
@@ -256,7 +259,7 @@ function createEnvelopeExecutor(
   let pending = 0;
   let lastNow = 0;
 
-  async function execute(value: unknown, projectRoot?: string): Promise<ProtectedDataStatus> {
+  async function execute(value: unknown, projectRoot?: string, approved?: ConfirmedDelivery): Promise<ProtectedDataStatus> {
     const envelope = readProtectedDataEnvelope(value);
     if (!envelope || envelope.revision !== profile.revision) return 'invalid';
     // Перевод часов назад не должен возвращать к жизни просроченные конверты.
@@ -266,14 +269,21 @@ function createEnvelopeExecutor(
     if (age < -PROTECTED_DATA_CLOCK_SKEW_MS || !requiredFields.every((name) => envelope.names.includes(name))) return 'invalid';
 
     if (config.operation !== 'env-apply' && envelope.target !== undefined) return 'invalid';
+    const interactive = config.operation === 'env-apply' && config.targets === 'project' && envelope.target === CHAT_DESTINATION_ID;
+    if (interactive ? (!approved || approved.signal.aborted || !validSelection(approved.names, envelope.names)) : approved !== undefined) return 'invalid';
     let action: ((signal: AbortSignal) => Promise<ProtectedDataStatus>) | undefined;
     try {
-      const names = config.operation === 'env-apply' && envelope.target !== DELIVERY_CHECK_ID ? new Set(envelope.names) : selectedFields;
+      const names = approved ? new Set(approved.names) : config.operation === 'env-apply' && envelope.target !== DELIVERY_CHECK_ID ? new Set(envelope.names) : selectedFields;
       const fields = openEnvelope(key, wrappedKeyBytes, envelope, names);
       if (!fields) return 'invalid';
       if (config.operation === 'env-apply') {
         if (config.targets === 'project') {
-          if (envelope.target === PROJECT_ENV_ID) {
+          if (interactive && approved) {
+            action = async (signal) => {
+              const { deliverConfirmed } = await import('./chat-destination.js');
+              return deliverConfirmed(approved.destination, fields, projectRoot, signal);
+            };
+          } else if (envelope.target === PROJECT_ENV_ID) {
             if (!projectRoot) return 'invalid'; // Корень только из серверного разрешения, не из конверта.
             action = async () => { await applyProjectEnv(projectRoot, fields); return 'applied'; };
           } else if (envelope.target !== DELIVERY_CHECK_ID) return 'invalid';
@@ -312,7 +322,7 @@ function createEnvelopeExecutor(
     if (pending >= MAX_PENDING_CHECKS) return 'failed';
     pending += 1;
     try {
-      const signal = AbortSignal.any([shutdown.signal, AbortSignal.timeout(CHECK_TIMEOUT_MS)]);
+      const signal = AbortSignal.any([shutdown.signal, AbortSignal.timeout(interactive ? 25_000 : CHECK_TIMEOUT_MS), ...(approved ? [approved.signal] : [])]);
       const status = await action(signal);
       return signal.aborted ? 'failed' : status;
     } catch {

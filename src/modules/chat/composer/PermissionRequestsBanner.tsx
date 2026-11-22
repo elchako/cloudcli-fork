@@ -8,6 +8,7 @@ import { getClaudeSettings } from '@/modules/chat/utils/chatStorage';
 import { getPermissionPanel, registerPermissionPanel } from '@/modules/chat/tools/configs/permissionPanelRegistry';
 import { AskUserQuestionPanel } from '@/modules/chat/tools/InteractiveRenderers/AskUserQuestionPanel';
 import { McpElicitationPanel } from '@/modules/chat/tools/InteractiveRenderers/McpElicitationPanel';
+import { PROTECTED_DELIVERY_PANEL, ProtectedDeliveryPanel } from '@/modules/chat/tools/InteractiveRenderers/ProtectedDeliveryPanel';
 import { MCP_ELICITATION_TOOL_NAME } from '@/shared/constants';
 import {
   Confirmation,
@@ -74,7 +75,9 @@ export default function PermissionRequestsBanner({
   return (
     <div className="mb-3 space-y-2">
       {filteredRequests.map((request) => {
-        const CustomPanel = getPermissionPanel(request.toolName);
+        // Имя инструмента из SDK само по себе не создаёт доверенную карточку.
+        const CustomPanel = request.toolName === PROTECTED_DELIVERY_PANEL && request.requestId.startsWith('delivery-')
+          ? ProtectedDeliveryPanel : getPermissionPanel(request.toolName);
         if (CustomPanel) {
           return (
             <CustomPanel

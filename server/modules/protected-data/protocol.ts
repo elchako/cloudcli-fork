@@ -45,7 +45,7 @@ export interface ProtectedDataEnvelope {
   target?: string;
 }
 
-export type ProtectedDataStatus = 'ok' | 'received' | 'applied' | 'denied' | 'failed' | 'invalid' | 'expired' | 'used';
+export type ProtectedDataStatus = 'ok' | 'received' | 'delivered' | 'applied' | 'denied' | 'failed' | 'invalid' | 'expired' | 'used';
 
 function hasOnlyFields(value: unknown, fields: string[]): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -54,6 +54,11 @@ function hasOnlyFields(value: unknown, fields: string[]): value is Record<string
 
 export function isProtectedDataAlias(value: unknown): value is string {
   return typeof value === 'string' && ALIAS.test(value);
+}
+
+export function validSelection(names: readonly string[], available: readonly string[]): boolean {
+  return names.length > 0 && names.length <= available.length && new Set(names).size === names.length
+    && names.every(name => isProtectedDataAlias(name) && available.includes(name));
 }
 
 export function isProtectedDataTargetId(value: unknown): value is string {
@@ -142,7 +147,7 @@ export function readProtectedDataEnvelope(value: unknown): ProtectedDataEnvelope
 
 export function readProtectedDataStatus(value: unknown): ProtectedDataStatus | null {
   switch (value) {
-    case 'ok': case 'received': case 'applied': case 'denied': case 'failed': case 'invalid': case 'expired': case 'used':
+    case 'ok': case 'received': case 'delivered': case 'applied': case 'denied': case 'failed': case 'invalid': case 'expired': case 'used':
       return value;
     default:
       return null;

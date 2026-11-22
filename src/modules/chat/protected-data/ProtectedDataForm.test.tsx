@@ -24,7 +24,7 @@ function renderEditor(fields: readonly ProtectedField[] = [], disabled = false, 
   const composerKeyDown = vi.fn();
   const composerPaste = vi.fn();
   const composerDrop = vi.fn();
-  function Harness() {
+  function Harness({ editorProfile, initialTarget }: { editorProfile: ProtectedDataProfile; initialTarget?: string }) {
     const anchorRef = useRef<HTMLButtonElement>(null);
     const [open, setOpen] = useState(true);
     return (
@@ -32,14 +32,15 @@ function renderEditor(fields: readonly ProtectedField[] = [], disabled = false, 
         onPaste={composerPaste} onDrop={composerDrop}>
         <button ref={anchorRef} type="button" onClick={() => setOpen((value) => !value)}>Lock</button>
         <textarea aria-label="Chat input" />
-        {open && <ProtectedDataForm anchorRef={anchorRef} profile={selectedProfile} fields={fields} disabled={disabled}
-          target={target} onAttach={(edited, id) => { onAttach(edited, id); setOpen(false); }}
+        {open && <ProtectedDataForm anchorRef={anchorRef} profile={editorProfile} fields={fields} disabled={disabled}
+          target={initialTarget} onAttach={(edited, id) => { onAttach(edited, id); setOpen(false); }}
           onClose={() => { onClose(); setOpen(false); }} />}
       </form>
     );
   }
-  render(<Harness />);
-  return { onAttach, onClose, composerSubmit, composerKeyDown, composerPaste, composerDrop };
+  const view = render(<Harness editorProfile={selectedProfile} initialTarget={target} />);
+  const changeProfile = (editorProfile: ProtectedDataProfile) => view.rerender(<Harness editorProfile={editorProfile} />);
+  return { onAttach, onClose, composerSubmit, composerKeyDown, composerPaste, composerDrop, changeProfile };
 }
 
 const getInput = (label: string) => screen.getByLabelText<HTMLInputElement>(label);
@@ -51,9 +52,44 @@ describe('форма защищённых данных §27', () => {
   const target = { id: 'project-env', label: 'Проект' };
   const envProfile: ProtectedDataProfile = { ...profile, urlField: undefined, operation: 'env-apply', requiredFields: [], targets: [target] };
 
-  it.each([undefined, 'retired'])('требует явного выбора даже для одного назначения (черновик: %s)', (initial) => {
+  const chat = { id: 'chat-destination', label: 'По заданию в чате' };
+  const chatProfile = { ...envProfile, targets: [target, chat] };
+
+  it('в новом наборе выбирает предложенный режим чата, не первое назначение', () => {
     language = 'ru';
-    const { onAttach } = renderEditor(existing, false, envProfile, initial);
+    const { onAttach } = renderEditor([], false, chatProfile);
+    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Назначение', description: /подтвердите назначение/ });
+    expect(select.value).toBe(chat.id);
+    expect(select.selectedOptions[0].textContent).toBe(chat.label);
+    expect(screen.getByRole('heading').parentElement?.textContent).toBe('Защищённые данные');
+    fireEvent.input(getInput('Название 1'), { target: { value: 'TOKEN' } });
+    fireEvent.input(getInput('Значение 1'), { target: { value: 'test' } });
+    expect(onAttach).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Прикрепить к сообщению' }));
+    expect(onAttach).toHaveBeenCalledExactlyOnceWith([{ name: 'TOKEN', value: 'test' }], chat.id);
+  });
+
+  it('не выбирает назначение в пустой форме старого профиля даже при совпадении подписи', () => {
+    renderEditor([], false, { ...envProfile, targets: [{ ...target, label: chat.label }] });
+    expect(screen.getByRole<HTMLSelectElement>('combobox').value).toBe('');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Attach to message' }).disabled).toBe(true);
+  });
+
+  it('сохраняет ручной выбор до смены ревизии, но не переносит его в другой профиль', () => {
+    const { changeProfile } = renderEditor([], false, chatProfile);
+    const select = () => screen.getByRole<HTMLSelectElement>('combobox');
+    fireEvent.change(select(), { target: { value: target.id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add field' }));
+    changeProfile({ ...chatProfile });
+    expect(select().value).toBe(target.id);
+    changeProfile({ ...envProfile, revision: '2'.repeat(64) });
+    expect(select().value).toBe('');
+    expect(screen.queryByLabelText('Name 2')).toBeNull();
+  });
+
+  it.each([undefined, 'retired'])('не заменяет отсутствующий или устаревший выбор уже приложенных полей (черновик: %s)', (initial) => {
+    language = 'ru';
+    const { onAttach } = renderEditor(existing, false, chatProfile, initial);
     const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Назначение' });
     const button = screen.getByRole<HTMLButtonElement>('button', { name: 'Прикрепить к сообщению' });
     expect(select.value).toBe('');
@@ -68,7 +104,7 @@ describe('форма защищённых данных §27', () => {
   });
 
   it('восстанавливает явно выбранное назначение при редактировании, а не первый вариант', () => {
-    const { onAttach } = renderEditor(existing, false, { ...envProfile, targets: [{ id: 'other', label: 'Other' }, target] }, target.id);
+    const { onAttach } = renderEditor(existing, false, { ...envProfile, targets: [chat, target] }, target.id);
     expect(screen.getByRole<HTMLSelectElement>('combobox').value).toBe(target.id);
     fireEvent.click(screen.getByRole('button', { name: 'Attach to message' }));
     expect(onAttach).toHaveBeenCalledExactlyOnceWith(existing, target.id);

@@ -102,6 +102,20 @@ test('отмена редактирования сохраняет выбор, �
   expect(view.result.current.protectedData.draft).toBeNull();
 });
 
+test('открытие нового профиля и закрытие формы не переписывают уже приложенный набор', async () => {
+  const { view, attach, submit } = setup();
+  await attach();
+  const draft = view.result.current.protectedData.draft;
+  const next = { ...profile, revision: 'b'.repeat(64), targets: [...profile.targets, { id: 'chat-destination', label: 'По заданию в чате' }] };
+  vi.mocked(loadProtectedDataProfile).mockResolvedValueOnce(next);
+  await act(async () => view.result.current.protectedData.open());
+  expect(view.result.current.protectedData.editor).toBe(next);
+  act(() => view.result.current.protectedData.close());
+  expect(view.result.current.protectedData.draft).toBe(draft);
+  await act(submit);
+  expect(stageProtectedData).toHaveBeenCalledExactlyOnceWith(profile, 'session-a', fields, target);
+});
+
 test('ошибка подготовки не отправляет текст отдельно и оставляет плашку для исправления', async () => {
   const { view, sendMessage, attach, submit } = setup();
   vi.mocked(stageProtectedData).mockRejectedValueOnce(new Error('private error details'));

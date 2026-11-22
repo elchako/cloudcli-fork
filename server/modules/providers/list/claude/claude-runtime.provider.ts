@@ -40,6 +40,9 @@ import { loadClaudeSettingsEnv } from '@/shared/small-model.js';
 import { isLocalMailApprovalRequest, localMailApproval } from '@/shared/mail-approval/index.js';
 import {
   createProtectedDataMcp,
+  deliveryConfirmationFor,
+  revokeDeliveryApproval,
+  PROTECTED_DATA_TTL_MS,
   protectedDataRelay,
   PROTECTED_DATA_MCP_SERVER,
 } from '@/modules/protected-data/index.js';
@@ -534,6 +537,7 @@ function addSession(
   );
   if (superseding && existing) {
     supersededInstances.add(existing.instance);
+    if (existing.writer) revokeDeliveryApproval(existing.writer);
     Promise.resolve()
       .then(async () => {
         await existing.instance.interrupt();
@@ -1427,10 +1431,11 @@ async function queryClaudeSDK(
     const protectedData = protectedDataRelay.take(ws);
     if (protectedTurn && !protectedData) return;
     if (protectedData) {
-      protectedDataTool = createProtectedDataMcp(protectedData, () => Boolean(
-        protectedDataRelay.isActive(ws) && queryInstance && !turnCompleteSent
-        && !abortedSessionIds.has(sessionKey() ?? '') && !supersededInstances.has(queryInstance),
-      ));
+      const isCurrent = () => Boolean(protectedDataRelay.isActive(ws) && queryInstance && !turnCompleteSent
+        && getSession(sessionKey() ?? '')?.instance === queryInstance
+        && !abortedSessionIds.has(sessionKey() ?? '') && !supersededInstances.has(queryInstance));
+      const confirmDelivery = deliveryConfirmationFor(ws, isCurrent, protectedData.envelope.issuedAt + PROTECTED_DATA_TTL_MS);
+      protectedDataTool = createProtectedDataMcp(protectedData, isCurrent, undefined, confirmDelivery);
       sdkOptions.mcpServers = { ...sdkOptions.mcpServers, [PROTECTED_DATA_MCP_SERVER]: protectedDataTool.server };
       if (!sdkOptions.allowedTools.includes(protectedDataTool.toolId)) {
         sdkOptions.allowedTools.push(protectedDataTool.toolId);
@@ -1898,6 +1903,7 @@ async function queryClaudeSDK(
       if (message.type === 'result') {
         // Первое завершение закрывает набор, даже если SDK останется на фоне.
         if (protectedDataTool) {
+          revokeDeliveryApproval(ws);
           protectedDataTool.revoke();
           protectedDataRelay.forget(ws);
         }
@@ -2001,6 +2007,7 @@ async function queryClaudeSDK(
       error
     });
   } finally {
+    revokeDeliveryApproval(ws);
     protectedDataTool?.revoke();
     // Always close stdin — otherwise an aborted or failed run leaves the CLI
     // process (and its MCP servers) alive until the server exits.
@@ -2036,6 +2043,7 @@ async function abortClaudeSDKSession(sessionId: string) {
     // Mark before interrupting so the run loop knows not to emit its own
     // terminal complete (the abort handler sends the aborted one).
     abortedSessionIds.add(sessionId);
+    if (session.writer) revokeDeliveryApproval(session.writer);
 
     // Call interrupt() on the query instance
     await session.instance.interrupt();

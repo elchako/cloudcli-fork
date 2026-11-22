@@ -10,6 +10,7 @@ export type ApplyReceiver = ReceiverCommand & { field: string };
 export type NamedApplyReceiver = ReceiverCommand & { id: string };
 export type ApplyConfig = ApplyReceiver | { targets: NamedApplyReceiver[] };
 
+export const CHAT_DESTINATION_ID = 'chat-destination';
 export const PROJECT_ENV_ID = 'project-env';
 export const DELIVERY_CHECK_ID = 'delivery-check';
 const COMMAND_FIELDS = ['label', 'executable', 'args'];
@@ -46,7 +47,7 @@ export function readApplyReceiver(path: string | undefined): ApplyConfig | undef
   } finally { closeSync(fd); }
   if (hasOnlyFields(raw, ['targets'])) {
     if (!Array.isArray(raw.targets) || raw.targets.length < 1 || raw.targets.length > 16) throw invalid();
-    const ids = new Set<string>([PROJECT_ENV_ID, DELIVERY_CHECK_ID]);
+    const ids = new Set<string>([PROJECT_ENV_ID, DELIVERY_CHECK_ID, CHAT_DESTINATION_ID]);
     const targets = raw.targets.map((target: unknown) => {
       if (!hasOnlyFields(target, [...COMMAND_FIELDS, 'id']) || !isProtectedDataTargetId(target.id) || ids.has(target.id)) throw invalid();
       ids.add(target.id);

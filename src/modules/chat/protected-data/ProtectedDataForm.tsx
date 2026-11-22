@@ -26,6 +26,7 @@ export type ProtectedDataFormProps = {
 
 const MOBILE_QUERY = '(max-width: 767px), (pointer: coarse) and (max-height: 500px)';
 const ROW_SELECTOR = '[data-protected-row]';
+const CHAT_DESTINATION = 'chat-destination';
 const FOCUS_OUTLINE = 'focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2';
 const FOCUS_RING = `${FOCUS_OUTLINE} focus-visible:outline-ring`;
 const ENTRY = `protected-data-entry h-10 w-full min-w-0 rounded-lg border border-muted-foreground/75 bg-background px-2.5 text-base text-foreground md:text-sm disabled:opacity-50 aria-[invalid=true]:border-red-600 dark:aria-[invalid=true]:border-red-400 ${FOCUS_RING}`;
@@ -62,17 +63,28 @@ function keepVisible(scroll: HTMLElement | null, target: Element | null) {
 }
 
 // GOLDJAXE fork (реестр §27): отдельная DOM-форма в портале, без значений в React state и атрибутах.
-export function ProtectedDataForm({ anchorRef, fields, profile, target, onAttach, onClose, disabled }: ProtectedDataFormProps) {
+export function ProtectedDataForm(props: ProtectedDataFormProps) {
+  return <ProfileForm key={props.profile.revision} {...props} />;
+}
+
+function ProfileForm({ anchorRef, fields, profile, target, onAttach, onClose, disabled }: ProtectedDataFormProps) {
   const copy = useProtectedDataCopy();
   const id = useId();
   const mobile = useSyncExternalStore(subscribeMobile, () => window.matchMedia(MOBILE_QUERY).matches, () => false);
   const [rows, setRows] = useState(() => Array.from({ length: Math.min(MAX_PROTECTED_FIELDS, Math.max(1, fields.length)) }, (_, i) => i));
   const [issue, setIssue] = useState<ProtectedDataIssue | null>(null);
-  const [selectedTarget, setSelectedTarget] = useState(target);
+  // GOLDJAXE fork (реестр §27.4): предвыбор только при открытии нового набора, не при отправке или правке старого.
+  const [selectedTarget, setSelectedTarget] = useState(() => {
+    if (target !== undefined || fields.length > 0) return target;
+    return profile.targets?.find(({ id }) => id === CHAT_DESTINATION)?.id;
+  });
   const targetRef = useRef<HTMLSelectElement>(null);
   const targetId = profile.targets?.find(({ id }) => id === selectedTarget)?.id;
   const missingTarget = profile.operation === 'env-apply' && !targetId;
   const fixedDestination = profile.operation === 'apply' || profile.operation === undefined;
+  const destinationHint = fixedDestination ? <>{copy.destination}: <bdi>{profile.label}</bdi></>
+    : targetId === 'project-env' ? copy.projectEnv : targetId === CHAT_DESTINATION ? copy.chatDestination : null;
+  const hintId = destinationHint ? `${id}-destination` : undefined;
   const nextId = useRef(MAX_PROTECTED_FIELDS);
   const initialFields = useRef<readonly ProtectedField[] | null>(fields);
   const pendingFocus = useRef<number | 'add' | null>(null);
@@ -307,7 +319,7 @@ export function ProtectedDataForm({ anchorRef, fields, profile, target, onAttach
             {profile.targets && (
               <div className="mt-2 flex items-center gap-2">
                 <label htmlFor={`${id}-target`} className="text-sm font-medium">{copy.destination}</label>
-                <select id={`${id}-target`} ref={targetRef} required disabled={disabled} className={ENTRY}
+                <select id={`${id}-target`} ref={targetRef} required disabled={disabled} className={ENTRY} aria-describedby={hintId}
                   value={targetId ?? ''} onChange={(event) => setSelectedTarget(event.currentTarget.value)}>
                   <option value="" disabled>{copy.chooseDestination}</option>
                   {profile.targets.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
@@ -318,13 +330,9 @@ export function ProtectedDataForm({ anchorRef, fields, profile, target, onAttach
 
           <div className="protected-data-inset protected-data-footer shrink-0 px-4 pb-3 pt-1.5">
             {issue && <p id={`${id}-error`} role="alert" className="mb-2 text-xs text-red-700 dark:text-red-400">{copy.errors[issue.code]}</p>}
-            {(fixedDestination || targetId === 'project-env') && (
-              <p id={`${id}-destination`} className="mb-1.5 break-words text-sm">
-                {fixedDestination ? <>{copy.destination}: <bdi>{profile.label}</bdi></> : copy.projectEnv}
-              </p>
-            )}
+            {destinationHint && <p id={hintId} className="mb-1.5 break-words text-sm">{destinationHint}</p>}
             <button ref={attachRef} type="submit" disabled={disabled || rows.length === 0 || missingTarget}
-              aria-describedby={fixedDestination || targetId === 'project-env' ? `${id}-destination` : undefined}
+              aria-describedby={hintId}
               className={`protected-data-action min-h-10 w-full rounded-lg bg-primary px-3 py-2 text-base font-semibold text-primary-foreground enabled:hover:bg-primary/90 disabled:opacity-50 md:text-sm ${FOCUS_OUTLINE} focus-visible:outline-primary-foreground`}>
               {copy.attach}
             </button>

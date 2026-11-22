@@ -4,6 +4,7 @@ import { request } from 'node:http';
 import { isAbsolute } from 'node:path';
 
 import type { ProviderRuntimeWriter } from '@/shared/types.js';
+import { IS_PLATFORM } from '@/shared/utils.js';
 
 import {
   PROTECTED_DATA_CLOCK_SKEW_MS,
@@ -15,7 +16,8 @@ import {
   type ProtectedDataStatus,
 } from './protocol.js';
 import { createMemoryProtectedDataExecutor } from './executor.js';
-import { PROJECT_ENV_ID, readApplyReceiver } from './apply-receiver.js';
+import type { ConfirmedDelivery } from './chat-destination.js';
+import { CHAT_DESTINATION_ID, PROJECT_ENV_ID, readApplyReceiver } from './apply-receiver.js';
 
 // GOLDJAXE fork (реестр §27): на стороне CloudCLI только конверты и метки.
 const STAGED_LIMIT = 128;
@@ -80,6 +82,7 @@ export type ProtectedDataRunGrant = {
   operation?: ProtectedDataProfile['operation'];
   destinationLabel?: string;
   projectRoot?: string;
+  turnSignal?: AbortSignal;
 };
 
 type StagedGrant = ProtectedDataRunGrant & { userId: string };
@@ -98,15 +101,20 @@ export function createProtectedDataRelay({
   const staged = new Map<string, StagedGrant>();
   const nonces = new Set<string>();
   const bound = new WeakMap<ProviderRuntimeWriter, ProtectedDataRunGrant>();
+  const turns = new WeakMap<ProviderRuntimeWriter, AbortController>();
   const active = new WeakMap<ProviderRuntimeWriter, number>();
 
   async function getProfile(): Promise<ProtectedDataProfile | null> {
     try {
-      if (mode === 'memory') return memoryExecutor().profile;
+      if (mode === 'memory') {
+        const profile = memoryExecutor().profile;
+        // В hosted-режиме upgrade может выдать первого пользователя без локального JWT.
+        return IS_PLATFORM && profile.targets ? { ...profile, targets: profile.targets.filter(t => t.id !== CHAT_DESTINATION_ID) } : profile;
+      }
       const pin = pinnedKey();
       if (!pin || !/^[0-9a-f]{64}$/.test(pin)) return null;
       const profile = readProtectedDataProfile(await call('/v1/profile'));
-      if (!profile || createHash('sha256').update(Buffer.from(profile.publicKey, 'base64')).digest('hex') !== pin) return null;
+      if (!profile || profile.targets?.some(t => t.id === CHAT_DESTINATION_ID) || createHash('sha256').update(Buffer.from(profile.publicKey, 'base64')).digest('hex') !== pin) return null;
       return profile;
     } catch {
       return null;
@@ -146,7 +154,14 @@ export function createProtectedDataRelay({
         if (staged.get(id) !== entry || !isFresh(entry.envelope)) return false;
         staged.delete(id);
         const { userId: _userId, ...grant } = entry;
-        if (grant.operation === 'env-apply' && grant.envelope.target === PROJECT_ENV_ID && projectRoot) grant.projectRoot = projectRoot;
+        if (grant.operation === 'env-apply') {
+          if (grant.envelope.target === CHAT_DESTINATION_ID) {
+            const turn = new AbortController();
+            turns.set(writer, turn);
+            grant.turnSignal = turn.signal;
+          }
+          if (projectRoot && (grant.envelope.target === PROJECT_ENV_ID || grant.envelope.target === CHAT_DESTINATION_ID)) grant.projectRoot = projectRoot;
+        }
         bound.set(writer, grant);
         active.set(writer, entry.envelope.issuedAt + PROTECTED_DATA_TTL_MS);
         return true;
@@ -164,13 +179,17 @@ export function createProtectedDataRelay({
       return (active.get(writer) ?? 0) > now();
     },
     forget(writer: ProviderRuntimeWriter): void {
+      turns.get(writer)?.abort();
+      turns.delete(writer);
       if (active.has(writer)) active.set(writer, 0);
       bound.delete(writer);
     },
-    async execute(envelope: ProtectedDataEnvelope, projectRoot?: string): Promise<ProtectedDataStatus> {
+    async execute(envelope: ProtectedDataEnvelope, projectRoot?: string, approved?: ConfirmedDelivery): Promise<ProtectedDataStatus> {
       if (!isFresh(envelope)) return 'expired';
+      if (IS_PLATFORM && envelope.target === CHAT_DESTINATION_ID) return 'invalid';
       try {
-        if (mode === 'memory') return await memoryExecutor().execute(envelope, projectRoot);
+        if (mode === 'memory') return await memoryExecutor().execute(envelope, projectRoot, approved);
+        if (approved || envelope.target === CHAT_DESTINATION_ID) return 'invalid';
         const result = await call('/v1/execute', envelope);
         return result && typeof result === 'object' && 'status' in result
           ? readProtectedDataStatus(result.status) ?? 'failed'

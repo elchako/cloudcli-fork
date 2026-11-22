@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { WebSocket } from 'ws';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import { protectedDataRelay } from '@/modules/protected-data/index.js';
+import { authenticatedDeliveryChannel, protectedDataRelay, revokeDeliveryApproval } from '@/modules/protected-data/index.js';
 import {
   MAX_CONCURRENT_SIDE_QUESTIONS_PER_SESSION,
   providerCapabilitiesService,
@@ -166,7 +166,8 @@ async function handleChatSend(
   ws: WebSocket,
   userId: string | number | null,
   data: AnyRecord,
-  dependencies: ChatWebSocketDependencies
+  dependencies: ChatWebSocketDependencies,
+  delivery: ReturnType<typeof authenticatedDeliveryChannel>,
 ): Promise<void> {
   const resolved = resolveSendTarget(ws, data, dependencies, 'chat.send');
   if (!resolved) {
@@ -202,6 +203,7 @@ async function handleChatSend(
         sendProtocolError(ws, 'PROTECTED_DATA_UNAVAILABLE', 'Срок действия защищённых данных истёк.', resolved.sessionId);
         throw new Error('Срок действия защищённых данных истёк.');
       }
+      delivery.bind(run.writer, run.appSessionId, () => run.status === 'running' && chatRunRegistry.getRun(run.appSessionId) === run);
     });
     return;
   }
@@ -351,6 +353,7 @@ async function dispatchRun(
     failure = error instanceof Error ? error.message : String(error);
     console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: failure });
   } finally {
+    revokeDeliveryApproval(run.writer);
     protectedDataRelay.forget(run.writer);
     // Safety net: a runtime that crashed (or resolved) without emitting its
     // terminal `complete` would otherwise leave the session stuck in
@@ -713,6 +716,7 @@ async function handleChatAbort(
   }
 
   // GOLDJAXE fork (реестр §27): отозвать доступ даже до инициализации SDK.
+  revokeDeliveryApproval(run.writer);
   protectedDataRelay.forget(run.writer);
   const success = await dependencies.runtime.abort(run.provider, sessionId);
 
@@ -791,7 +795,8 @@ async function handleChatStopTask(
 function handleChatSubscribe(
   ws: WebSocket,
   data: AnyRecord,
-  dependencies: ChatWebSocketDependencies
+  dependencies: ChatWebSocketDependencies,
+  delivery: ReturnType<typeof authenticatedDeliveryChannel>,
 ): void {
   const targets = Array.isArray(data.sessions) ? data.sessions : [];
 
@@ -834,7 +839,7 @@ function handleChatSubscribe(
       sessionId,
       isProcessing,
       lastSeq: run?.lastSeq ?? 0,
-      pendingPermissions,
+      pendingPermissions: [...pendingPermissions, ...delivery.pendingFor(sessionId)],
       timestamp: new Date().toISOString(),
     });
 
@@ -961,6 +966,7 @@ export function handleChatConnection(
   const userId = readRequestUserId(request);
   // GOLDJAXE fork (реестр §23): auth только из upgrade request, не из JSON клиента.
   const receiveLocalMailResponse = localMailApproval.bindAuthenticatedConnection(ws, userId);
+  const delivery = authenticatedDeliveryChannel(ws, userId);
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -981,7 +987,7 @@ export function handleChatConnection(
           await handleChatEditSend(ws, userId, data, dependencies);
           return;
         case 'chat.send':
-          await handleChatSend(ws, userId, data, dependencies);
+          await handleChatSend(ws, userId, data, dependencies, delivery);
           return;
         case 'chat.side_question':
           handleChatSideQuestion(ws, data, dependencies);
@@ -996,8 +1002,13 @@ export function handleChatConnection(
           await handleChatStopTask(ws, data, dependencies);
           return;
         case 'chat.subscribe':
-          handleChatSubscribe(ws, data, dependencies);
+          handleChatSubscribe(ws, data, dependencies, delivery);
           return;
+        case 'chat.protected-delivery-decision': {
+          const session = typeof data.sessionId === 'string' && sessionsDb.getSessionById(data.sessionId);
+          delivery.receive(data, Boolean(session && session.provider === 'claude'));
+          return;
+        }
         case 'chat.permission-response': {
           const session = typeof data.sessionId === 'string' ? sessionsDb.getSessionById(data.sessionId) : null;
           if (receiveLocalMailResponse(data, session?.provider === 'claude')) return;
@@ -1016,6 +1027,7 @@ export function handleChatConnection(
   });
 
   ws.on('close', () => {
+    delivery.close();
     console.log('[INFO] Chat client disconnected');
     connectedClients.delete(ws);
   });

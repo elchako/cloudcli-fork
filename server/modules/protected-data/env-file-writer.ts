@@ -59,7 +59,8 @@ export function writeProtectedEnvEntry(path: string, name: string, value: string
   return writeProtectedEnvEntries(path, new Map([[name, value]]));
 }
 
-export async function writeProtectedEnvEntries(path: string, fields: ReadonlyMap<string, string>): Promise<void> {
+export async function writeProtectedEnvEntries(path: string, fields: ReadonlyMap<string, string>, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   const assignments = prepareAssignments(fields);
   const uid = process.geteuid?.();
   if (uid === undefined || resolve(path) !== path || await realpath(path) !== path) throw invalid();
@@ -97,6 +98,7 @@ export async function writeProtectedEnvEntries(path: string, fields: ReadonlyMap
     } finally { await output.close(); }
     const current = await lstat(path);
     if (current.dev !== stat.dev || current.ino !== stat.ino || current.ctimeMs !== stat.ctimeMs || current.size !== stat.size) throw invalid();
+    signal?.throwIfAborted();
     await rename(temp, path);
     created = false;
   } finally {

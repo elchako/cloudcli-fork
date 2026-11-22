@@ -48,7 +48,7 @@ test('каталог принимает 1–16 получателей и отк�
   }
   for (const bad of [[], {}, { targets: [] }, { targets: [target, target] }, { targets: [target, ...limit] },
     { targets: [target], field: 'KEY' }, { targets: [target, null] }, { targets: [target, { id: 'b' }] },
-    ...['id\n', 'A', '0', '../path', 'a'.repeat(33), 'delivery-check', 'project-env'].map(id => ({ targets: [{ ...target, id }] })),
+    ...['id\n', 'A', '0', '../path', 'a'.repeat(33), 'delivery-check', 'project-env', 'chat-destination'].map(id => ({ targets: [{ ...target, id }] })),
     ...[{ label: ' ' }, { field: 'KEY' }, { executable: 'relative' }, { args: 'arg' }, { args: ['a\nb'] },
       { args: [8] }, { args: Array(17).fill('a') }, { args: ['a'.repeat(4097)] }].map(patch => ({ targets: [{ ...target, ...patch }] })),
   ]) {
@@ -108,6 +108,7 @@ test('встроенные цели доступны только в режим�
   assert.equal(await legacy.execute(seal(legacy.profile, 'project-env')), 'invalid');
   const executor = createMemoryProtectedDataExecutor(Date.now, undefined, true);
   assert.deepEqual(executor.profile.targets, [
+    { id: 'chat-destination', label: 'По заданию в чате' },
     { id: 'project-env', label: 'Текущий проект · .env' }, { id: 'delivery-check', label: 'Только проверить доставку' },
   ]);
   assert.equal(await executor.execute(seal(executor.profile)), 'invalid');
