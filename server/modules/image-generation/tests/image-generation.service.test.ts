@@ -4,7 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { buildImageToolResultText } from '@/modules/image-generation/image-generation.mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+
+import { buildImageToolResultText, createImageGenerationMcpServer } from '@/modules/image-generation/image-generation.mcp.js';
 import { generateImage as generateImageRequest, resolveImageGateway, type ImageGenerationRequest } from '@/modules/image-generation/image-generation.service.js';
 
 // Транспорт тестируем без сетевого каталога; политика профилей имеет отдельные тесты.
@@ -76,6 +79,25 @@ describe('image generation service', () => {
     restoreEnv();
     await rm(home, { recursive: true, force: true });
     await rm(cwd, { recursive: true, force: true });
+  });
+
+  it('объясняет агенту границы путей в описании инструмента и параметра input_images', async (t) => {
+    process.env.ANTHROPIC_BASE_URL = 'https://gateway.test';
+    process.env.ANTHROPIC_AUTH_TOKEN = 'test-token';
+    const mcp = await createImageGenerationMcpServer({ cwd });
+    assert.ok(mcp);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'image-generation-test', version: '1' });
+    t.after(async () => { await client.close(); await mcp.instance.close(); });
+    await mcp.instance.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const { tools: [tool] } = await client.listTools();
+    assert.equal(tool?.name, 'generate_image');
+    assert.match(tool.description ?? '', /сохраняй сразу в текущем проекте или ~\/\.cloudcli\/assets.*\/tmp/);
+    const field = tool.inputSchema.properties?.input_images;
+    assert.ok(field && typeof field === 'object' && 'description' in field && typeof field.description === 'string');
+    assert.match(field.description, /абсолютные или относительные к проекту пути только внутри.*~\/\.cloudcli\/assets/);
   });
 
   it('offers no gateway without ANTHROPIC_BASE_URL — the public API has no image endpoints', async () => {

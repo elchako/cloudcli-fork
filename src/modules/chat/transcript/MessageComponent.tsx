@@ -4,7 +4,7 @@ import { Bot, GitBranchIcon, PencilIcon, XIcon } from 'lucide-react';
 
 import type { ChatMessage, ClaudePermissionSuggestion, PermissionGrantResult, LLMProvider,DiffLine,Project } from '@/shared/types';
 import { formatUsageLimitText, stripProposedPlanEnvelope } from '@/modules/chat/utils/chatFormatting';
-import { ToolRenderer, ToolErrorDisplay, SubagentPanel, WorkflowPanel, shouldHideToolResult } from '@/modules/chat/tools';
+import { ToolRenderer, ToolErrorDisplay, SubagentPanel, WorkflowPanel, getToolErrorContent, shouldHideToolResult } from '@/modules/chat/tools';
 import { LLMProviderLogo, Shimmer } from '@/shared/ui';
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/modules/chat/transcript/Reasoning';
 import ChatMessageImages from '@/modules/chat/transcript/ChatMessageImages';
@@ -394,7 +394,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     <div id={`tool-result-${message.toolId}`} className="scroll-mt-4">
                       <ToolErrorDisplay
                         label={t('messageTypes.error')}
-                        content={String(message.toolResult.content || '')}
+                        content={getToolErrorContent(message.toolName, message.toolResult)}
                       />
                     </div>
                   ) : (

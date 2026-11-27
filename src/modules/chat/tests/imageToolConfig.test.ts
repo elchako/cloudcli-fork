@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { test } from 'vitest';
 
-import { getToolConfig } from '@/modules/chat/tools/configs/toolConfigs';
+import { getToolConfig, getToolErrorContent } from '@/modules/chat/tools/configs/toolConfigs';
 import { i18n } from '@/modules/i18n';
 
 /**
@@ -53,6 +53,32 @@ test('повреждённые метаданные и Markdown от API не п
 
 test('a result without an image line falls back to its text', () => {
   assert.equal(renderResult('Image generation is not available.'), 'Image generation is not available.');
+});
+
+const OUTSIDE_ERROR = 'Image generation failed: Input image must be inside the project or ~/.cloudcli/assets: /tmp/reference.webp';
+
+test('отказ по пути к референсу показывает подсказку на языке чата', async () => {
+  const previousLanguage = i18n.language;
+  const parts = [{ type: 'text', text: OUTSIDE_ERROR }];
+  try {
+    await i18n.changeLanguage('ru');
+    for (const content of [OUTSIDE_ERROR, parts, JSON.stringify(parts)]) {
+      assert.equal(
+        getToolErrorContent(TOOL_NAME, { content }),
+        'Референс находится вне разрешённых папок. Прикрепите его к чату или поместите в текущий проект.',
+      );
+    }
+    await i18n.changeLanguage('en');
+    assert.match(getToolErrorContent(TOOL_NAME, { content: OUTSIDE_ERROR }), /Attach it to the chat or place it in the current project/);
+  } finally {
+    await i18n.changeLanguage(previousLanguage);
+  }
+});
+
+test('другие ошибки генерации и других инструментов не заменяются подсказкой', () => {
+  const gatewayError = 'Image generation failed: Image gateway returned 400: Invalid input';
+  assert.equal(getToolErrorContent(TOOL_NAME, { content: gatewayError }), gatewayError);
+  assert.equal(getToolErrorContent('Read', { content: OUTSIDE_ERROR }), OUTSIDE_ERROR);
 });
 
 test('the image card is open by default and shows the prompt on the input row', () => {

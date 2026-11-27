@@ -128,6 +128,18 @@ function readMcpResultText(result: any): string {
     .join('\n');
 }
 
+const IMAGE_GENERATION_TOOL_NAME = 'mcp__cloudcli-images__generate_image';
+
+/** GOLDJAXE fork (реестр §13.4): распознаём точный серверный отказ, в том числе в старых транскриптах. */
+export function getToolErrorContent(toolName: string | undefined, result: { content?: unknown }): string {
+  if (toolName === IMAGE_GENERATION_TOOL_NAME && readMcpResultText(result).startsWith(
+    'Image generation failed: Input image must be inside the project or ~/.cloudcli/assets: ',
+  )) {
+    return i18n.t('chat:tools.imageReferenceOutsideAllowedRoots');
+  }
+  return String(result.content || '');
+}
+
 /** GOLDJAXE fork (реестр §13.3): показываем картинку и проверенные метаданные,
  * но не внутренние инструкции или произвольный Markdown из ответа API. */
 function extractGeneratedImageMarkdown(result: any): string {
@@ -261,7 +273,7 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
 
   // The result card shows the picture itself, so the user sees it even when the
   // model does not repeat it in the reply.
-  'mcp__cloudcli-images__generate_image': {
+  [IMAGE_GENERATION_TOOL_NAME]: {
     input: {
       type: 'one-line',
       label: 'Image',

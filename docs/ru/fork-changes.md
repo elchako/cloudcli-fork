@@ -3,7 +3,7 @@ title: "Реестр правок форка"
 type: index
 tags: [форк, реестр, upstream, слияние, cloudcli]
 description: "Оглавление реестра отличий форка GOLDJAXE от upstream siteboon/claudecodeui: правки по темам, отчёты о слияниях upstream, указатель «§ → страница» с риском конфликта и регламент ведения."
-updated: 2026-11-22
+updated: 2026-11-27
 ---
 
 # Реестр правок форка — чем наша версия отличается от оригинала
@@ -77,7 +77,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | [Навигатор по вопросам](fork/prompt-navigator.md) | Оглавление по вопросам, первая загрузка во время ответа и защита от поздних ответов | 17 |
 | [Локальное подтверждение Mail](fork/local-mail-approval.md) | Подпись authenticated WS решения, понятное полное письмо и одно подтверждение без checkbox | 23, 23.1 |
 | [Учёт загрузок для Mail](fork/mail-uploads.md) | Opt-in реестр новых пользовательских файлов, owner/SHA и отзыв только Mail-экспорта | 24 |
-| [Генерация картинок](fork/image-generation.md) | Профили Черновик/Обычный/Финал с моделью API и качеством, инструмент `generate_image`, ограничение с GPT | 13, 13.3 |
+| [Генерация картинок](fork/image-generation.md) | Профили Черновик/Обычный/Финал, `generate_image`, ограничение с GPT и подсказка о путях референсов | 13, 13.3, 13.4 |
 
 ### Сеансы и сайдбар
 
@@ -183,6 +183,7 @@ github.com/siteboon/claudecodeui`. База последнего слияния 
 | §13.1 | Встроенный инструмент `generate_image` | 🟢/🟡 | [image-generation](fork/image-generation.md) |
 | §13.2 | Известное ограничение: с GPT-моделью в чате картинка часто теряется | — | [image-generation](fork/image-generation.md) |
 | §13.3 | Профили картинок: модель API, качество, режим по умолчанию и параметры результата | 🟢/🟡 | [image-generation](fork/image-generation.md) |
+| §13.4 | Пути референсов в MCP-схеме и подсказка в карточке отказа | 🟢/🟡 | [image-generation](fork/image-generation.md) |
 | §14 | Слияние upstream v1.37.4 (2026-10-09) | — | [merge-v1.37.4](fork/merge-v1.37.4.md) |
 | §14.1 | Порядок, которым сливали (повторять так же) | — | [upstream-merge](fork/upstream-merge.md) |
 | §14.2 | Решения по пересечениям с нашими правками | — | [merge-v1.37.4](fork/merge-v1.37.4.md) |

@@ -39,6 +39,7 @@
   "tools": {
     "settings": "Tool Settings",
     "error": "Tool Error",
+    "imageReferenceOutsideAllowedRoots": "The reference image is outside the allowed folders. Attach it to the chat or place it in the current project.",
     "result": "Tool Result",
     "viewParams": "View input parameters",
     "viewRawParams": "View raw parameters",
