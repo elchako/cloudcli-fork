@@ -12,6 +12,7 @@ import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 import SidebarConfirmationStatus from '@/modules/sidebar/SidebarConfirmationStatus';
+import { CURRENT_SESSION_ROW } from '@/modules/sidebar/sidebarRowStyles';
 
 type SidebarSessionItemProps = {
   project: Project;
@@ -96,7 +97,7 @@ function SidebarSessionItem({
   // Background work takes the recent-activity dot's place: the session is
   // still doing something, which says more than that it was touched lately.
   const showBackgroundIndicator = !showAttentionIndicator && hasBackgroundWork;
-  const showRecentIndicator = !showAttentionIndicator && !showBackgroundIndicator && !isProcessing && sessionView.isActive;
+  const showRecentIndicator = !isSelected && !showAttentionIndicator && !showBackgroundIndicator && !isProcessing && sessionView.isActive;
   const indicatorLabel = showAttentionIndicator
     ? t('tooltips.newActivityIndicator', { defaultValue: 'New session activity' })
     : showBackgroundIndicator
@@ -189,7 +190,7 @@ function SidebarSessionItem({
                   ? 'bg-amber-500'
                   : showBackgroundIndicator
                     ? 'bg-purple-500 dark:bg-purple-400'
-                    : 'bg-green-500',
+                    : 'bg-muted-foreground/60',
               )}
             />
           </Tooltip>
@@ -199,29 +200,21 @@ function SidebarSessionItem({
       {isCompact && (
       <div>
         <div
-          aria-current={isSelected ? 'true' : undefined}
+          aria-current={isSelected ? 'page' : undefined}
           role={isSelecting ? 'checkbox' : undefined}
           aria-checked={isSelecting ? isChecked : undefined}
           aria-disabled={isSelecting && !isSelectable ? true : undefined}
           tabIndex={isSelecting ? 0 : undefined}
           className={cn(
-            treeRow
-              ? 'mx-0.5 my-px rounded-md border border-transparent bg-transparent px-1.5 py-1 active:scale-[0.98] transition-colors duration-150 relative overflow-hidden'
-              : 'mx-3 my-0.5 rounded-md bg-card border p-2 active:scale-[0.98] transition-all duration-150 relative overflow-hidden',
-            // GOLDJAXE fork (реестр §4.6): явное выделение сохраняется и в плотном дереве.
-            isSelected
-              ? 'border-primary bg-primary/15 ring-1 ring-primary/40 pl-3 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-[""]'
-              : !treeRow && (isProcessing
-                ? 'border-border/60 bg-muted/20'
-                : sessionView.isActive
-                  ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
-                  : 'border-border/30'),
-            isChecked && 'border-primary/40 bg-primary/10',
+            'relative rounded-md transition-colors',
+            treeRow ? 'mx-0.5 my-px px-1.5' : 'px-2',
+            isSelected ? CURRENT_SESSION_ROW : 'hover:bg-accent/60 active:bg-accent',
+            isChecked && 'bg-primary/10',
           )}
           onClick={isSelecting ? (isSelectable ? toggleSelected : undefined) : selectMobileSession}
           onKeyDown={isSelecting ? handleSelectionKeyDown : undefined}
         >
-          <div className={cn('flex items-center', treeRow ? 'gap-1.5' : 'gap-2')}>
+          <div className={cn('flex min-h-11 items-center', treeRow ? 'gap-1.5' : 'gap-2')}>
             {selectionIcon}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -268,8 +261,8 @@ function SidebarSessionItem({
                 aria-haspopup="dialog"
                 aria-expanded={isMobileOptionsOpen}
                 className={cn(
-                  'ml-1 flex flex-shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted active:scale-95',
-                  treeRow ? '-mr-0.5 h-7 w-7 rounded-md' : 'h-8 w-8 rounded-lg',
+                  'ml-1 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  treeRow && '-mr-0.5',
                 )}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -503,16 +496,10 @@ function SidebarSessionItem({
               ? 'relative h-auto w-full justify-start overflow-hidden rounded-md border border-transparent bg-transparent px-1.5 py-1 text-left font-normal transition-colors duration-150'
               : 'relative h-auto w-full justify-start overflow-hidden rounded-md border bg-card p-2 text-left font-normal transition-all duration-150',
             isSelecting ? 'pr-2' : 'pr-11',
-            // GOLDJAXE fork (реестр §4.6): явное выделение сохраняется и в плотном дереве.
+            // GOLDJAXE fork (реестр §4.6, §4.1-кватер): выбранный чат виден и в дереве.
             isSelected
-              ? 'border-primary bg-primary/15 pl-3 ring-1 ring-primary/40 hover:bg-primary/20 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-[""]'
-              : treeRow
-                ? 'border-border/30 hover:bg-accent/50'
-                : isProcessing
-                  ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
-                  : sessionView.isActive
-                    ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
-                    : 'border-border/30 hover:bg-accent/50',
+              ? cn(CURRENT_SESSION_ROW, 'border-transparent hover:bg-accent')
+              : 'border-border/30 hover:bg-accent/50',
             isChecked && 'border-primary/40 bg-primary/10',
           )}
           // Left-click keeps in-app navigation; Ctrl/Cmd/middle-click and the

@@ -76,8 +76,9 @@ test.each([false, true])('дерево сохраняет пин, полный t
   });
   const { container, rerender } = render(<SidebarProjectSessions {...initial} />);
   const title = screen.getByTitle(`Original\n\n${pinnedRoot.fullTitle}`, { normalizer: (value) => value });
-  assert.ok(title.closest('[aria-current]')?.classList.contains('bg-primary/15'));
-  assert.ok(title.closest('[aria-current]')?.classList.contains('ring-primary/40'));
+  const selectedRow = title.closest('[aria-current="page"]');
+  assert.ok(selectedRow?.classList.contains('bg-accent'));
+  assert.ok(selectedRow?.classList.contains('ring-inset'));
   assert.ok(container.querySelector('[data-session-id="root"] [aria-label="tooltips.pinnedSession"]'));
 
   if (isCompact) {
@@ -218,7 +219,7 @@ test('Conversations stays flat and newest first even when sessions have fork met
   }));
   const { container } = render(<SidebarRecentConversations
     conversations={conversations} total={3} hasMore={false} isLoading={false} isLoadingMore={false} hasError={false}
-    selectedSession={null} currentTime={new Date()} t={t}
+    currentSessionId={undefined} currentTime={new Date()} t={t}
     sessionActions={{
       activeSessions: new Set(), backgroundSessionIds: new Set(), attentionSessionIds: new Set(),
       regeneratingTitleSessionIds: new Set(), onRegenerateSessionTitle: noop, onToggleSessionPin: noop,

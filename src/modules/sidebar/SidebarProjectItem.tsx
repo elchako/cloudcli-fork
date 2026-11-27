@@ -61,10 +61,8 @@ type SidebarProjectItemProps = {
   t: TFunction;
 };
 
-const getSessionCountDisplay = (project: Project, sessions: SessionWithProvider[]): string => {
-  const total = Number(project.sessionMeta?.total ?? sessions.length);
-  return String(total);
-};
+// GOLDJAXE fork (реестр §4.1-кватер): зона нажатия больше самой иконки.
+const COMPACT_ACTION = 'flex h-11 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 /** Rendered by SidebarProjectList for one project row, including its expand, rename, star and delete controls. */
 function SidebarProjectItem({
@@ -118,8 +116,8 @@ function SidebarProjectItem({
   // after the projectName → projectId migration.
   const isSelected = selectedProject?.projectId === project.projectId;
   const totalSessionCount = Number(project.sessionMeta?.total ?? sessions.length);
-  const sessionCountDisplay = getSessionCountDisplay(project, sessions);
-  const sessionCountLabel = `${sessionCountDisplay} session${totalSessionCount === 1 ? '' : 's'}`;
+  const sessionCountLabel = t('projects.listSessionCount', { count: totalSessionCount });
+  const favoriteLabel = isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites');
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
   const mobileRenameInputRef = useRef<HTMLInputElement>(null);
 
@@ -169,37 +167,24 @@ function SidebarProjectItem({
         <div className="bg-background">
           <div
             className={cn(
-              'p-3 mx-3 my-1 rounded-lg bg-card border border-border/50 active:scale-[0.98] transition-all duration-150',
-              isSelected && 'bg-primary/5 border-primary/20',
-              isStarred &&
-                !isSelected &&
-                'bg-yellow-50/50 dark:bg-yellow-900/5 border-yellow-200/30 dark:border-yellow-800/30',
+              'mx-3 cursor-pointer border-b border-border py-0.5 transition-colors hover:bg-accent/60 active:bg-accent',
+              isSelected && 'bg-accent',
             )}
             onClick={toggleProject}
           >
             <div className="flex items-center justify-between">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <button
-                  className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
-                    isStarred
-                      ? 'bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800'
-                      : 'bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800',
-                  )}
+                  type="button"
+                  className={COMPACT_ACTION}
                   onClick={(event) => {
                     event.stopPropagation();
                     toggleStarProject();
                   }}
-                  title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+                  title={favoriteLabel}
+                  aria-label={favoriteLabel}
                 >
-                  <Star
-                    className={cn(
-                      'w-4 h-4 transition-colors',
-                      isStarred
-                        ? 'text-yellow-600 dark:text-yellow-400 fill-current'
-                        : 'text-gray-600 dark:text-gray-400',
-                    )}
-                  />
+                  <Star className={cn('h-4 w-4', isStarred && 'fill-current')} aria-hidden="true" />
                 </button>
 
                 <div className="min-w-0 flex-1">
@@ -234,7 +219,9 @@ function SidebarProjectItem({
                   ) : (
                     <>
                       <div className="flex min-w-0 flex-1 items-center justify-between">
-                        <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
+                        <h3 className={cn('truncate text-sm leading-5 text-foreground', isSelected ? 'font-semibold' : 'font-normal')} title={project.displayName}>
+                          {project.displayName}
+                        </h3>
                         {tasksEnabled && (
                           <TaskIndicator
                             status={taskStatus}
@@ -249,57 +236,68 @@ function SidebarProjectItem({
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center">
                 {isEditing ? (
                   <>
                     <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-green-600"
+                      type="button"
+                      className={COMPACT_ACTION}
+                      aria-label={t('actions.save')}
                       onClick={(event) => {
                         event.stopPropagation();
                         saveProjectName();
                       }}
                     >
-                      <Check className="h-4 w-4 text-white" />
+                      <Check className="h-4 w-4" aria-hidden="true" />
                     </button>
                     <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-gray-600"
+                      type="button"
+                      className={COMPACT_ACTION}
+                      aria-label={t('actions.cancel')}
                       onClick={(event) => {
                         event.stopPropagation();
                         onCancelEditingProject();
                       }}
                     >
-                      <X className="h-4 w-4 text-white" />
+                      <X className="h-4 w-4" aria-hidden="true" />
                     </button>
                   </>
                 ) : (
                   <>
                     <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-500/10 active:scale-90 dark:border-red-800 dark:bg-red-900/30"
+                      type="button"
+                      className={COMPACT_ACTION}
+                      aria-label={t('projects.deleteProject')}
                       onClick={(event) => {
                         event.stopPropagation();
                         onDeleteProject(project);
                       }}
                     >
-                      <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
                     </button>
-
                     <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 active:scale-90 dark:border-primary/30 dark:bg-primary/20"
+                      type="button"
+                      className={COMPACT_ACTION}
+                      aria-label={t('projects.renameProject')}
                       onClick={(event) => {
                         event.stopPropagation();
                         onStartEditingProject(project);
                       }}
                     >
-                      <Edit3 className="h-4 w-4 text-primary" />
+                      <Edit3 className="h-4 w-4" aria-hidden="true" />
                     </button>
-
-                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
-                      {isExpanded ? (
-                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      className={cn(COMPACT_ACTION, 'w-8')}
+                      aria-expanded={isExpanded}
+                      aria-label={project.displayName}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleProject();
+                      }}
+                    >
+                      {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    </button>
                   </>
                 )}
               </div>
@@ -313,39 +311,20 @@ function SidebarProjectItem({
           variant="ghost"
           className={cn(
             'sticky top-0 z-10 flex w-full justify-between p-2 h-auto font-normal hover:bg-accent/50',
-            isSelected
-              ? 'bg-accent text-accent-foreground'
-              : isStarred
-                ? 'bg-background hover:bg-accent/50'
-                : 'bg-background',
-            isStarred &&
-              !isSelected &&
-              'bg-yellow-50/50 dark:bg-yellow-900/10 hover:bg-yellow-100/50 dark:hover:bg-yellow-900/20',
+            isSelected ? 'bg-accent text-accent-foreground' : 'bg-background',
           )}
           onClick={selectAndToggleProject}
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div
-              className={cn(
-                'w-6 h-6 flex items-center justify-center rounded cursor-pointer transition-all duration-200',
-                isStarred
-                  ? 'hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
-                  : 'opacity-40 hover:opacity-100 hover:bg-accent',
-              )}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               onClick={(event) => {
                 event.stopPropagation();
                 toggleStarProject();
               }}
-              title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+              title={favoriteLabel}
             >
-              <Star
-                className={cn(
-                  'w-3 h-3 transition-colors',
-                  isStarred
-                    ? 'text-yellow-600 dark:text-yellow-400 fill-current'
-                    : 'text-muted-foreground',
-                )}
-              />
+              <Star className={cn('h-3 w-3', isStarred && 'fill-current')} aria-hidden="true" />
             </div>
             <div className="min-w-0 flex-1 text-left">
               {isEditing ? (
@@ -378,7 +357,7 @@ function SidebarProjectItem({
                     {project.displayName}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {sessionCountDisplay}
+                    {totalSessionCount}
                     {project.fullPath !== project.displayName && (
                       <span className="ml-1 opacity-60" title={project.fullPath}>
                         {' - '}
@@ -426,14 +405,14 @@ function SidebarProjectItem({
                   <Edit3 className="h-3 w-3" />
                 </div>
                 <div
-                  className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-red-50 group-hover:opacity-100 dark:hover:bg-red-900/20"
+                  className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-colors hover:bg-accent hover:text-foreground group-hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation();
                     onDeleteProject(project);
                   }}
                   title={t('tooltips.deleteProject')}
                 >
-                  <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
+                  <Trash2 className="h-3 w-3" />
                 </div>
                 {isExpanded ? (
                   <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />

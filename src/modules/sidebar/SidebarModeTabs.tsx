@@ -52,32 +52,33 @@ export default function SidebarModeTabs({
 
   const renderTab = (tab: ModeTab, canGrow: boolean) => {
     const isActive = tab.mode === searchMode;
+    const hasRunningBadge = tab.mode === 'running' && runningSessionsCount > 0;
+    const label = hasRunningBadge ? `${tab.label}: ${runningSessionsCount}` : tab.label;
     const Icon = tab.icon;
 
     const button = (
       <button
+        type="button"
         onClick={() => onSearchModeChange(tab.mode)}
         aria-pressed={isActive}
-        aria-label={tab.showLabel ? undefined : tab.label}
-        title={tab.showLabel ? undefined : tab.label}
+        aria-label={tab.showLabel ? undefined : label}
+        title={tab.showLabel ? undefined : label}
         className={cn(
-          'flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all',
+          'flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-colors',
           tab.mode === 'archived' && 'px-2.5',
           canGrow && tab.showLabel && 'flex-1',
           isActive
             ? 'bg-background text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground',
-          isActive && tab.mode === 'running' && 'ring-1 ring-emerald-500/15',
         )}
       >
-        {tab.mode === 'running' ? (
+        {hasRunningBadge ? (
           <span className="relative flex h-3 w-3 items-center justify-center">
-            <Activity className={cn('h-3 w-3', runningSessionsCount > 0 && 'text-emerald-500')} />
-            {runningSessionsCount > 0 && (
-              <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
-                {runningBadgeText}
-              </span>
-            )}
+            <Icon className="h-3 w-3" />
+            {/* GOLDJAXE fork (реестр §4.1-кватер): фоновая активность без цветного акцента. */}
+            <span aria-hidden="true" className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 text-[8px] font-semibold tabular-nums leading-none text-foreground ring-1 ring-border">
+              {runningBadgeText}
+            </span>
           </span>
         ) : (
           <Icon className="h-3 w-3" />
@@ -87,7 +88,7 @@ export default function SidebarModeTabs({
     );
 
     // The labelled tabs say what they are; the icon-only ones need the tooltip.
-    return tab.showLabel ? button : <Tooltip content={tab.label} position="top">{button}</Tooltip>;
+    return tab.showLabel ? button : <Tooltip content={label} position="top">{button}</Tooltip>;
   };
 
   const overflowTrigger = (

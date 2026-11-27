@@ -11,6 +11,10 @@
     "starred": "Избранное",
     "all": "Все",
     "untitledSession": "Безымянный сеанс",
+    "listSessionCount_one": "{{count}} сеанс",
+    "listSessionCount_few": "{{count}} сеанса",
+    "listSessionCount_many": "{{count}} сеансов",
+    "listSessionCount_other": "{{count}} сеанса",
     "newSession": "Новый сеанс",
     "codexSession": "Сеанс Codex",
     "fetchingProjects": "Получение ваших проектов и сеансов Claude",
@@ -143,6 +147,7 @@
     "modeProjects": "Проекты",
     "modeConversations": "Разговоры",
     "modeMore": "Ещё",
+    "runningTooltip": "Работающие сеансы",
     "conversationsPlaceholder": "Поиск в разговорах...",
     "searching": "Поиск...",
     "sessionTitles": "Названия сеансов",
@@ -157,6 +162,14 @@
     "projectsScanned_few": "{{count}} проекта просканировано",
     "projectsScanned_many": "{{count}} проектов просканировано",
     "projectsScanned_other": "{{count}} проектов просканировано"
+  },
+  "recent": {
+    "title": "Недавние разговоры",
+    "emptyTitle": "Разговоров пока нет",
+    "emptyDescription": "Здесь появятся недавно обновлённые разговоры.",
+    "loadFailed": "Не удалось загрузить разговоры",
+    "loadMore": "Показать более ранние разговоры",
+    "loadingMore": "Загрузка разговоров..."
   },
   "deleteConfirmation": {
     "deleteProject": "Убрать проект",

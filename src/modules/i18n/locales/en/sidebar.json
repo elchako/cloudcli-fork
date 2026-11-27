@@ -11,6 +11,8 @@
     "starred": "Starred",
     "all": "All",
     "untitledSession": "Untitled Session",
+    "listSessionCount_one": "{{count}} session",
+    "listSessionCount_other": "{{count}} sessions",
     "newSession": "New Session",
     "codexSession": "Codex Session",
     "fetchingProjects": "Fetching your Claude projects and sessions",

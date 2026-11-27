@@ -191,30 +191,22 @@ export default function SidebarProjectSessions({
 
   return (
     <div className="ml-1.5 space-y-1 border-l border-border/70 pl-1.5">
-      {isCompact ? (
-        <div className="px-3 pb-1 pt-1">
-          <button
-            className="flex h-8 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-medium text-primary-foreground transition-all duration-150 hover:bg-primary/90 active:scale-[0.98]"
-            onClick={() => {
-              onProjectSelect(project);
-              onNewSession(project);
-            }}
-          >
-            <Plus className="h-3 w-3" />
-            {t('sessions.newSession')}
-          </button>
-        </div>
-      ) : (
+      {/* GOLDJAXE fork (реестр §4.1-кватер): нейтральное действие у каждого проекта. */}
+      <div className={cn(isCompact && 'px-3 pt-1')}>
         <Button
-          variant="default"
+          type="button"
+          variant="outline"
           size="sm"
-          className="flex h-8 w-full justify-start gap-2 bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          onClick={() => onNewSession(project)}
+          className="flex h-9 w-full justify-start gap-2 border-border px-2 text-xs font-medium active:bg-accent md:h-8"
+          onClick={() => {
+            if (isCompact) onProjectSelect(project);
+            onNewSession(project);
+          }}
         >
           <Plus className="h-3 w-3" />
           {t('sessions.newSession')}
         </Button>
-      )}
+      </div>
 
       {(isSelecting || (initialSessionsLoaded && selectableSessionIds.length > 0)) && (
         <div className={cn('space-y-1', isCompact && 'px-3')}>
@@ -285,7 +277,10 @@ export default function SidebarProjectSessions({
         </div>
       ) : (
         <>
-          <div className={cn(!hasForks && 'space-y-1')} data-testid="project-session-tree">
+          <div
+            className={cn(!hasForks && (isCompact ? 'mx-3 divide-y divide-border' : 'space-y-1'))}
+            data-testid="project-session-tree"
+          >
             {visibleRows.map(({ session, parentId, depth, hasChildren, isLastSibling, continuationDepths }) => (
               <div
                 key={session.id}

@@ -66,6 +66,7 @@ const makeActions = (overrides: Partial<SessionRowActions> = {}): SessionRowActi
 const renderList = (
   conversations: RecentConversationListItem[],
   sessionActions: SessionRowActions,
+  currentSessionId?: string,
 ) => render(
   <SidebarRecentConversations
     conversations={conversations}
@@ -74,7 +75,7 @@ const renderList = (
     isLoading={false}
     isLoadingMore={false}
     hasError={false}
-    selectedSession={null}
+    currentSessionId={currentSessionId}
     currentTime={NOW}
     sessionActions={sessionActions}
     onConversationSelect={noop}
@@ -97,6 +98,24 @@ test('every conversation row gets the shared session controls', () => {
   assert.equal(recordedOptionsProps[0].sessionName, 'title of s1');
   assert.equal(recordedOptionsProps[0].provider, 'claude');
   assert.equal(recordedOptionsProps[0].projectId, 'project-1');
+});
+
+test('only the open conversation is current, even before its project resolves', () => {
+  const { container } = renderList([
+    conversation('latest', { sessionTitle: 'same title' }),
+    conversation('open', { sessionTitle: 'same title', projectId: null }),
+  ], makeActions({ attentionSessionIds: new Set(['latest', 'open']) }), 'open');
+
+  const currentLinks = container.querySelectorAll('a[aria-current="page"]');
+  assert.equal(currentLinks.length, 1);
+  assert.equal(currentLinks[0].getAttribute('href'), '/session/open');
+  assert.ok(currentLinks[0].classList.contains('bg-accent'));
+  assert.equal(container.querySelectorAll('.bg-amber-500').length, 1, 'only an unopened row shows unread activity');
+});
+
+test('the conversation list has no current row outside a session route', () => {
+  const { container } = renderList([conversation('s1')], makeActions());
+  assert.equal(container.querySelector('[aria-current]'), null);
 });
 
 test('a conversation with no known project still renders, and says so', () => {

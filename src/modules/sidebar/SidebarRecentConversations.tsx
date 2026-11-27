@@ -7,7 +7,8 @@ import { Button, Tooltip } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import { useWaitingConfirmationIds } from '@/shared/context/WaitingConfirmationIdsContext';
 import SidebarConfirmationStatus from '@/modules/sidebar/SidebarConfirmationStatus';
-import type { ProjectSession, RecentConversationListItem, SessionRowActions } from '@/shared/types';
+import type { RecentConversationListItem, SessionRowActions } from '@/shared/types';
+import { CURRENT_SESSION_ROW } from '@/modules/sidebar/sidebarRowStyles';
 import { formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 
@@ -18,7 +19,7 @@ type SidebarRecentConversationsProps = {
   isLoading: boolean;
   isLoadingMore: boolean;
   hasError: boolean;
-  selectedSession: ProjectSession | null;
+  currentSessionId: string | undefined;
   currentTime: Date;
   /**
    * The same row state and callbacks the Projects list hands its rows, so a
@@ -59,7 +60,7 @@ export default function SidebarRecentConversations({
   isLoading,
   isLoadingMore,
   hasError,
-  selectedSession,
+  currentSessionId,
   currentTime,
   sessionActions,
   onConversationSelect,
@@ -160,9 +161,9 @@ export default function SidebarRecentConversations({
         <span className="text-[10px] tabular-nums text-muted-foreground/70">{total}</span>
       </div>
 
-      <div className="space-y-0.5">
+      <div className="divide-y divide-border">
         {conversations.map((conversation) => {
-          const isSelected = String(selectedSession?.id ?? '') === conversation.sessionId;
+          const isSelected = currentSessionId === conversation.sessionId;
           const age = formatCompactAge(conversation.lastActivity, currentTime);
           const hasBackgroundWork = sessionActions.backgroundSessionIds.has(conversation.sessionId);
           const isProcessing = sessionActions.activeSessions.has(conversation.sessionId) && !hasBackgroundWork;
@@ -200,11 +201,10 @@ export default function SidebarRecentConversations({
                 href={`/session/${conversation.sessionId}`}
                 onClick={handleClick}
                 data-testid="recent-conversation-row"
+                aria-current={isSelected ? 'page' : undefined}
                 className={cn(
-                  'flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 pr-11 text-left transition-colors',
-                  isSelected
-                    ? 'bg-primary/10 text-foreground'
-                    : 'text-foreground hover:bg-accent/60',
+                  'flex min-w-0 items-center gap-2 rounded-md px-2 py-2 pr-11 text-left text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  isSelected ? CURRENT_SESSION_ROW : 'hover:bg-accent/60 active:bg-accent',
                 )}
               >
                 {/* GOLDJAXE fork (реестр §4.1-тер): название вместо повторяющейся плашки провайдера. */}
@@ -216,7 +216,7 @@ export default function SidebarRecentConversations({
                         aria-label={t('tooltips.pinnedSession', 'Закреплённый сеанс')}
                       />
                     )}
-                    <span className="block truncate text-[13px] font-normal leading-4">
+                    <span className={cn('block truncate text-[13px] leading-4', isSelected && 'font-semibold')}>
                       {conversation.sessionTitle}
                     </span>
                   </span>

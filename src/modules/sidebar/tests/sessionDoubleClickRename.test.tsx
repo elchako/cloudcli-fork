@@ -42,7 +42,7 @@ test('двойной клик сохраняет полный запрос, пи
   assert.equal(title.getAttribute('title'), `Fix login\n\n${session.fullTitle}`);
   assert.ok(title.classList.contains('font-semibold'));
   assert.equal(title.closest('a')?.getAttribute('aria-current'), 'page');
-  assert.ok(title.closest('a')?.classList.contains('bg-primary/15'));
+  assert.ok(title.closest('a[aria-current="page"]')?.classList.contains('bg-accent'));
   assert.ok(getByLabelText('tooltips.pinnedSession'));
 
   fireEvent.doubleClick(title);

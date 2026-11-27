@@ -123,7 +123,7 @@ test('мобильная строка сохраняет полный запро
 
   assert.equal(title.getAttribute('title'), `Session one\n\n${fullTitle}`);
   assert.ok(title.classList.contains('font-semibold'));
-  assert.ok(title.closest('[aria-current="true"]')?.classList.contains('bg-primary/15'));
+  assert.ok(title.closest('[aria-current="page"]')?.classList.contains('bg-accent'));
   assert.ok(screen.getByLabelText('tooltips.pinnedSession'));
 });
 

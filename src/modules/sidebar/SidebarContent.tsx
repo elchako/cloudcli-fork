@@ -1,8 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { Activity, Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
+import { useParams } from 'react-router-dom';
 
 import { LLMProviderLogo, ScrollArea } from '@/shared/ui';
+import { cn } from '@/shared/utils';
+import { CURRENT_SESSION_ROW } from '@/modules/sidebar/sidebarRowStyles';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationSearchResults, Project, RecentConversationListItem, ReleaseInfo, SearchProgress, SidebarProjectListProps, SidebarSearchMode } from '@/shared/types';
 import { formatCompactAge, getAllSessions } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SidebarFooter from '@/modules/sidebar/SidebarFooter';
@@ -175,7 +178,11 @@ export default function SidebarContent({
   projectListProps,
   t,
 }: SidebarContentProps) {
+  // GOLDJAXE fork (реестр §4.1-кватер): маршрут уже известен, даже пока
+  // данные открытого сеанса ещё загружаются или не входят в страницу проекта.
+  const { sessionId: currentSessionId } = useParams<{ sessionId: string }>();
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
+  const currentSessionInTitles = conversationResults?.titleResults.some((row) => row.sessionId === currentSessionId);
   const hasSearchResults = Boolean(
     conversationResults
     && (conversationResults.titleResults.length > 0 || conversationResults.results.length > 0),
@@ -251,12 +258,17 @@ export default function SidebarContent({
 
                   {conversationResults.titleResults.map((session) => {
                     const age = formatCompactAge(session.lastActivity, projectListProps.currentTime);
+                    const isCurrent = session.sessionId === currentSessionId;
 
                     return (
                       <button
                         key={`${session.provider}-${session.sessionId}`}
                         type="button"
-                        className="group flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent/60"
+                        aria-current={isCurrent ? 'page' : undefined}
+                        className={cn(
+                          'group flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left transition-colors',
+                          isCurrent ? CURRENT_SESSION_ROW : 'hover:bg-accent/60',
+                        )}
                         onClick={() => onConversationResultClick(
                           session.projectId,
                           session.sessionId,
@@ -265,7 +277,7 @@ export default function SidebarContent({
                       >
                         {/* GOLDJAXE fork (реестр §4.1-тер): поиск по названиям выглядит как остальные строки «Разговоров». */}
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-normal leading-4 text-foreground">
+                          <span className={cn('block truncate text-[13px] leading-4 text-foreground', isCurrent && 'font-semibold')}>
                             {session.sessionTitle}
                           </span>
                           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] leading-3 text-muted-foreground">
@@ -332,7 +344,14 @@ export default function SidebarContent({
                       {projectResult.sessions.map((session) => (
                         <button
                           key={`${projectResult.projectId ?? projectResult.projectName}-${session.sessionId}`}
-                          className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/50"
+                          type="button"
+                          aria-current={!currentSessionInTitles && session.sessionId === currentSessionId ? 'page' : undefined}
+                          className={cn(
+                            'w-full rounded-md px-2 py-2 text-left transition-colors',
+                            !currentSessionInTitles && session.sessionId === currentSessionId
+                              ? CURRENT_SESSION_ROW
+                              : 'hover:bg-accent/50',
+                          )}
                           onClick={() => onConversationResultClick(
                             // Pass the DB projectId (preferred) so the parent can
                             // cross-reference with the loaded projects list.
@@ -383,7 +402,7 @@ export default function SidebarContent({
             isLoading={isRecentConversationsLoading}
             isLoadingMore={isLoadingMoreRecentConversations}
             hasError={recentConversationsError}
-            selectedSession={projectListProps.selectedSession}
+            currentSessionId={currentSessionId}
             currentTime={projectListProps.currentTime}
             sessionActions={projectListProps}
             onConversationSelect={onConversationResultClick}
@@ -410,14 +429,12 @@ export default function SidebarContent({
             <div className="space-y-2">
               <div className="mx-2 flex items-center justify-between rounded-lg border border-border/60 bg-card/50 px-3 py-2 shadow-sm">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                    <Activity className="h-3.5 w-3.5" />
-                  </span>
+                  <Activity className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate text-xs font-normal text-foreground">
                     {t('running.title', 'Running now')}
                   </span>
                 </div>
-                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-normal text-emerald-700 dark:text-emerald-300">
+                <span className="text-[11px] tabular-nums text-muted-foreground">
                   {runningSessionsCount}
                 </span>
               </div>
