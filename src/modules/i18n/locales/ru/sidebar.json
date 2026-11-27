@@ -61,7 +61,9 @@
     "cancel": "Отмена",
     "clearSearch": "Очистить поиск",
     "openCommandPalette": "Открыть палитру команд",
-    "attentionRequiredIndicator": "Сессия требует внимания"
+    "attentionRequiredIndicator": "Сессия требует внимания",
+    "newActivityIndicator": "Новая активность в сеансе",
+    "waitingForConfirmation": "Ждёт подтверждения"
   },
   "navigation": {
     "chat": "Чат",

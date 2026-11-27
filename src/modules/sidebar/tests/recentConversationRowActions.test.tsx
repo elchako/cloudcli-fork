@@ -15,7 +15,9 @@ import type { ActiveSidebarRename, RecentConversationListItem, SessionRowActions
  */
 
 const recordedOptionsProps: Record<string, unknown>[] = [];
+const waitingIds = new Set<string>();
 
+vi.mock('@/shared/context/WaitingConfirmationIdsContext', () => ({ useWaitingConfirmationIds: () => waitingIds }));
 vi.mock('@/modules/sidebar/SessionOptions', () => ({
   default: (props: Record<string, unknown>) => {
     recordedOptionsProps.push(props);
@@ -84,6 +86,7 @@ const renderList = (
 
 beforeEach(() => {
   recordedOptionsProps.length = 0;
+  waitingIds.clear();
 });
 
 test('every conversation row gets the shared session controls', () => {
@@ -162,6 +165,25 @@ test('a session needing attention gets the amber dot', () => {
 
   const dots = container.querySelectorAll('[role="status"].bg-amber-500');
   assert.equal(dots.length, 1);
+  assert.equal(dots[0].classList.contains('animate-pulse'), false);
+  assert.equal(dots[0].getAttribute('aria-label'), 'tooltips.newActivityIndicator');
   const rows = container.querySelectorAll('[data-testid="recent-conversation-row"]');
   assert.equal(rows.length, 2);
+});
+
+test('ожидание в «Разговорах» видно вместо спиннера, не меняя пин и действия строки', () => {
+  waitingIds.add('s2');
+  const { container } = renderList(
+    [conversation('s1'), conversation('s2', { isPinned: true })],
+    makeActions({ activeSessions: new Set(['s1', 's2']), attentionSessionIds: new Set(['s2']) }),
+  );
+  const first = container.querySelector('a[href="/session/s1"]');
+  const second = container.querySelector('a[href="/session/s2"]');
+  assert.ok(first?.querySelector('.animate-spin'));
+  assert.equal(second?.querySelector('[role="status"]')?.textContent, 'tooltips.waitingForConfirmation');
+  assert.ok(second?.querySelector('.lucide-pin'));
+  assert.equal(container.querySelector('.bg-amber-500, svg[role="img"]'), null);
+  assert.equal(second?.querySelector('.animate-spin'), null);
+  assert.equal(recordedOptionsProps[1].isProcessing, true);
+  assert.equal(recordedOptionsProps[1].provider, 'claude');
 });

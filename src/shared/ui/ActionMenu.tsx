@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Loader2, type LucideIcon } from 'lucide-react';
+import { Check, ChevronDown, Loader2, type LucideIcon } from 'lucide-react';
 
 import { cn } from '@/shared/utils';
 import { Button } from '@/shared/ui/Button';
@@ -19,6 +19,7 @@ export type ActionMenuItem = {
   isDanger?: boolean;
   showDividerBefore?: boolean;
   closeOnSelect?: boolean;
+  isCurrent?: boolean;
 };
 
 type ActionMenuProps = {
@@ -35,6 +36,8 @@ type ActionMenuProps = {
   disabled?: boolean;
   iconOnly?: boolean;
   portal?: boolean;
+  /** GOLDJAXE fork (реестр §12.5): длинное мобильное меню ограничено высотой под кнопкой. */
+  scrollable?: boolean;
   header?: React.ReactNode;
   onOpenChange?: (open: boolean) => void;
 };
@@ -54,11 +57,12 @@ export function ActionMenu({
   disabled,
   iconOnly = false,
   portal = false,
+  scrollable = false,
   header,
   onOpenChange,
 }: ActionMenuProps) {
   const [isOpen, setIsOpen] = React.useState(false);
-  const [portalPosition, setPortalPosition] = React.useState<{ top: number; left: number } | null>(null);
+  const [portalPosition, setPortalPosition] = React.useState<{ top: number; left: number; maxHeight?: number } | null>(null);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
@@ -114,14 +118,19 @@ export function ActionMenu({
       return;
     }
 
-    const closeOnViewportChange = () => setMenuOpen(false);
+    const closeOnViewportChange = (event: Event) => {
+      if (scrollable && event.type === 'scroll' && event.target instanceof Node && menuRef.current?.contains(event.target)) {
+        return;
+      }
+      setMenuOpen(false);
+    };
     window.addEventListener('resize', closeOnViewportChange);
     window.addEventListener('scroll', closeOnViewportChange, true);
     return () => {
       window.removeEventListener('resize', closeOnViewportChange);
       window.removeEventListener('scroll', closeOnViewportChange, true);
     };
-  }, [isOpen, portal, setMenuOpen]);
+  }, [isOpen, portal, scrollable, setMenuOpen]);
 
   // Move focus into the menu on open and back to the trigger on a keyboard or
   // selection close, so keyboard and screen-reader navigation match the menu role.
@@ -168,11 +177,14 @@ export function ActionMenu({
       const menuWidth = 260;
       const estimatedHeight = (header ? 52 : 0)
         + items.reduce((height, item) => height + (item.description ? 58 : 40) + (item.showDividerBefore ? 9 : 0), 12);
+      const belowTrigger = rect.bottom + 6;
+      const top = scrollable || belowTrigger + estimatedHeight <= window.innerHeight - 8
+        ? belowTrigger
+        : Math.max(8, rect.top - estimatedHeight - 6);
       setPortalPosition({
-        top: rect.bottom + 6 + estimatedHeight <= window.innerHeight - 8
-          ? rect.bottom + 6
-          : Math.max(8, rect.top - estimatedHeight - 6),
+        top,
         left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)),
+        maxHeight: scrollable ? Math.max(0, window.innerHeight - top - 8) : undefined,
       });
     }
     setMenuOpen(true);
@@ -189,6 +201,7 @@ export function ActionMenu({
         portal ? 'fixed z-[70]' : 'absolute top-full z-50 mt-2',
         'min-w-[220px] rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg',
         'animate-in fade-in-0 zoom-in-95',
+        scrollable && 'overflow-y-auto overscroll-contain',
         !portal && (align === 'right' ? 'right-0' : 'left-0'),
         menuClassName,
       )}
@@ -203,6 +216,7 @@ export function ActionMenu({
             <button
               type="button"
               role="menuitem"
+              aria-current={item.isCurrent || undefined}
               disabled={item.disabled || item.loading}
               onClick={() => runItem(item)}
               className={cn(
@@ -228,6 +242,7 @@ export function ActionMenu({
                   </span>
                 )}
               </span>
+              {item.isCurrent && <Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />}
             </button>
           </React.Fragment>
         );

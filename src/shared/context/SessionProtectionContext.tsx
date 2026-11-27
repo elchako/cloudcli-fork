@@ -4,6 +4,8 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
+  useState,
 } from 'react';
 import type { ReactNode } from 'react';
 
@@ -12,6 +14,8 @@ import {
 } from '@/shared/hooks/useSessionProtection';
 import type { BackgroundTaskSummary, GetSessionActivity, IsSessionProcessing, MarkSessionBackground, MarkSessionIdle, MarkSessionProcessing, SessionActivity, SessionActivityMap, SyncProcessingSessions } from '@/shared/types';
 import { api } from '@/shared/api';
+import WebSocketContext from '@/shared/context/WebSocketContext';
+import { NO_WAITING_SESSIONS, WaitingConfirmationIdsContext } from '@/shared/context/WaitingConfirmationIdsContext';
 
 type RunningSessionApiItem = {
   sessionId?: unknown;
@@ -20,6 +24,7 @@ type RunningSessionApiItem = {
   canInterrupt?: unknown;
   background?: unknown;
   tasks?: unknown;
+  waitingForConfirmation?: unknown;
 };
 
 type RunningSessionsApiPayload = {
@@ -131,21 +136,41 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
     isSessionProcessing,
     getSessionActivity,
   } = useSessionProtection();
+  const subscribe = useContext(WebSocketContext)?.subscribe;
+  const [waitingKey, setWaitingKey] = useState('');
+  const pollGeneration = useRef(0);
+  const waitingConfirmationIds = useMemo(
+    () => waitingKey ? new Set(waitingKey.split('\u0000')) : NO_WAITING_SESSIONS,
+    [waitingKey],
+  );
 
   const refreshRunningSessions = useCallback(async () => {
+    const generation = ++pollGeneration.current;
     try {
       const response = await api.runningSessions();
       if (!response.ok) {
+        if (generation === pollGeneration.current) setWaitingKey('');
         return;
       }
 
       const payload = (await response.json()) as RunningSessionsApiPayload;
+      if (generation !== pollGeneration.current) return;
       const sessions = Array.isArray(payload.data?.sessions) ? payload.data.sessions : [];
+
+      // GOLDJAXE fork (реестр §4.1-тер): только явный признак из свежего снимка,
+      // с тем же составом множество остаётся стабильным между опросами.
+      const waitingIds = new Set<string>();
+      for (const session of sessions) {
+        if (session?.waitingForConfirmation === true && typeof session.sessionId === 'string' && session.sessionId) {
+          waitingIds.add(session.sessionId);
+        }
+      }
+      setWaitingKey([...waitingIds].sort().join('\u0000'));
 
       syncProcessingSessions(
         sessions
           .map((session) => {
-            if (typeof session.sessionId !== 'string' || !session.sessionId) {
+            if (typeof session?.sessionId !== 'string' || !session.sessionId) {
               return null;
             }
 
@@ -161,21 +186,40 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
           .filter((session): session is NonNullable<typeof session> => Boolean(session)),
       );
     } catch (error) {
+      if (generation === pollGeneration.current) setWaitingKey('');
       console.error('[SessionProtection] Failed to sync running sessions:', error);
     }
   }, [syncProcessingSessions]);
 
   useEffect(() => {
-    void refreshRunningSessions();
+    const refresh = () => { void refreshRunningSessions(); };
+    const initial = window.setTimeout(refresh, 0);
+    const interval = window.setInterval(refresh, 5000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+    };
   }, [refreshRunningSessions]);
 
+  // GOLDJAXE fork (реестр §4.1-тер): событие лишь ускоряет чтение снимка.
+  // Повторы WS не добавляют меток и не превращаются в пачку сетевых запросов.
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      void refreshRunningSessions();
-    }, 5000);
+    let refreshTimer: number | undefined;
+    const unsubscribe = subscribe?.((event) => {
+      if (event.kind !== 'permission_request' && event.kind !== 'permission_resolved'
+        && event.kind !== 'permission_cancelled' && event.kind !== 'websocket_reconnected') return;
+      if (refreshTimer !== undefined) return;
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = undefined;
+        void refreshRunningSessions();
+      }, 120);
+    });
 
-    return () => window.clearInterval(interval);
-  }, [refreshRunningSessions]);
+    return () => {
+      unsubscribe?.();
+      window.clearTimeout(refreshTimer);
+    };
+  }, [subscribe, refreshRunningSessions]);
 
   const actions = useMemo<SessionProtectionActions>(
     () => ({
@@ -203,9 +247,11 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
     <SessionProtectionActionsContext.Provider value={actions}>
       <BusySessionIdsContext.Provider value={busySessionIds}>
         <BackgroundSessionIdsContext.Provider value={backgroundSessionIds}>
-          <SessionProtectionStateContext.Provider value={processingSessions}>
-            {children}
-          </SessionProtectionStateContext.Provider>
+          <WaitingConfirmationIdsContext.Provider value={waitingConfirmationIds}>
+            <SessionProtectionStateContext.Provider value={processingSessions}>
+              {children}
+            </SessionProtectionStateContext.Provider>
+          </WaitingConfirmationIdsContext.Provider>
         </BackgroundSessionIdsContext.Provider>
       </BusySessionIdsContext.Provider>
     </SessionProtectionActionsContext.Provider>

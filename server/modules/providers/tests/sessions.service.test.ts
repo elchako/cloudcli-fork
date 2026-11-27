@@ -338,6 +338,41 @@ test('running sessions with no background work are the chat runs alone', { concu
   });
 });
 
+// GOLDJAXE fork (реестр §4.1-тер): у снимка только признак, не данные подтверждения.
+test('снимок отмечает только сеанс с открытыми запросами и снимает метку после последнего', { concurrency: false }, async () => {
+  await withIsolatedDatabase(async () => {
+    const pending = new Set(['request-1', 'request-2']);
+    for (const appSessionId of ['waiting-session', 'busy-session']) {
+      sessionsDb.createAppSession(appSessionId, 'claude', '/tmp/running-project');
+      assert.ok(chatRunRegistry.startRun({ appSessionId, provider: 'claude', providerSessionId: null, connection: null, userId: null }));
+    }
+
+    await withClaudeCliRegistry([], async () => await withProviders({
+      claude: {
+        run: async () => undefined,
+        abort: () => false,
+        permissions: {
+          listPending: (id) => id === 'waiting-session' ? [...pending].map((requestId) => ({ requestId, input: 'fixture' })) : [],
+          resolve: (id) => { pending.delete(id); },
+        },
+      },
+    }, async () => {
+      const snapshot = await sessionsService.listRunningSessions();
+      const waiting = snapshot.find((entry) => entry.sessionId === 'waiting-session');
+      assert.equal(waiting?.waitingForConfirmation, true);
+      assert.equal(snapshot.find((entry) => entry.sessionId === 'busy-session')?.waitingForConfirmation, undefined);
+      assert.ok(!JSON.stringify(snapshot).includes('request-1'));
+      assert.ok(!JSON.stringify(snapshot).includes('fixture'));
+      pending.delete('request-1');
+      assert.equal((await sessionsService.listRunningSessions()).find((entry) => entry.sessionId === 'waiting-session')?.waitingForConfirmation, true);
+      pending.clear();
+      const settled = (await sessionsService.listRunningSessions()).find((entry) => entry.sessionId === 'waiting-session');
+      assert.ok(settled, 'сеанс ещё работает после решения');
+      assert.equal(settled.waitingForConfirmation, undefined);
+    }));
+  });
+});
+
 test('running sessions report a turn driven by the Claude CLI', { concurrency: false }, async () => {
   await withIsolatedDatabase(async () => {
     sessionsDb.createAppSession('cli-session', 'claude', '/tmp/running-project');

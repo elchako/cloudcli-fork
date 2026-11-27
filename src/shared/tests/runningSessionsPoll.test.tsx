@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, test, vi } from 'vitest';
 
@@ -85,4 +85,44 @@ test('one task entry in a shape the client does not read hides only itself', asy
 
   await waitFor(() => assert.ok(result.current.get('held-session')));
   assert.deepEqual(result.current.get('held-session')?.tasks?.map((task) => task.taskId), ['w1']);
+});
+
+// GOLDJAXE fork (реестр §4.1-тер): live-метка читается из снимка, не из текста статуса.
+test('ожидание берётся из свежего снимка и не возвращается от опоздавшего ответа', async () => {
+  const { SessionProtectionProvider } = await import('@/shared/context/SessionProtectionContext');
+  const { useWaitingConfirmationIds } = await import('@/shared/context/WaitingConfirmationIdsContext');
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(SessionProtectionProvider, null, children);
+  const response = (waiting: boolean) => ({ ok: true, json: async () => ({ data: { sessions: [
+    { sessionId: 'test-wait', waitingForConfirmation: waiting },
+    { sessionId: 'test-busy', statusText: 'Waiting for confirmation', waitingForConfirmation: 'true' },
+  ] } }) });
+  const tick = () => act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  runningSessions.mockResolvedValue(response(true));
+  vi.useFakeTimers();
+  try {
+    const { result } = renderHook(useWaitingConfirmationIds, { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    assert.deepEqual([...result.current], ['test-wait']);
+    const initialSet = result.current;
+    await tick();
+    assert.equal(result.current, initialSet);
+
+    let resolveStale!: (value: ReturnType<typeof response>) => void;
+    runningSessions.mockReturnValueOnce(new Promise((resolve) => { resolveStale = resolve; }));
+    await tick();
+    runningSessions.mockResolvedValueOnce(response(false));
+    await tick();
+    assert.equal(result.current.size, 0);
+    await act(async () => resolveStale(response(true)));
+    assert.equal(result.current.size, 0);
+
+    await tick();
+    assert.equal(result.current.has('test-wait'), true);
+    runningSessions.mockResolvedValueOnce({ ok: false });
+    await tick();
+    assert.equal(result.current.size, 0, 'ошибка опроса не оставляет старую метку');
+  } finally {
+    vi.useRealTimers();
+  }
 });

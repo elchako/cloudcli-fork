@@ -11,6 +11,7 @@ import { PROVIDER_LABELS, createSessionViewModel, formatCompactAge } from '@/mod
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
+import SidebarConfirmationStatus from '@/modules/sidebar/SidebarConfirmationStatus';
 
 type SidebarSessionItemProps = {
   project: Project;
@@ -20,6 +21,7 @@ type SidebarSessionItemProps = {
   /** The session's turn has ended but the agents, workflows or commands it launched still run. */
   hasBackgroundWork: boolean;
   needsAttention: boolean;
+  isWaitingForConfirmation?: boolean;
   currentTime: Date;
   /** Resolved for this row, so a keystroke elsewhere does not invalidate it. */
   isEditing: boolean;
@@ -57,6 +59,7 @@ function SidebarSessionItem({
   isProcessing,
   hasBackgroundWork,
   needsAttention,
+  isWaitingForConfirmation = false,
   currentTime,
   isEditing,
   renameDraft,
@@ -95,7 +98,7 @@ function SidebarSessionItem({
   const showBackgroundIndicator = !showAttentionIndicator && hasBackgroundWork;
   const showRecentIndicator = !showAttentionIndicator && !showBackgroundIndicator && !isProcessing && sessionView.isActive;
   const indicatorLabel = showAttentionIndicator
-    ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
+    ? t('tooltips.newActivityIndicator', { defaultValue: 'New session activity' })
     : showBackgroundIndicator
       ? t('tooltips.backgroundWorkIndicator', { defaultValue: 'Background work running' })
       : t('tooltips.activeSessionIndicator');
@@ -173,14 +176,15 @@ function SidebarSessionItem({
 
   return (
     <div className="group relative">
-      {(showAttentionIndicator || showBackgroundIndicator || showRecentIndicator) && (
+      {!isWaitingForConfirmation && (showAttentionIndicator || showBackgroundIndicator || showRecentIndicator) && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
           <Tooltip content={indicatorLabel} position="right">
             <div
               role="status"
               aria-label={indicatorLabel}
               className={cn(
-                'h-2 w-2 animate-pulse rounded-full',
+                'h-2 w-2 rounded-full',
+                showBackgroundIndicator && 'animate-pulse',
                 showAttentionIndicator
                   ? 'bg-amber-500'
                   : showBackgroundIndicator
@@ -219,15 +223,6 @@ function SidebarSessionItem({
         >
           <div className={cn('flex items-center', treeRow ? 'gap-1.5' : 'gap-2')}>
             {selectionIcon}
-            <div
-              className={cn(
-                'w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0',
-                isSelected ? 'bg-primary/10' : 'bg-muted/50',
-              )}
-            >
-              <LLMProviderLogo provider={session.__provider} className="h-3 w-3" />
-            </div>
-
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 {session.isPinned && (
@@ -245,7 +240,7 @@ function SidebarSessionItem({
                 >
                   {sessionView.sessionName}
                 </div>
-                {isProcessing ? (
+                {isProcessing && !isWaitingForConfirmation ? (
                   <span className="ml-auto flex-shrink-0">
                     <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
                       <span className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground">
@@ -253,12 +248,12 @@ function SidebarSessionItem({
                       </span>
                     </Tooltip>
                   </span>
-                ) : !treeRow && compactSessionAge && (
+                ) : !isWaitingForConfirmation && !treeRow && compactSessionAge && (
                   <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">{compactSessionAge}</span>
                 )}
               </div>
-              <div className="mt-0.5 flex items-center">
-                {sessionView.messageCount > 0 && (
+              <div className="mt-0.5 flex min-w-0 items-center">
+                {isWaitingForConfirmation ? <SidebarConfirmationStatus t={t} /> : sessionView.messageCount > 0 && (
                   <Badge variant="secondary" className="px-1 py-0 text-xs">
                     {sessionView.messageCount}
                   </Badge>
@@ -540,14 +535,6 @@ function SidebarSessionItem({
         >
           <div className={cn('flex w-full min-w-0 items-center', treeRow ? 'gap-1.5' : 'gap-2')}>
             {selectionIcon}
-            <div
-              className={cn(
-                'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md',
-                isSelected ? 'bg-primary/10' : 'bg-muted/50',
-              )}
-            >
-              <LLMProviderLogo provider={session.__provider} className="h-3 w-3" />
-            </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 {session.isPinned && (
@@ -571,7 +558,7 @@ function SidebarSessionItem({
                 >
                   {sessionView.sessionName}
                 </div>
-                {isProcessing ? (
+                {isProcessing && !isWaitingForConfirmation ? (
                   <span
                     className={cn(
                       'ml-auto flex-shrink-0 transition-opacity duration-200',
@@ -584,7 +571,7 @@ function SidebarSessionItem({
                       </span>
                     </Tooltip>
                   </span>
-                ) : compactSessionAge && (
+                ) : !isWaitingForConfirmation && compactSessionAge && (
                   <span
                     className={cn(
                       'ml-auto flex-shrink-0 text-[11px] text-muted-foreground transition-opacity duration-200',
@@ -595,8 +582,10 @@ function SidebarSessionItem({
                   </span>
                 )}
               </div>
-              <div className="mt-0.5 flex items-center">
-                {sessionView.messageCount > 0 && <Badge variant="secondary" className="px-1 py-0 text-xs">{sessionView.messageCount}</Badge>}
+              <div className="mt-0.5 flex min-w-0 items-center">
+                {isWaitingForConfirmation ? <SidebarConfirmationStatus t={t} /> : sessionView.messageCount > 0 && (
+                  <Badge variant="secondary" className="px-1 py-0 text-xs">{sessionView.messageCount}</Badge>
+                )}
               </div>
             </div>
           </div>

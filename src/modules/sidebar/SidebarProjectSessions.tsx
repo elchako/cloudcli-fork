@@ -5,6 +5,7 @@ import type { TFunction } from 'i18next';
 import { Button } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { LLMProvider, Project, ProjectSession, SessionWithProvider, SidebarSessionSelection } from '@/shared/types';
+import { useWaitingConfirmationIds } from '@/shared/context/WaitingConfirmationIdsContext';
 import SidebarSessionItem from '@/modules/sidebar/SidebarSessionItem';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { buildProjectSessionTree } from '@/modules/sidebar/utils/projectSessionTree';
@@ -105,6 +106,7 @@ export default function SidebarProjectSessions({
   t,
 }: SidebarProjectSessionsProps) {
   const isCompact = useCompactSidebar();
+  const waitingConfirmationIds = useWaitingConfirmationIds();
   const treeRows = useMemo(() => buildProjectSessionTree(sessions, project.projectId), [sessions, project.projectId]);
   const selectedSessionId = selectedSession?.id ?? null;
   const targetAncestors = useMemo(() => {
@@ -350,6 +352,7 @@ export default function SidebarProjectSessions({
                     isProcessing={isSessionRunning(session)}
                     hasBackgroundWork={backgroundSessionIds.has(session.id)}
                     needsAttention={attentionSessionIds.has(session.id)}
+                    isWaitingForConfirmation={waitingConfirmationIds.has(session.id)}
                     currentTime={currentTime}
                     onRenameDraftChange={onRenameDraftChange}
                     isEditing={session.id === sessionRenameId}

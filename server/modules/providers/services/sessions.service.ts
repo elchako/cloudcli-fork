@@ -9,6 +9,7 @@ import { generateSessionTitle } from '@/modules/providers/services/session-title
 import { extractFirstUserPrompt } from '@/modules/providers/services/first-user-prompt.service.js';
 import { listBusyClaudeCliSessions } from '@/modules/providers/services/claude-cli-liveness.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
+import { providerRuntimeService } from '@/modules/providers/services/provider-runtime.service.js';
 import { sessionHistoryCache } from '@/modules/providers/services/session-history-cache.service.js';
 import type {
   BackgroundTaskSummary,
@@ -45,6 +46,7 @@ type RunningSessionEntry = {
   canInterrupt?: false;
   statusText?: string;
   tasks?: BackgroundTaskSummary[];
+  waitingForConfirmation?: true;
 };
 
 type CreateAppSessionResult = {
@@ -361,6 +363,14 @@ export const sessionsService = {
         statusText: 'Running in the Claude CLI',
       });
       runningById.set(session.session_id, entries[entries.length - 1]);
+    }
+
+    // GOLDJAXE fork (реестр §4.1-тер): только признак открытого запроса из
+    // реестра провайдера, без содержимого, ID запросов и данных исходного сокета.
+    for (const entry of entries) {
+      if (providerRuntimeService.getPendingApprovalsForSession(entry.sessionId).length > 0) {
+        entry.waitingForConfirmation = true;
+      }
     }
 
     return entries;

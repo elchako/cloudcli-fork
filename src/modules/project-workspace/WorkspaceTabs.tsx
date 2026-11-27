@@ -1,17 +1,18 @@
-import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, LayoutGrid, Puzzle, type LucideIcon } from 'lucide-react';
 import { Fragment } from 'react';
 import type { Dispatch, KeyboardEvent, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { Tooltip, PillBar, Pill } from '@/shared/ui';
+import { ActionMenu, Tooltip, PillBar, Pill } from '@/shared/ui';
 import type { AppTab } from '@/shared/types';
-import { usePlugins,PluginIcon } from '@/modules/plugins';
+import { usePlugins, PluginIcon } from '@/modules/plugins';
 
 type WorkspaceTabsProps = {
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
+  compact?: boolean;
 };
 
 type BuiltInTab = {
@@ -58,6 +59,7 @@ export default function WorkspaceTabs({
   setActiveTab,
   shouldShowTasksTab,
   shouldShowBrowserTab,
+  compact = false,
 }: WorkspaceTabsProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
@@ -79,6 +81,33 @@ export default function WorkspaceTabs({
     }));
 
   const tabs: TabDefinition[] = [...builtInTabs, ...pluginTabs];
+  const tabLabel = (tab: TabDefinition) => tab.kind === 'builtin' ? t(tab.labelKey) : tab.label;
+
+  // GOLDJAXE fork (реестр §12.5): то же меню представлений, но одна кнопка вместо полосы на телефоне.
+  if (compact) {
+    return (
+      <ActionMenu
+        label={t('tabs.tools', { defaultValue: 'Tools' })}
+        icon={LayoutGrid}
+        iconOnly
+        portal
+        scrollable
+        variant="ghost"
+        size="icon"
+        className="shrink-0"
+        triggerClassName="h-11 w-11 text-muted-foreground"
+        menuClassName="w-[260px] max-w-[calc(100vw-1rem)] [&_[role=menuitem]]:min-h-11"
+        items={tabs.map((tab, index) => ({
+          key: tab.id,
+          label: tabLabel(tab),
+          icon: tab.kind === 'builtin' ? tab.icon : Puzzle,
+          isCurrent: tab.id === activeTab,
+          showDividerBefore: index === builtInTabs.length,
+          onSelect: () => setActiveTab(tab.id),
+        }))}
+      />
+    );
+  }
 
   const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     const tabList = event.currentTarget.closest('[role="tablist"]');
@@ -107,7 +136,7 @@ export default function WorkspaceTabs({
     >
       {tabs.map((tab, index) => {
         const isActive = tab.id === activeTab;
-        const displayLabel = tab.kind === 'builtin' ? t(tab.labelKey) : tab.label;
+        const displayLabel = tabLabel(tab);
 
         return (
           <Fragment key={`${tab.id}-${index}`}>
@@ -134,9 +163,6 @@ export default function WorkspaceTabs({
                     className="flex h-3.5 w-3.5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full"
                   />
                 )}
-                {/* Phone widths get icons only — the bar shares one header row
-                    with the chat title there, and a "Чат" caption used to eat
-                    a third of it. The label is still the tooltip/aria-label. */}
                 <span className={`${isActive ? 'sm:inline' : ''} hidden max-w-28 truncate sm:max-w-36 lg:inline`}>
                   {displayLabel}
                 </span>
