@@ -86,6 +86,18 @@ type UseSidebarControllerArgs = {
 const RECENT_CONVERSATIONS_REFRESH_DEBOUNCE_MS = 400;
 
 /** Used by Sidebar to coordinate project navigation, expansion and session actions. */
+function applyConversationPinChanges(results: ConversationSearchResults, changes: ReadonlyMap<string, boolean>): ConversationSearchResults {
+  if (changes.size === 0) return results;
+  const updatePin = <T extends { sessionId: string; isPinned?: boolean }>(session: T): T => (
+    changes.has(session.sessionId) ? { ...session, isPinned: changes.get(session.sessionId) } : session
+  );
+  return {
+    ...results,
+    titleResults: results.titleResults.map(updatePin),
+    results: results.results.map((project) => ({ ...project, sessions: project.sessions.map(updatePin) })),
+  };
+}
+
 export function useSidebarController({
   projects,
   selectedProject,
@@ -177,6 +189,9 @@ export function useSidebarController({
   const sessionIdsBeingDeletedRef = useRef<Set<string>>(new Set());
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [searchMode, setSearchMode] = useState<SidebarSearchMode>('projects');
+  // GOLDJAXE fork (реестр §28): ответ на пин новее снимка потока поиска.
+  const conversationPinChangesRef = useRef(new Map<string, boolean>());
+  const pendingPinTogglesRef = useRef(new Set<string>());
   const [conversationResults, setConversationResults] = useState<ConversationSearchResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
@@ -542,6 +557,7 @@ export function useSidebarController({
       eventSourceRef.current = null;
     }
 
+    conversationPinChangesRef.current.clear();
     const query = debouncedSearchQuery;
     if (searchMode !== 'conversations' || query.length < 2) {
       searchSeqRef.current += 1;
@@ -573,12 +589,12 @@ export function useSidebarController({
       try {
         const data = JSON.parse(evt.data) as { titleResults: SessionTitleSearchResult[] };
         titleResults = Array.isArray(data.titleResults) ? data.titleResults : [];
-        setConversationResults({
+        setConversationResults(applyConversationPinChanges({
           results: [...accumulated],
           titleResults: [...titleResults],
           totalMatches,
           query,
-        });
+        }, conversationPinChangesRef.current));
       } catch {
         // Ignore malformed SSE data
       }
@@ -595,12 +611,12 @@ export function useSidebarController({
         };
         accumulated.push(data.projectResult);
         totalMatches = data.totalMatches;
-        setConversationResults({
+        setConversationResults(applyConversationPinChanges({
           results: [...accumulated],
           titleResults: [...titleResults],
           totalMatches,
           query,
-        });
+        }, conversationPinChangesRef.current));
         setSearchProgress({ scannedProjects: data.scannedProjects, totalProjects: data.totalProjects });
       } catch {
         // Ignore malformed SSE data
@@ -624,12 +640,12 @@ export function useSidebarController({
       eventSourceRef.current = null;
       setIsSearching(false);
       setSearchProgress(null);
-      setConversationResults({
+      setConversationResults(applyConversationPinChanges({
         results: [...accumulated],
         titleResults: [...titleResults],
         totalMatches,
         query,
-      });
+      }, conversationPinChangesRef.current));
     });
 
     es.addEventListener('error', () => {
@@ -638,12 +654,12 @@ export function useSidebarController({
       eventSourceRef.current = null;
       setIsSearching(false);
       setSearchProgress(null);
-      setConversationResults({
+      setConversationResults(applyConversationPinChanges({
         results: [...accumulated],
         titleResults: [...titleResults],
         totalMatches,
         query,
-      });
+      }, conversationPinChangesRef.current));
     });
 
     return () => {
@@ -1330,20 +1346,32 @@ export function useSidebarController({
    */
   const toggleSessionPin = useCallback(
     async (sessionId: string) => {
+      if (pendingPinTogglesRef.current.has(sessionId)) return;
+      pendingPinTogglesRef.current.add(sessionId);
       try {
         const response = await api.toggleSessionPin(sessionId);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
 
+        const payload = await response.json();
+        const isPinned: unknown = payload?.data?.isPinned;
+        if (typeof isPinned === 'boolean' && (eventSourceRef.current || searchMode === 'conversations')) {
+          conversationPinChangesRef.current.set(sessionId, isPinned);
+          setConversationResults((current) => current && applyConversationPinChanges(
+            current, new Map([[sessionId, isPinned]]),
+          ));
+        }
         await onRefresh();
         reloadRecentConversations();
       } catch (error) {
         console.error('[Sidebar] Error toggling session pin:', error);
         alert(t('messages.togglePinError', 'Не удалось закрепить сеанс.'));
+      } finally {
+        pendingPinTogglesRef.current.delete(sessionId);
       }
     },
-    [onRefresh, reloadRecentConversations, t],
+    [onRefresh, reloadRecentConversations, searchMode, t],
   );
 
   /**

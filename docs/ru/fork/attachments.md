@@ -4,7 +4,7 @@ type: fork-change
 sections: [§2.2, §18.2, §19.1]
 tags: [чат, вложения, files_input, граница-доверия, assets]
 description: "Прикрепление любых файлов: пути в <files_input>, граница assets/cwd; сохранность черновиков при смене чата, обычной отправке, очереди и steering v1.37.8."
-updated: 2026-11-08
+updated: 2026-11-27
 ---
 
 # Вложения: любые файлы и сохранность при смене чата
@@ -14,11 +14,15 @@ updated: 2026-11-08
 ## §2.2 Прикрепление любых файлов (не только картинок)
 
 - **Слой:** frontend + server · **Столкновение:** 🟡 · **PR:** кандидат.
-- **Что:** к сообщению можно прикрепить любой файл; не-картинки доходят до агента
-  как читаемый путь (блок `<files_input>`), а не base64. Проверка типа и лимита
-  (20 МБ / 5 файлов) с уведомлением о превышении.
-- **Файлы:** `src/components/chat/utils/attachmentSupport.ts`,
-  `src/components/chat/hooks/useChatComposerState.ts`,
+- **Что:** к сообщению можно прикрепить картинки и поддерживаемые документы;
+  не-картинки доходят до агента читаемым путём (блок `<files_input>`), не base64.
+  В композере — до 5 файлов и до 10 МБ на файл: теперь клиент учитывает
+  действующий лимит `/api/assets/files` до отправки. У отдельного маршрута
+  `/api/assets/images` сохранены 20 МБ и 5 файлов. Отказ называет каждый файл и
+  причину; ID запроса связывает сбой загрузки с журналом без содержимого и имён
+  файлов ([§28](merge-v1.37.11.md)).
+- **Файлы:** `src/modules/chat/utils/attachmentSupport.ts`,
+  `src/modules/chat/hooks/useChatComposerState.ts`,
   `server/shared/image-attachments.ts`,
   `server/modules/assets/services/image-assets.service.ts`,
   `server/modules/assets/assets.routes.ts` (форс-download не-картинок).

@@ -9,7 +9,9 @@
     "copied": "Message copied",
     "selectFormat": "Select copy format",
     "copyAsMarkdown": "Copy as markdown",
-    "copyAsText": "Copy as text"
+    "copyAsText": "Copy as text",
+    "markdownShort": "MD",
+    "textShort": "TXT"
   },
   "protectedData": {
     "title": "Protected data",
@@ -203,6 +205,15 @@
     "placeholderDefault": "Type your message...",
     "disabled": "Input disabled",
     "attachFiles": "Attach files",
+    "attachmentRejected": {
+      "title_one": "Couldn't attach {{count}} file",
+      "title_other": "Couldn't attach {{count}} files",
+      "tooLarge": "is larger than {{maxSize}} MB",
+      "tooMany": "is over the {{maxCount}}-file limit",
+      "unsupportedType": "has an unsupported file type",
+      "empty": "is empty",
+      "dismiss": "Dismiss"
+    },
     "attachImages": "Attach images",
     "send": "Send",
     "stop": "Stop",
@@ -251,6 +262,15 @@
       "title": "Replacing an earlier message",
       "filesNotReverted": "files the agent already changed are not reverted",
       "cancel": "Cancel"
+    },
+    "commands": {
+      "help": "Show help documentation for Claude Code",
+      "models": "View available models for the current provider",
+      "clear": "Clear this session's context and keep its history",
+      "cost": "Display token usage information",
+      "memory": "Open CLAUDE.md memory file for editing",
+      "config": "Open settings and configuration",
+      "status": "Show system status and version information"
     }
   },
   "providerSelection": {

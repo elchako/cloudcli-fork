@@ -81,6 +81,31 @@ test('session creation route names a CloudCLI session from the initial message',
   });
 });
 
+test('session creation records the composer selection on the new row', async () => {
+  await withProviderServer(async (baseUrl, workspacePath) => {
+    const response = await fetch(`${baseUrl}/api/providers/sessions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        provider: 'codex',
+        projectPath: workspacePath,
+        initialMessage: 'hello',
+        model: 'gpt-5.4',
+        effort: 'high',
+        // Codex has no plan mode, so this one is not recorded.
+        permissionMode: 'plan',
+      }),
+    });
+    const payload = await response.json() as { data: { sessionId: string } };
+    const row = sessionsDb.getSessionById(payload.data.sessionId);
+
+    assert.equal(response.status, 201);
+    assert.equal(row?.model, 'gpt-5.4');
+    assert.equal(row?.effort, 'high');
+    assert.equal(row?.permission_mode, null);
+  });
+});
+
 test('conversation search streams title matches before transcript results', async () => {
   await withProviderServer(async (baseUrl, workspacePath) => {
     sessionsDb.createAppSession(
@@ -109,6 +134,11 @@ test('conversation search streams title matches before transcript results', asyn
       transcriptPath,
     );
 
+    const pin = await fetch(`${baseUrl}/api/providers/sessions/title-only-session/toggle-pin`, { method: 'POST' });
+    assert.equal(pin.status, 200);
+    const pinPayload = await pin.json() as { data: { isPinned: boolean } };
+    assert.equal(pinPayload.data.isPinned, true);
+
     const response = await fetch(
       `${baseUrl}/api/providers/search/sessions?q=release%20planning&limit=50`,
     );
@@ -133,12 +163,18 @@ test('conversation search streams title matches before transcript results', asyn
         sessionId: string;
         sessionTitle: string;
         provider: string;
+        isPinned: boolean;
       }>;
     };
     assert.equal(titlePayload.titleResults.length, 1);
     assert.equal(titlePayload.titleResults[0]?.sessionId, 'title-only-session');
     assert.equal(titlePayload.titleResults[0]?.sessionTitle, 'Release planning notes');
     assert.equal(titlePayload.titleResults[0]?.provider, 'codex');
+    assert.equal(titlePayload.titleResults[0]?.isPinned, true);
+    const transcriptData = eventStream.slice(conversationEventIndex, doneEventIndex)
+      .split('\n').find((line) => line.startsWith('data: '));
+    assert.ok(transcriptData);
+    assert.equal(JSON.parse(transcriptData.slice('data: '.length)).projectResult.sessions[0].isPinned, false);
   });
 });
 
@@ -172,6 +208,47 @@ test('reasoning effort is persisted and returned with the active session model',
     assert.equal(readResponse.status, 200);
     assert.equal(readPayload.data.sessionId, 'effort-session');
     assert.equal(readPayload.data.effort, 'ultra');
+  });
+});
+
+test('permission mode is persisted per session and seeds the project selection', async () => {
+  await withProviderServer(async (baseUrl, workspacePath) => {
+    sessionsDb.createAppSession('mode-session', 'codex', workspacePath);
+    const postMode = (permissionMode: string) => fetch(
+      `${baseUrl}/api/providers/codex/sessions/mode-session/active-permission-mode`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ permissionMode }),
+      },
+    );
+
+    // Codex has no plan mode.
+    assert.equal((await postMode('plan')).status, 400);
+    assert.equal((await postMode('acceptEdits')).status, 200);
+    assert.equal(sessionsDb.getSessionById('mode-session')?.permission_mode, 'acceptEdits');
+    // A Claude URL cannot store Claude's plan mode on this Codex session.
+    const crossProvider = await fetch(
+      `${baseUrl}/api/providers/claude/sessions/mode-session/active-permission-mode`,
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ permissionMode: 'plan' }) },
+    );
+    assert.equal(crossProvider.status, 400);
+    assert.equal(sessionsDb.getSessionById('mode-session')?.permission_mode, 'acceptEdits');
+
+    const readResponse = await fetch(
+      `${baseUrl}/api/providers/codex/sessions/mode-session/active-model`,
+    );
+    const readPayload = await readResponse.json() as { data: { permissionMode: string | null } };
+    assert.equal(readPayload.data.permissionMode, 'acceptEdits');
+
+    const projectResponse = await fetch(
+      `${baseUrl}/api/providers/codex/project-selection?workspacePath=${encodeURIComponent(workspacePath)}`,
+    );
+    const projectPayload = await projectResponse.json() as { data: { permissionMode: string | null } };
+    assert.equal(projectResponse.status, 200);
+    assert.equal(projectPayload.data.permissionMode, 'acceptEdits');
+
+    assert.equal((await fetch(`${baseUrl}/api/providers/codex/project-selection`)).status, 400);
   });
 });
 
@@ -456,14 +533,15 @@ test('the CLI update route refuses while that provider is busy in a session', {
   // A session held open for background work counts as busy, like a running
   // chat: replacing the CLI under it could break the work it is still doing.
   const realListProviders = providerRegistry.listProviders;
-  providerRegistry.listProviders = () => [{
-    id: 'claude',
-    runtime: { listBackgroundWork: () => [{ sessionId: 'held-session', tasks: [] }] },
-  } as unknown as IProvider];
+  providerRegistry.listProviders = () => ['claude', 'codex'].map((id) => ({
+    id,
+    runtime: { listBackgroundWork: () => [{ sessionId: `held-${id}-session`, tasks: [] }] },
+  } as unknown as IProvider));
 
   // The route runs the real service, so the CLI it would update is a stub that
   // only logs its calls: if the busy guard ever broke, this test must not run
-  // `claude update` on the developer's own install.
+  // `claude update` on the developer's own install. PATH holds only the stub's
+  // folder, so a broken guard finds neither a `codex` to update nor `npm`.
   const cliDirectory = await mkdtemp(path.join(os.tmpdir(), 'provider-routes-cli-'));
   const callLog = path.join(cliDirectory, 'calls.log');
   const stubPath = path.join(cliDirectory, process.platform === 'win32' ? 'claude.cmd' : 'claude');
@@ -476,7 +554,10 @@ test('the CLI update route refuses while that provider is busy in a session', {
   );
   await chmod(stubPath, 0o755);
   const previousCliPath = process.env.CLAUDE_CLI_PATH;
+  const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
+  const previousPath = process.env[pathKey];
   process.env.CLAUDE_CLI_PATH = stubPath;
+  process.env[pathKey] = cliDirectory;
 
   try {
     await withProviderServer(async (baseUrl) => {
@@ -486,17 +567,19 @@ test('the CLI update route refuses while that provider is busy in a session', {
       assert.equal(busyPayload.error.code, 'PROVIDER_CLI_BUSY');
       assert.equal(await readFile(callLog, 'utf8'), '', 'a refused update never runs the CLI');
 
-      // Codex ships with CloudCLI: nothing to update, and the status says why.
+      // Codex updates separately from CloudCLI too, so the same guard applies.
       const codex = await fetch(`${baseUrl}/api/providers/codex/cli/update`, { method: 'POST' });
-      assert.equal(codex.status, 400);
-      const codexStatus = await fetch(`${baseUrl}/api/providers/codex/cli`);
-      const codexPayload = await codexStatus.json() as { data: { updateUnavailableReason: string; updateCommand: null } };
-      assert.equal(codexStatus.status, 200);
-      assert.equal(codexPayload.data.updateUnavailableReason, 'bundled');
-      assert.equal(codexPayload.data.updateCommand, null);
+      const codexPayload = await codex.json() as { error: { code: string } };
+      assert.equal(codex.status, 409);
+      assert.equal(codexPayload.error.code, 'PROVIDER_CLI_BUSY');
     });
   } finally {
     providerRegistry.listProviders = realListProviders;
+    if (previousPath === undefined) {
+      delete process.env[pathKey];
+    } else {
+      process.env[pathKey] = previousPath;
+    }
     if (previousCliPath === undefined) {
       delete process.env.CLAUDE_CLI_PATH;
     } else {

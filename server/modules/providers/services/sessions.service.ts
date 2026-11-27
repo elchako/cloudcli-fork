@@ -19,8 +19,8 @@ import type {
   LLMProvider,
   NormalizedMessage,
   WorkflowAgentActivity,
-} from '@/shared/types.js';
-import { AppError, createNormalizedMessage, sliceTailPage } from '@/shared/utils.js';
+} from '@/shared/index.js';
+import { AppError, createNormalizedMessage, sliceTailPage } from '@/shared/index.js';
 
 /**
  * One session the running-sessions poll reports as busy.
@@ -537,6 +537,7 @@ export const sessionsService = {
       // differently from the conversation it was branched from.
       model: source.model,
       effort: source.effort,
+      permissionMode: source.permission_mode,
     });
 
     await broadcastSessionUpserted(forkSessionId);

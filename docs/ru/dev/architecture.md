@@ -156,6 +156,21 @@ Listener закрывается в `queryClaudeSDK.finally` ([§22.3](../fork/ap
 API-запуск Claude может явно передать `unattended: false` для MCP-форм;
 по умолчанию он unattended. Подробности — [§25](../fork/merge-v1.37.9.md).
 
+## Дополнения upstream v1.37.11 (§28)
+
+`GET /api/providers/:provider/sessions/:sessionId/active-model` возвращает
+`permissionMode` из `sessions.permission_mode`. Изменение — `POST` с тем же
+префиксом и суффиксом `active-permission-mode`; новый чат берёт выбор из
+`GET /api/providers/:provider/project-selection?workspacePath=…`. Форк не
+наследует `bypassPermissions` только из истории проекта.
+
+Agent API: `GET /api/agent/capabilities`, `GET /api/agent/sessions/:sessionId`
+(возможные режимы, статус сеанса); режим можно явно передать в запросе рана.
+Статус сеанса требует действующий ключ Agent API из настроек CloudCLI и в
+платформенном режиме: проверка выполняется до чтения метаданных.
+Плагины с `toolRenderers` в манифесте могут отображать свои инструменты в
+чате; рендереры загружаются только у включённых плагинов.
+
 ## Метрики ответа (§26)
 
 `response-metrics.service.ts` собирает метрики отдельного рана;
@@ -369,7 +384,10 @@ Middleware `authenticateToken` принимает токен из заголов
 `Authorization: Bearer` **или** из query `?token=`: так его получают `<img>` и
 EventSource, которые не умеют ставить заголовки. Это штатно, не дыра. Первый вход
 при пустой БД — `POST /api/auth/register`. Срок жизни токена и разлогин —
-[долгая сессия входа](../fork/auth-session.md).
+[долгая сессия входа](../fork/auth-session.md). Защищённые маршруты читают JSON
+после JWT; группы с собственной проверкой credentials имеют публичный
+лимит 1 МБ. `/api/protected-data` сохраняет отдельный лимит 400 КиБ за
+`validateApiKey` и JWT ([§28](../fork/merge-v1.37.11.md)).
 
 ## Настройки пользователя и секреты
 

@@ -328,8 +328,8 @@ async function runWithoutModel(
   return { models, catalogReads };
 }
 
-async function startClaudeRunWith(extraBody: Record<string, unknown>): Promise<{ unattended?: boolean; permissionMode?: string }> {
-  const runOptions: { unattended?: boolean; permissionMode?: string }[] = [];
+async function startClaudeRunWith(extraBody: Record<string, unknown>): Promise<{ unattended?: boolean; permissionMode?: string; enforcePermissionMode?: boolean }> {
+  const runOptions: { unattended?: boolean; permissionMode?: string; enforcePermissionMode?: boolean }[] = [];
   await withAgentServer(createDependencies({
     fileSystem: { access: async () => undefined } as unknown as AgentDependencies['fileSystem'],
     models: {
@@ -463,4 +463,107 @@ test('Agent route reads no model catalog for a continued session of an unregiste
   });
 
   assert.deepEqual(catalogReads, []);
+});
+
+test('Agent route keeps bypassing permissions when the request names no permissionMode', async () => {
+  assert.equal((await startClaudeRunWith({})).permissionMode, 'bypassPermissions');
+});
+
+test('Agent route passes an allowed permissionMode to the Claude runtime', async () => {
+  for (const mode of ['default', 'acceptEdits', 'plan']) {
+    assert.equal((await startClaudeRunWith({ permissionMode: mode })).permissionMode, mode);
+  }
+});
+
+test('Agent route maps permissionMode per provider and rejects modes a provider cannot honour', async () => {
+  const codexModes: (string | undefined)[] = [];
+  const dependencies = createDependencies({
+    fileSystem: { access: async () => undefined } as unknown as AgentDependencies['fileSystem'],
+    models: { getProviderModels: async () => ({ OPTIONS: [], DEFAULT: 'm' }) } as unknown as AgentDependencies['models'],
+    queryCodex: (async (_prompt: string, options: { permissionMode?: string }) => {
+      codexModes.push(options.permissionMode);
+    }) as unknown as AgentDependencies['queryCodex'],
+  });
+  await withAgentServer(dependencies, async (baseUrl) => {
+    const post = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/agent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectPath: '/home/test/project', message: 'Run', stream: false, ...body }),
+    });
+    assert.equal((await post({ provider: 'codex', permissionMode: 'acceptEdits' })).status, 200);
+    // Codex `default` is refused: the Codex runtime cannot surface approval requests, so none could be answered.
+    for (const [provider, permissionMode] of [['codex', 'default'], ['codex', 'plan'], ['cursor', 'default'], ['claude', 'yolo'], ['claude', 42]]) {
+      const response = await post({ provider, permissionMode });
+      assert.equal(response.status, 400, `${provider}/${String(permissionMode)}`);
+      assert.match(((await response.json()) as { error: string }).error, /permissionMode must be one of/);
+    }
+  });
+  assert.deepEqual(codexModes, ['acceptEdits']);
+});
+
+test('Agent capabilities list the permission modes per provider behind the same API key check', async () => {
+  await withAgentServer(createDependencies(), async (baseUrl) => {
+    const body = await (await fetch(`${baseUrl}/api/agent/capabilities`)).json() as { permissionModes: Record<string, string[]> };
+    assert.deepEqual(body.permissionModes.cursor, ['bypassPermissions']);
+    assert.deepEqual(body.permissionModes.codex, ['bypassPermissions', 'acceptEdits']);
+    assert.ok(body.permissionModes.claude.includes('acceptEdits'));
+  });
+  await withAgentServer(createDependencies({ platformMode: false }), async (baseUrl) => {
+    assert.equal((await fetch(`${baseUrl}/api/agent/capabilities`)).status, 401);
+  });
+});
+
+for (const platformMode of [false, true]) {
+  test(`статус Agent API проверяет ключ до чтения сеанса (platformMode=${platformMode})`, async () => {
+    const unexpectedLookup = () => { throw new Error('Метаданные нельзя читать до проверки доступа'); };
+    const dependencies = createDependencies({
+      platformMode,
+      sessions: {
+        ...createDependencies().sessions,
+        getSessionById: unexpectedLookup,
+        getSessionByProviderSessionId: unexpectedLookup,
+      },
+    });
+    await withAgentServer(dependencies, async (baseUrl) => {
+      const url = `${baseUrl}/api/agent/sessions/test-session`;
+      assert.equal((await fetch(url)).status, 401);
+      assert.equal((await fetch(url, { headers: { 'x-api-key': 'inactive-test-key' } })).status, 401);
+    });
+  });
+}
+
+test('Agent session status reports whether a run is in progress without starting one', async () => {
+  const row = { session_id: 'app-1', provider_session_id: 'prov-1', provider: 'codex', project_path: '/p' };
+  const key = 'session-status-test-key';
+  const headers = { 'x-api-key': key };
+  let processing = true;
+  const dependencies = createDependencies({
+    apiKeys: { validateApiKey: (value) => value === key ? { id: 1 } : undefined },
+    sessions: {
+      getSessionById: (id: string) => (id === 'app-1' ? row : null),
+      getSessionByProviderSessionId: (id: string) => (id === 'prov-1' ? row : null),
+      createAppSession: () => { throw new Error('must not create'); },
+    } as unknown as AgentDependencies['sessions'],
+    runs: {
+      ...createDependencies().runs,
+      startRun: (() => { throw new Error('must not start'); }) as unknown as AgentDependencies['runs']['startRun'],
+      isProcessing: () => processing,
+    },
+  });
+  await withAgentServer(dependencies, async (baseUrl) => {
+    const byProvider = await (await fetch(`${baseUrl}/api/agent/sessions/prov-1`, { headers })).json() as Record<string, unknown>;
+    assert.deepEqual(byProvider, { sessionId: 'app-1', providerSessionId: 'prov-1', provider: 'codex', processing: true });
+    processing = false;
+    assert.equal(((await (await fetch(`${baseUrl}/api/agent/sessions/app-1`, { headers })).json()) as { processing: boolean }).processing, false);
+    assert.equal((await fetch(`${baseUrl}/api/agent/sessions/nope`, { headers })).status, 404);
+  });
+});
+
+test('Agent route enforces an explicitly requested Claude mode and leaves the implicit default as before', async () => {
+  const explicit = await startClaudeRunWith({ permissionMode: 'default' });
+  assert.equal(explicit.permissionMode, 'default');
+  assert.equal(explicit.enforcePermissionMode, true);
+  const implicit = await startClaudeRunWith({});
+  assert.equal(implicit.permissionMode, 'bypassPermissions');
+  assert.equal(implicit.enforcePermissionMode, false);
 });

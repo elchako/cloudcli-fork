@@ -12,6 +12,7 @@ import SidebarFooter from '@/modules/sidebar/SidebarFooter';
 import SidebarHeader from '@/modules/sidebar/SidebarHeader';
 import SidebarProjectList from '@/modules/sidebar/SidebarProjectList';
 import SidebarRecentConversations from '@/modules/sidebar/SidebarRecentConversations';
+import SessionPinButton from '@/modules/sidebar/SessionPinButton';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
   const parts: ReactNode[] = [];
@@ -116,6 +117,7 @@ type SidebarContentProps = {
   onDeleteArchivedSession: (session: ArchivedSessionListItem) => void;
   // Conversation result clicks pass back the DB projectId (or null when the
   // server couldn't resolve it). Consumers must handle the null case.
+  onToggleConversationPin?: (sessionId: string) => Promise<void>;
   onConversationResultClick: (projectId: string | null, sessionId: string, provider: string, messageTimestamp?: string | null, messageSnippet?: string | null) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
@@ -164,6 +166,7 @@ export default function SidebarContent({
   onRestoreArchivedSession,
   onDeleteArchivedSession,
   onConversationResultClick,
+  onToggleConversationPin,
   onRefresh,
   isRefreshing,
   onCreateProject,
@@ -261,38 +264,49 @@ export default function SidebarContent({
                     const isCurrent = session.sessionId === currentSessionId;
 
                     return (
-                      <button
+                      <div
                         key={`${session.provider}-${session.sessionId}`}
-                        type="button"
-                        aria-current={isCurrent ? 'page' : undefined}
                         className={cn(
-                          'group flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left transition-colors',
+                          'flex items-center rounded-md pr-2 transition-colors',
                           isCurrent ? CURRENT_SESSION_ROW : 'hover:bg-accent/60',
                         )}
-                        onClick={() => onConversationResultClick(
-                          session.projectId,
-                          session.sessionId,
-                          session.provider,
-                        )}
                       >
-                        {/* GOLDJAXE fork (реестр §4.1-тер): поиск по названиям выглядит как остальные строки «Разговоров». */}
-                        <span className="min-w-0 flex-1">
-                          <span className={cn('block truncate text-[13px] leading-4 text-foreground', isCurrent && 'font-semibold')}>
-                            {session.sessionTitle}
+                        <button
+                          type="button"
+                          aria-current={isCurrent ? 'page' : undefined}
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left"
+                          onClick={() => onConversationResultClick(
+                            session.projectId,
+                            session.sessionId,
+                            session.provider,
+                          )}
+                        >
+                          {/* GOLDJAXE fork (реестр §4.1-тер): без значка провайдера. */}
+                          <span className="min-w-0 flex-1">
+                            <span className={cn('block truncate text-[13px] leading-4 text-foreground', isCurrent && 'font-semibold')}>
+                              {session.sessionTitle}
+                            </span>
+                            <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] leading-3 text-muted-foreground">
+                              <span className="truncate">{session.projectDisplayName}</span>
+                              {age && (
+                                <>
+                                  <span className="flex-shrink-0 text-muted-foreground/40">·</span>
+                                  <time className="flex-shrink-0 tabular-nums" dateTime={session.lastActivity ?? undefined}>
+                                    {age}
+                                  </time>
+                                </>
+                              )}
+                            </span>
                           </span>
-                          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] leading-3 text-muted-foreground">
-                            <span className="truncate">{session.projectDisplayName}</span>
-                            {age && (
-                              <>
-                                <span className="flex-shrink-0 text-muted-foreground/40">·</span>
-                                <time className="flex-shrink-0 tabular-nums" dateTime={session.lastActivity ?? undefined}>
-                                  {age}
-                                </time>
-                              </>
-                            )}
-                          </span>
-                        </span>
-                      </button>
+                        </button>
+                        <SessionPinButton
+                          sessionId={session.sessionId}
+                          sessionName={session.sessionTitle}
+                          isPinned={session.isPinned ?? false}
+                          onToggle={onToggleConversationPin}
+                          t={t}
+                        />
+                      </div>
                     );
                   })}
                 </section>
@@ -342,51 +356,64 @@ export default function SidebarContent({
                         </span>
                       </div>
                       {projectResult.sessions.map((session) => (
-                        <button
+                        <div
                           key={`${projectResult.projectId ?? projectResult.projectName}-${session.sessionId}`}
-                          type="button"
-                          aria-current={!currentSessionInTitles && session.sessionId === currentSessionId ? 'page' : undefined}
                           className={cn(
-                            'w-full rounded-md px-2 py-2 text-left transition-colors',
+                            'flex items-start rounded-md pr-2 transition-colors',
                             !currentSessionInTitles && session.sessionId === currentSessionId
                               ? CURRENT_SESSION_ROW
                               : 'hover:bg-accent/50',
                           )}
-                          onClick={() => onConversationResultClick(
-                            // Pass the DB projectId (preferred) so the parent can
-                            // cross-reference with the loaded projects list.
-                            projectResult.projectId,
-                            session.sessionId,
-                            session.provider || session.matches[0]?.provider || 'claude',
-                            session.matches[0]?.timestamp,
-                            session.matches[0]?.snippet
-                          )}
                         >
-                          <div className="mb-1 flex items-center gap-1.5">
-                            <MessageSquare className="h-3 w-3 flex-shrink-0 text-primary" />
-                            <span className="truncate text-xs font-normal text-foreground">
-                              {session.sessionSummary}
-                            </span>
-                            {session.provider && session.provider !== 'claude' && (
-                              <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
-                                {session.provider}
-                              </span>
+                          <button
+                            type="button"
+                            aria-current={!currentSessionInTitles && session.sessionId === currentSessionId ? 'page' : undefined}
+                            className="min-w-0 flex-1 rounded-md px-2 py-2 text-left"
+                            onClick={() => onConversationResultClick(
+                              // Pass the DB projectId (preferred) so the parent can
+                              // cross-reference with the loaded projects list.
+                              projectResult.projectId,
+                              session.sessionId,
+                              session.provider || session.matches[0]?.provider || 'claude',
+                              session.matches[0]?.timestamp,
+                              session.matches[0]?.snippet
                             )}
-                          </div>
-                          <div className="space-y-1 pl-4">
-                            {session.matches.map((match, idx) => (
-                              <div key={idx} className="flex items-start gap-1">
-                                <span className="mt-0.5 flex-shrink-0 text-[10px] font-normal uppercase text-muted-foreground/60">
-                                  {match.role === 'user' ? 'U' : 'A'}
+                          >
+                            <div className="mb-1 flex min-h-5 items-center gap-1.5">
+                              <MessageSquare className="h-3 w-3 flex-shrink-0 text-primary" />
+                              <span className="truncate text-xs font-normal text-foreground">
+                                {session.sessionSummary}
+                              </span>
+                              {session.provider && session.provider !== 'claude' && (
+                                <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
+                                  {session.provider}
                                 </span>
-                                <HighlightedSnippet
-                                  snippet={match.snippet}
-                                  highlights={match.highlights}
-                                />
-                              </div>
-                            ))}
+                              )}
+                            </div>
+                            <div className="space-y-1 pl-4">
+                              {session.matches.map((match, idx) => (
+                                <div key={idx} className="flex items-start gap-1">
+                                  <span className="mt-0.5 flex-shrink-0 text-[10px] font-normal uppercase text-muted-foreground/60">
+                                    {match.role === 'user' ? 'U' : 'A'}
+                                  </span>
+                                  <HighlightedSnippet
+                                    snippet={match.snippet}
+                                    highlights={match.highlights}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </button>
+                          <div className="pt-1">
+                            <SessionPinButton
+                              sessionId={session.sessionId}
+                              sessionName={session.sessionSummary}
+                              isPinned={session.isPinned ?? false}
+                              onToggle={onToggleConversationPin}
+                              t={t}
+                            />
                           </div>
-                        </button>
+                        </div>
                       ))}
                     </div>
                   ))}

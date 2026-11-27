@@ -458,6 +458,10 @@ export const api = {
       provider: string;
       projectPath: string;
       initialMessage?: unknown;
+      // The composer's selection, from the same untyped options a send carries.
+      model?: unknown;
+      effort?: unknown;
+      permissionMode?: unknown;
     }) => post('/api/providers/sessions', payload),
     sessionMessages: (
       sessionId: string,
@@ -469,8 +473,8 @@ export const api = {
     // GOLDJAXE fork (реестр §17): only the user's prompts, for the chat's prompt navigator.
     sessionPrompts: (sessionId: string, options: ApiRequestOptions = {}) =>
       get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/prompts`, options),
-    sessionActiveModel: (provider: string, sessionId: string) =>
-      get(`/api/providers/${provider}/sessions/${encodeURIComponent(sessionId)}/active-model`),
+    sessionActiveModel: (provider: string, sessionId: string, options: ApiRequestOptions = {}) =>
+      get(`/api/providers/${provider}/sessions/${encodeURIComponent(sessionId)}/active-model`, options),
     setSessionActiveModel: (provider: string, sessionId: string, model: string) =>
       post(`/api/providers/${provider}/sessions/${encodeURIComponent(sessionId)}/active-model`, {
         model,
@@ -479,6 +483,12 @@ export const api = {
       post(`/api/providers/${provider}/sessions/${encodeURIComponent(sessionId)}/active-effort`, {
         effort,
       }),
+    setSessionActivePermissionMode: (provider: string, sessionId: string, permissionMode: string) =>
+      post(`/api/providers/${provider}/sessions/${encodeURIComponent(sessionId)}/active-permission-mode`, {
+        permissionMode,
+      }),
+    projectSelection: (provider: string, workspacePath: string) =>
+      get(`/api/providers/${provider}/project-selection${query({ workspacePath })}`),
 
     mcpServers: (
       provider: string,
@@ -512,10 +522,10 @@ export const api = {
 
   // Chat attachments, stored globally under ~/.cloudcli/assets
   assets: {
-    uploadFiles: (formData: FormData) =>
+    uploadFiles: (formData: FormData, requestId?: string) =>
       authenticatedFetch('/api/assets/files', {
         method: 'POST',
-        headers: {}, // Let browser set Content-Type for FormData
+        headers: requestId ? { 'X-Upload-Request-ID': requestId } : {},
         body: formData,
       }),
     file: (storedName: string) => get(`/api/assets/files/${encodeURIComponent(storedName)}`),

@@ -1,6 +1,7 @@
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import multer from 'multer';
 
+import { createAssetUploadMiddleware } from '@/modules/assets/upload.middleware.js';
 import {
   buildStoredAttachmentRecords,
   buildStoredImageRecords,
@@ -14,6 +15,10 @@ import { mailUploadRegistry } from '@/modules/assets/services/mail-upload-regist
 import { userDb } from '@/modules/database/index.js';
 
 const router = express.Router();
+// GOLDJAXE fork (реестр §28): /images принимает и документы; лимиты не меняем.
+const IMAGE_UPLOAD_LIMITS = { fileSize: 20 * 1024 * 1024, files: 5 };
+const FILE_UPLOAD_LIMITS = { fileSize: 10 * 1024 * 1024, files: 10 };
+const UNSUPPORTED_ATTACHMENT_TYPE = 'Unsupported file type. Attach an image or a document (pdf, text, csv, json, code, office, archive).';
 
 // GOLDJAXE fork (реестр §24): owner только из проверенной учётки, не из body/scope.
 function readActiveUploadOwner(req: express.Request): string | null {
@@ -38,6 +43,19 @@ async function finishUpload(req: express.Request, res: express.Response, owner: 
   }
 }
 
+// GOLDJAXE fork (реестр §28): не начинаем запись без владельца; после Multer
+// перепроверяем ту же учётку и выдаём прежние метаданные для Mail.
+function uploadForActiveOwner(middleware: RequestHandler, field: 'images' | 'attachments', maxBytes: number): RequestHandler {
+  return (req, res, next) => {
+    const owner = readActiveUploadOwner(req);
+    if (!owner) return res.status(401).json({ error: 'Active user required' });
+    middleware(req, res, (error) => {
+      if (error) return next(error);
+      void finishUpload(req, res, owner, field, maxBytes);
+    });
+  };
+}
+
 // Multer writes uploads straight into the global assets folder; the service
 // owns the folder location and the response record shape.
 const storage = multer.diskStorage({
@@ -59,57 +77,34 @@ const upload = multer({
     if (isAllowedAttachmentUpload(file.mimetype, file.originalname)) {
       cb(null, true);
     } else {
-      cb(new Error('Unsupported file type. Attach an image or a document (pdf, text, csv, json, code, office, archive).'));
+      cb(new Error(UNSUPPORTED_ATTACHMENT_TYPE));
     }
   },
-  limits: {
-    fileSize: 20 * 1024 * 1024, // 20MB — documents/pdf are larger than images
-    files: 5,
-  },
+  limits: IMAGE_UPLOAD_LIMITS,
 });
 
 const attachmentUpload = multer({
   storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024,
-    files: 10,
-  },
+  limits: FILE_UPLOAD_LIMITS,
 });
 
 /**
  * Stores chat image attachments in the global `~/.cloudcli/assets` folder and
  * returns their absolute paths for use in provider prompts and chat history.
  */
-router.post('/images', (req, res) => {
-  const owner = readActiveUploadOwner(req);
-  if (!owner) return res.status(401).json({ error: 'Active user required' });
-  upload.array('images', 5)(req, res, (err: unknown) => {
-    if (err) {
-      const message = err instanceof Error ? err.message : 'Upload failed';
-      return res.status(400).json({ error: message });
-    }
-
-    void finishUpload(req, res, owner, 'images', 20 * 1024 * 1024);
-  });
-});
+router.post('/images', uploadForActiveOwner(createAssetUploadMiddleware(upload.array('images', IMAGE_UPLOAD_LIMITS.files), {
+  kind: 'images', maxBytes: IMAGE_UPLOAD_LIMITS.fileSize, maxFiles: IMAGE_UPLOAD_LIMITS.files,
+  invalidTypeMessage: UNSUPPORTED_ATTACHMENT_TYPE,
+}), 'images', IMAGE_UPLOAD_LIMITS.fileSize));
 
 /**
  * Stores provider-neutral chat attachments. Files of any MIME type are
  * accepted because providers inspect them as data through their file-reading
  * tools; uploads are capped at 10 files and 10MB per file.
  */
-router.post('/files', (req, res) => {
-  const owner = readActiveUploadOwner(req);
-  if (!owner) return res.status(401).json({ error: 'Active user required' });
-  attachmentUpload.array('files', 10)(req, res, (err: unknown) => {
-    if (err) {
-      const message = err instanceof Error ? err.message : 'Upload failed';
-      return res.status(400).json({ error: message });
-    }
-
-    void finishUpload(req, res, owner, 'attachments', 10 * 1024 * 1024);
-  });
-});
+router.post('/files', uploadForActiveOwner(createAssetUploadMiddleware(attachmentUpload.array('files', FILE_UPLOAD_LIMITS.files), {
+  kind: 'files', maxBytes: FILE_UPLOAD_LIMITS.fileSize, maxFiles: FILE_UPLOAD_LIMITS.files,
+}), 'attachments', FILE_UPLOAD_LIMITS.fileSize));
 
 // GOLDJAXE fork (реестр §24): owner-scoped отзыв только Mail, без удаления chat asset.
 router.delete('/mail-uploads/:asset_id', async (req, res) => {

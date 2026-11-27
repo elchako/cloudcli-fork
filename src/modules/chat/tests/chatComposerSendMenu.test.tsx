@@ -65,7 +65,8 @@ const props = (overrides: Partial<Props>): Props => ({
   onDeleteQueuedDraft: () => undefined,
   attachedFiles: [],
   onRemoveAttachment: () => undefined,
-  fileErrors: new Map(),
+  attachmentRejections: [],
+  onDismissAttachmentRejections: () => {},
   showFileDropdown: false,
   filteredFiles: [],
   selectedFileIndex: -1,
@@ -113,6 +114,35 @@ test('нижняя кнопка команд отсутствует даже п�
   assert.equal(screen.queryByText('70'), null);
   assert.ok(screen.getByRole('button', { name: 'Attach files' }));
   assert.ok(screen.getByRole('button', { name: 'Send' }));
+});
+
+test('защищённая плашка с редактированием и удалением остаётся рядом с отказом вложения', () => {
+  const open = vi.fn(async () => {});
+  const remove = vi.fn();
+  const scope = 'claude:synthetic-session';
+  const view = render(
+    <UiPreferencesProvider>
+      <ChatComposer {...props({
+        attachmentRejections: [{ fileName: 'synthetic.pdf', reason: 'too-large' }],
+        protectedData: {
+          scope,
+          draft: {
+            scope,
+            profile: { revision: 'test', publicKey: 'fixture', label: 'Demo', requiredFields: [] },
+            fields: [{ name: 'SYNTHETIC_FIELD', value: 'synthetic-hidden-value' }],
+          },
+          editor: null, issue: null, loading: false,
+          open, remove, close: () => {}, attach: () => {}, isCurrent: () => true, setIssue: () => {},
+        },
+      })} />
+    </UiPreferencesProvider>,
+  );
+  assert.ok(screen.getByText('synthetic.pdf'));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit protected data: 1 field' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove protected data' }));
+  assert.equal(open.mock.calls.length, 1);
+  assert.equal(remove.mock.calls.length, 1);
+  assert.doesNotMatch(view.container.textContent ?? '', /SYNTHETIC_FIELD|synthetic-hidden-value/);
 });
 
 test('idle: the plain send button, and no send menu', () => {

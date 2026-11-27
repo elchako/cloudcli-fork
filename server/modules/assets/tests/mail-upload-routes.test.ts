@@ -97,3 +97,19 @@ test('нет JWT или учётка уже inactive: upload/revoke закрыт
   assert.equal((await fetch(`${url}/mail-uploads/${randomUUID()}`, { method: 'DELETE', headers: { Authorization: `Bearer ${foreignToken}` } })).status, 401);
   assert.deepEqual((await readdir(path.join(root, 'registry'))).sort(), before);
 });
+
+test('неподдерживаемый файл в /images: безопасный 400 с ID и без записи в Mail', async () => {
+  const before = (await readdir(path.join(root, 'registry'))).sort();
+  const form = new FormData();
+  form.append('images', new Blob(['test-data'], { type: 'application/octet-stream' }), 'synthetic.bin');
+  const requestId = randomUUID();
+  const res = await fetch(`${url}/images`, {
+    method: 'POST', headers: { Authorization: `Bearer ${ownerToken}`, 'X-Upload-Request-ID': requestId }, body: form,
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.headers.get('X-Upload-Request-ID'), requestId);
+  const payload = await res.json() as { code: string; requestId: string };
+  assert.equal(payload.code, 'UPLOAD_INVALID_TYPE');
+  assert.equal(payload.requestId, requestId);
+  assert.deepEqual((await readdir(path.join(root, 'registry'))).sort(), before);
+});

@@ -159,6 +159,17 @@
     "placeholderDefault": "Введите ваше сообщение...",
     "disabled": "Ввод отключен",
     "attachFiles": "Прикрепить файлы",
+    "attachmentRejected": {
+      "title_one": "Не удалось прикрепить {{count}} файл",
+      "title_few": "Не удалось прикрепить {{count}} файла",
+      "title_many": "Не удалось прикрепить {{count}} файлов",
+      "title_other": "Не удалось прикрепить {{count}} файла",
+      "tooLarge": "больше {{maxSize}} МБ",
+      "tooMany": "сверх лимита в {{maxCount}} файлов",
+      "unsupportedType": "неподдерживаемый тип файла",
+      "empty": "пустой файл",
+      "dismiss": "Закрыть"
+    },
     "attachImages": "Прикрепить изображения",
     "send": "Отправить",
     "stop": "Остановить",

@@ -319,6 +319,7 @@ function Sidebar({
             onDeleteArchivedSession={(session) => {
               showDeleteSessionConfirmation(session.sessionId, session.sessionTitle);
             }}
+            onToggleConversationPin={toggleSessionPin}
             onConversationResultClick={(projectId: string | null, sessionId: string, provider: string, messageTimestamp?: string | null, messageSnippet?: string | null) => {
               // `projectId` (DB key) is the canonical identifier post-migration.
               // The server emits null when it can't resolve a project row for

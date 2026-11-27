@@ -36,11 +36,12 @@ type ProjectConversationResult = {
   projectId: string | null;
   projectName: string;
   projectDisplayName: string;
-  sessions: SessionConversationResult[];
+  sessions: Array<SessionConversationResult & { isPinned: boolean }>;
 };
 
 type SessionTitleSearchResult = {
   sessionId: string;
+  isPinned: boolean;
   provider: string;
   projectId: string | null;
   projectDisplayName: string;
@@ -214,6 +215,7 @@ function findSessionTitleResults(
           : 'Unknown Project',
         sessionTitle,
         lastActivity: session.updated_at || session.created_at || null,
+        isPinned: session.isPinned === 1,
         matchIndex,
       }];
     })
@@ -1264,7 +1266,7 @@ export async function searchConversations(
 
       const sessionResult = await parseSessionMatches(session, runtime);
       if (sessionResult) {
-        projectResult.sessions.push(sessionResult);
+        projectResult.sessions.push({ ...sessionResult, isPinned: session.isPinned === 1 });
       }
     }
 

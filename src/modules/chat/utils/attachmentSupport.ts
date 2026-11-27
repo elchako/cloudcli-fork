@@ -7,9 +7,6 @@
  * The server re-validates every upload; this is just early UX feedback.
  */
 
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20MB
-export const MAX_ATTACHMENTS = 5;
-
 // Keep this list in sync with the server (image-assets.service.ts).
 const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
   '.txt', '.md', '.markdown', '.log', '.csv', '.tsv', '.json', '.ndjson',

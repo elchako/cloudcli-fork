@@ -16,7 +16,7 @@ import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import { MCP_ELICITATION_TOOL_NAME } from '@/shared/constants';
-import type { BackgroundSendChoice, BackgroundSendPrompt, PendingSteer, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
+import type { AttachmentRejection, BackgroundSendChoice, BackgroundSendPrompt, PendingSteer, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
 import {
   PromptInput,
   PromptInputHeader,
@@ -30,6 +30,7 @@ import {
 import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
+import AttachmentRejectionNotice from '@/modules/chat/composer/AttachmentRejectionNotice';
 import VoiceInputButton from '@/modules/chat/composer/VoiceInputButton';
 import VoiceOutboxNotice from '@/modules/chat/composer/VoiceOutboxNotice';
 import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequestsBanner';
@@ -108,7 +109,9 @@ type ChatComposerProps = {
   pendingSteers?: PendingSteer[];
   attachedFiles: File[];
   onRemoveAttachment: (index: number) => void;
-  fileErrors: Map<string, string>;
+  /** Files the latest attach attempt refused (too large, or past the count limit), listed in a notice above the chips. */
+  attachmentRejections: AttachmentRejection[];
+  onDismissAttachmentRejections: () => void;
   showFileDropdown: boolean;
   filteredFiles: MentionableFile[];
   selectedFileIndex: number;
@@ -186,7 +189,8 @@ export default function ChatComposer({
   pendingSteers = NO_PENDING_STEERS,
   attachedFiles,
   onRemoveAttachment,
-  fileErrors,
+  attachmentRejections,
+  onDismissAttachmentRejections,
   showFileDropdown,
   filteredFiles,
   selectedFileIndex,
@@ -314,13 +318,18 @@ export default function ChatComposer({
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
       {!hasPendingPermissions && (
-        <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
-          <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} showDuration={showResponseDuration} showGenerationSpeed={showGenerationSpeed} />
+        // The outer box is inset by the shell's horizontal padding so it matches the
+        // shell's content box. The input below takes its percentage width from that
+        // content box, so the tabs line up with the input's edges at every pane width.
+        <div className="pointer-events-none absolute inset-x-2 bottom-full z-10 translate-y-px bg-transparent sm:inset-x-4">
+          <div className="chat-content-width mx-auto">
+            <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} showDuration={showResponseDuration} showGenerationSpeed={showGenerationSpeed} />
+          </div>
         </div>
       )}
 
       {pendingPermissionRequests.length > 0 && (
-        <div className="mx-auto mb-3 max-w-[54.25rem]">
+        <div className="mx-auto mb-3 chat-content-width">
           <PermissionRequestsBanner
             pendingPermissionRequests={pendingPermissionRequests}
             providerLabel={providerLabel}
@@ -336,7 +345,7 @@ export default function ChatComposer({
       />
 
       {isEditingSentMessage && (
-        <div className="mx-auto mb-2 flex max-w-[54.25rem] items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+        <div className="mx-auto mb-2 flex chat-content-width items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
           <PencilIcon className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
           <span className="min-w-0 flex-1">
             {t('composer.editing.title')}
@@ -378,12 +387,12 @@ export default function ChatComposer({
       {/* The question panel replaces the input, but how to answer often depends on
           how much context is left, so the token usage stays reachable below it. */}
       {hasQuestionPanel && (
-        <div className="mx-auto flex max-w-[54.25rem] justify-end">
+        <div className="mx-auto flex chat-content-width justify-end">
           <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
         </div>
       )}
 
-      {!hasQuestionPanel && <div className="relative mx-auto max-w-[54.25rem]">
+      {!hasQuestionPanel && <div className="relative mx-auto chat-content-width">
         {showFileDropdown && filteredFiles.length > 0 && (
           <div
             ref={fileDropdownRef}
@@ -450,27 +459,32 @@ export default function ChatComposer({
             </div>
           )}
 
-          {(attachedFiles.length > 0 || protectedData?.draft) && (
-            <PromptInputHeader>
-              <div className="rounded-xl bg-muted/40 p-2">
-                <div className="flex flex-wrap gap-2">
-                  {protectedData?.draft && (
-                    <ProtectedDataChip
-                      count={protectedData.draft.fields.length}
-                      onEdit={() => void protectedData.open()}
-                      onRemove={protectedData.remove}
-                    />
-                  )}
-                  {attachedFiles.map((file, index) => (
-                    <ComposerAttachment
-                      key={`${file.name}-${file.lastModified}-${index}`}
-                      file={file}
-                      onRemove={() => onRemoveAttachment(index)}
-                      error={fileErrors.get(file.name)}
-                    />
-                  ))}
+          {(attachmentRejections.length > 0 || attachedFiles.length > 0 || protectedData?.draft) && (
+            <PromptInputHeader className="flex flex-col gap-2">
+              <AttachmentRejectionNotice
+                rejections={attachmentRejections}
+                onDismiss={onDismissAttachmentRejections}
+              />
+              {(attachedFiles.length > 0 || protectedData?.draft) && (
+                <div className="rounded-xl bg-muted/40 p-2">
+                  <div className="flex flex-wrap gap-2">
+                    {protectedData?.draft && (
+                      <ProtectedDataChip
+                        count={protectedData.draft.fields.length}
+                        onEdit={() => void protectedData.open()}
+                        onRemove={protectedData.remove}
+                      />
+                    )}
+                    {attachedFiles.map((file, index) => (
+                      <ComposerAttachment
+                        key={`${file.name}-${file.lastModified}-${index}`}
+                        file={file}
+                        onRemove={() => onRemoveAttachment(index)}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </PromptInputHeader>
           )}
 

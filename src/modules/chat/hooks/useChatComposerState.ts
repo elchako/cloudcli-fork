@@ -13,10 +13,15 @@ import { useDropzone } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 
 import { api, ApiRequestError } from '@/shared/api';
-import { PROVIDER_PERMISSION_PREFERENCE_KEYS } from '@/shared/constants';
+import {
+  MAX_CHAT_ATTACHMENT_COUNT,
+  MAX_CHAT_ATTACHMENT_SIZE_BYTES,
+  PROVIDER_PERMISSION_PREFERENCE_KEYS,
+} from '@/shared/constants';
 import { readUserPreference } from '@/shared/userSettings';
-import type { BackgroundSendChoice, BackgroundSendPrompt, CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, PendingSteer, QueuedDraft, SessionActivityMap, StatusCommandData, SteerOutcome,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
+import type { AttachmentRejection, BackgroundSendChoice, BackgroundSendPrompt, CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, PendingSteer, QueuedDraft, SessionActivityMap, StatusCommandData, SteerOutcome,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
 import { grantClaudeToolPermission } from '@/modules/chat/utils/chatPermissions';
+import { uploadAttachmentFiles } from '@/modules/chat/utils/uploadAttachmentFiles';
 import {
   appendQueuedMessage,
   clearQueuedMessage,
@@ -33,8 +38,6 @@ import { useInputHistory } from '@/modules/chat/hooks/useInputHistory';
 import { useSlashCommands } from '@/modules/chat/hooks/useSlashCommands';
 // Fork: any file may be attached, not just images — see docs/ru/fork-changes.md.
 import {
-  MAX_ATTACHMENTS,
-  MAX_ATTACHMENT_BYTES,
   dropzoneAccept,
   isSupportedAttachment,
 } from '@/modules/chat/utils/attachmentSupport';
@@ -46,6 +49,8 @@ type UseChatComposerStateArgs = {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
+  /** Bumped on every New Session click; a new chat's session records the value its send started under. */
+  newSessionTrigger?: number;
   provider: LLMProvider;
   permissionMode: PermissionMode | string;
   cyclePermissionMode: () => void;
@@ -132,7 +137,7 @@ const createFakeSubmitEvent = () => {
 };
 
 /**
- * A v4 UUID for a steered message. The id becomes the message's transcript
+ * A v4 UUID for a steered message or attachment upload request. The id becomes the message's transcript
  * uuid, so it must be a real one. `crypto.randomUUID` only exists in secure
  * contexts, and the app is often opened over plain http on a LAN address
  * (a phone on the same network), so this falls back to `getRandomValues`.
@@ -159,31 +164,6 @@ const isImageAttachment = (attachment: ChatAttachment) => {
   if (attachment.mimeType?.startsWith('image/')) return true;
   return /\.(gif|jpe?g|png|svg|webp)$/i.test(attachment.path || attachment.name || '');
 };
-
-const uploadAttachmentFiles = async (files: File[]): Promise<unknown[]> => {
-  if (files.length === 0) {
-    return [];
-  }
-
-  const formData = new FormData();
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
-
-  const response = await api.assets.uploadFiles(formData);
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new Error(body?.error || 'Failed to upload files');
-  }
-
-  const result = await response.json();
-  if (!Array.isArray(result.attachments) || result.attachments.length !== files.length) {
-    throw new Error('File upload returned an incomplete result');
-  }
-  return result.attachments;
-};
-
 
 const restoreQueuedDraft = (sessionKey: string): QueuedDraft | null => {
   const saved = readQueuedMessage(sessionKey);
@@ -264,6 +244,7 @@ export function useChatComposerState({
   selectedProject,
   selectedSession,
   currentSessionId,
+  newSessionTrigger,
   provider,
   permissionMode,
   cyclePermissionMode,
@@ -321,7 +302,6 @@ export function useChatComposerState({
     };
   });
   const input = inputState.value;
-  const [fileErrors, setFileErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
 
@@ -337,6 +317,13 @@ export function useChatComposerState({
     ) => Promise<void>) | null
   >(null);
   const inputValueRef = useRef(input);
+  // Read when a send starts, so the established session reports that send's
+  // New Session trigger even if the user clicks New Session while it is out.
+  // Written once committed, never from a render React throws away.
+  const newSessionTriggerRef = useRef(newSessionTrigger);
+  useLayoutEffect(() => {
+    newSessionTriggerRef.current = newSessionTrigger;
+  }, [newSessionTrigger]);
   const selectedProjectId = selectedProject?.projectId;
   // Prefer the stable backend-allocated id (selectedSession.id) but fall back
   // to currentSessionId for a just-established session that hasn't been
@@ -356,24 +343,37 @@ export function useChatComposerState({
   useLayoutEffect(() => { connectedRef.current = isConnected; }, [isConnected]);
   // Файлы остаются локальными, но принадлежат черновику своей сессии: поздний
   // отказ очереди должен вернуть их в A, не затронув вложения открытой B.
-  const [attachedFilesByScope, setAttachedFilesByScope] = useState<Map<string | null, File[]>>(() => new Map());
-  const attachedFiles = useMemo(() => attachedFilesByScope.get(draftScope) ?? [], [attachedFilesByScope, draftScope]);
-  const setScopeAttachedFiles = useCallback((scope: string | null, next: SetStateAction<File[]>) => {
-    setAttachedFilesByScope((previous) => {
-      const current = previous.get(scope) ?? [];
-      const files = typeof next === 'function' ? next(current) : next;
+  type ScopedAttachments = { files: File[]; rejections: AttachmentRejection[] };
+  const [attachmentsByScope, setAttachmentsByScope] = useState<Map<string | null, ScopedAttachments>>(() => new Map());
+  const activeAttachments = attachmentsByScope.get(draftScope);
+  const attachedFiles = useMemo(() => activeAttachments?.files ?? [], [activeAttachments]);
+  const updateScopeAttachments = useCallback((scope: string | null, update: (current: ScopedAttachments) => ScopedAttachments) => {
+    setAttachmentsByScope((previous) => {
+      const current = previous.get(scope) ?? { files: [], rejections: [] };
+      const next = update(current);
+      if (next === current) return previous;
       const updated = new Map(previous);
-      if (files.length > 0) {
-        updated.set(scope, files);
+      if (next.files.length > 0 || next.rejections.length > 0) {
+        updated.set(scope, next);
       } else {
         updated.delete(scope);
       }
       return updated;
     });
   }, []);
+  const setScopeAttachedFiles = useCallback((scope: string | null, next: SetStateAction<File[]>) => {
+    updateScopeAttachments(scope, (current) => ({
+      ...current, files: typeof next === 'function' ? next(current.files) : next,
+    }));
+  }, [updateScopeAttachments]);
   const setAttachedFiles = useCallback<Dispatch<SetStateAction<File[]>>>((next) => {
     setScopeAttachedFiles(draftScopeRef.current, next);
   }, [setScopeAttachedFiles]);
+  const dismissAttachmentRejections = useCallback(() => {
+    updateScopeAttachments(draftScopeRef.current, (current) => (
+      current.rejections.length > 0 ? { ...current, rejections: [] } : current
+    ));
+  }, [updateScopeAttachments]);
 
   // Composition is tracked on `window` in the capture phase rather than on the textarea, so a
   // composition that starts in one field and ends after focus moves still closes cleanly.
@@ -574,7 +574,8 @@ export function useChatComposerState({
         const context = {
           projectPath: selectedProject.fullPath || selectedProject.path,
           projectId: selectedProject.projectId,
-          sessionId: currentSessionId || selectedSession?.id || null,
+          // The selected session first: currentSessionId can still name the previous one.
+          sessionId: selectedSession?.id || currentSessionId || null,
           provider,
           model: currentProviderModel,
           tokenUsage: tokenBudget,
@@ -707,94 +708,66 @@ export function useChatComposerState({
     lastAutosizedInputRef.current = target.value;
   }, []);
 
+  // Picker, drag-and-drop and paste all come through here, so the size and count
+  // limits are checked in one place and every refused file is reported. Each
+  // attempt replaces the notice, so it always describes the latest one.
   const handleAttachmentFiles = useCallback((files: File[]) => {
-    const validFiles = files.filter((file) => {
-      try {
-        if (!file || typeof file !== 'object') {
-          console.warn('Invalid file object:', file);
-          return false;
-        }
-
+    const scope = draftScope;
+    updateScopeAttachments(scope, (current) => {
+      const accepted = [...current.files];
+      const rejections: AttachmentRejection[] = [];
+      for (const file of files) {
+        if (!file || typeof file !== 'object') continue;
+        const fileName = file.name || 'Unknown file';
+        // GOLDJAXE fork (реестр §28): не ослабляем проверку типа и пустых файлов.
         if (!isSupportedAttachment(file)) {
-          const fileName = file.name || 'Unknown file';
-          setFileErrors((previous) => {
-            const next = new Map(previous);
-            next.set(fileName, 'Unsupported file type');
-            return next;
-          });
-          return false;
+          rejections.push({ fileName, reason: 'unsupported-type' });
+        } else if (!file.size) {
+          rejections.push({ fileName, reason: 'empty' });
+        } else if (file.size > MAX_CHAT_ATTACHMENT_SIZE_BYTES) {
+          rejections.push({ fileName, reason: 'too-large' });
+        } else if (accepted.length >= MAX_CHAT_ATTACHMENT_COUNT) {
+          rejections.push({ fileName, reason: 'too-many' });
+        } else {
+          accepted.push(file);
         }
-
-        if (!file.size || file.size > MAX_ATTACHMENT_BYTES) {
-          const fileName = file.name || 'Unknown file';
-          setFileErrors((previous) => {
-            const next = new Map(previous);
-            next.set(fileName, 'File too large (max 20MB)');
-            return next;
-          });
-          return false;
-        }
-
-        return true;
-      } catch (error) {
-        console.error('Error validating file:', error, file);
-        return false;
       }
+      return { files: accepted, rejections };
     });
-
-    if (validFiles.length > 0) {
-      setAttachedFiles((previous) => {
-        const combined = [...previous, ...validFiles];
-        if (combined.length > MAX_ATTACHMENTS) {
-          // Don't silently drop attachments over the limit — tell the user.
-          const dropped = combined.length - MAX_ATTACHMENTS;
-          setFileErrors((prevErrors) => {
-            const next = new Map(prevErrors);
-            next.set(
-              '__limit__',
-              `Only ${MAX_ATTACHMENTS} attachments allowed — ${dropped} not added`,
-            );
-            return next;
-          });
-        }
-        return combined.slice(0, MAX_ATTACHMENTS);
-      });
-    }
-  }, [setAttachedFiles]);
+  }, [draftScope, updateScopeAttachments]);
 
   const handlePaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
       const items = Array.from(event.clipboardData.items);
 
-      // Inline image items (pasted screenshots) — attach directly. Non-image
-      // clipboard items are left alone so pasted text still lands in the input.
-      items.forEach((item) => {
-        if (!item.type.startsWith('image/')) {
-          return;
-        }
-        const file = item.getAsFile();
-        if (file) {
-          handleAttachmentFiles([file]);
-        }
-      });
+      // One call for the whole paste: the free-slot count is read once per call,
+      // so attaching the images one by one would let a paste overfill the composer.
+      const pastedImages = items
+        .filter((item) => item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+      if (pastedImages.length > 0) {
+        handleAttachmentFiles(pastedImages);
+        return;
+      }
 
       // Pasted files (from a file manager): accept any supported attachment.
       if (items.length === 0 && event.clipboardData.files.length > 0) {
-        const files = Array.from(event.clipboardData.files);
-        const supported = files.filter((file) => isSupportedAttachment(file));
-        if (supported.length > 0) {
-          handleAttachmentFiles(supported);
-        }
+        handleAttachmentFiles(Array.from(event.clipboardData.files));
       }
     },
     [handleAttachmentFiles],
   );
 
+  // No `maxSize` / `maxFiles` here: react-dropzone would set those files aside
+  // before `onDrop` (and `maxFiles` refuses the whole drop, not just the extra
+  // files), so `handleAttachmentFiles` applies both limits itself and reports them.
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     accept: dropzoneAccept(),
-    maxSize: MAX_ATTACHMENT_BYTES,
-    maxFiles: MAX_ATTACHMENTS,
-    onDrop: handleAttachmentFiles,
+    onDrop: (acceptedFiles, rejectedFiles) => handleAttachmentFiles([
+      ...acceptedFiles,
+      ...rejectedFiles.map(({ file }) => file),
+    ]),
     noClick: true,
     noKeyboard: true,
   });
@@ -973,7 +946,7 @@ export function useChatComposerState({
       if (queuedFromOpenComposer && inputValueRef.current === durableDraft.content) {
         setInput('');
         inputValueRef.current = '';
-        setFileErrors(new Map());
+        dismissAttachmentRejections();
         resetCommandMenuState();
         setIsTextareaExpanded(false);
         if (textareaRef.current) {
@@ -1060,7 +1033,7 @@ export function useChatComposerState({
           : queuedCard.attachments,
       }));
     },
-    [addMessage, recordSentMessage, resetCommandMenuState, setInput, setScopeAttachedFiles, t],
+    [addMessage, dismissAttachmentRejections, recordSentMessage, resetCommandMenuState, setInput, setScopeAttachedFiles, t],
   );
 
   // Every change to the pending steers goes through here so the ref the
@@ -1104,7 +1077,7 @@ export function useChatComposerState({
       if (sessionKeyRef.current === steerSessionKey && inputValueRef.current === message.content) {
         setInput('');
         inputValueRef.current = '';
-        setFileErrors(new Map());
+        dismissAttachmentRejections();
         resetCommandMenuState();
         setIsTextareaExpanded(false);
         if (textareaRef.current) {
@@ -1119,7 +1092,7 @@ export function useChatComposerState({
         writeDraftText(steerSessionKey, '');
       }
     },
-    [recordSentMessage, resetCommandMenuState, sendMessage, setInput, setScopeAttachedFiles, updatePendingSteers],
+    [dismissAttachmentRejections, recordSentMessage, resetCommandMenuState, sendMessage, setInput, setScopeAttachedFiles, updatePendingSteers],
   );
 
   /**
@@ -1209,6 +1182,7 @@ export function useChatComposerState({
     ) => {
       event.preventDefault();
       const submissionScope = draftScopeRef.current;
+      const sendNewSessionTrigger = newSessionTriggerRef.current;
       const currentInput = queuedSubmission?.content ?? inputValueRef.current;
       const currentAttachments = queuedSubmission?.attachments ?? attachedFiles;
       const previouslyUploadedAttachments = queuedSubmission?.uploadedAttachments ?? [];
@@ -1276,7 +1250,7 @@ export function useChatComposerState({
         const queuedSessionKey = sessionKey;
         let uploadedAttachments: unknown[] = [];
         try {
-          uploadedAttachments = await uploadAttachmentFiles(currentAttachments);
+          uploadedAttachments = await uploadAttachmentFiles(currentAttachments, createSteerMessageId());
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';
           console.error('Queued file upload failed:', error);
@@ -1333,7 +1307,7 @@ export function useChatComposerState({
           setInput('');
           inputValueRef.current = '';
           setAttachedFiles([]);
-          setFileErrors(new Map());
+          dismissAttachmentRejections();
           resetCommandMenuState();
           setIsTextareaExpanded(false);
           if (textareaRef.current) {
@@ -1348,7 +1322,7 @@ export function useChatComposerState({
       let uploadedAttachments = previouslyUploadedAttachments;
       if (uploadedAttachments.length === 0 && currentAttachments.length > 0) {
         try {
-          uploadedAttachments = await uploadAttachmentFiles(currentAttachments);
+          uploadedAttachments = await uploadAttachmentFiles(currentAttachments, createSteerMessageId());
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';
           console.error('File upload failed:', error);
@@ -1368,6 +1342,8 @@ export function useChatComposerState({
       // BEFORE the first websocket send: brand-new chats allocate one here
       // via the session gateway. There is no client-visible session-id
       // handoff later — this id stays valid for the conversation's lifetime.
+      // Built once: the new session row records the same selection the send carries.
+      const sendOptions = queuedSubmission?.options ?? buildSendOptions(messageContent);
       let targetSessionId = selectedSession?.id || currentSessionId || null;
       let announceProtectedSession: (() => void) | undefined;
       if (!targetSessionId) {
@@ -1377,6 +1353,9 @@ export function useChatComposerState({
             provider,
             projectPath: resolvedProjectPath,
             initialMessage: messageContent,
+            model: sendOptions.model,
+            effort: sendOptions.effort,
+            permissionMode: sendOptions.permissionMode,
           });
           if (!response.ok) {
             throw new Error(`Failed to create session (${response.status})`);
@@ -1416,6 +1395,12 @@ export function useChatComposerState({
           provider,
           project: selectedProject,
           summary: createdSessionName,
+          newSessionTrigger: sendNewSessionTrigger,
+          selection: {
+            model: sendOptions.model,
+            effort: sendOptions.effort,
+            permissionMode: sendOptions.permissionMode,
+          },
         });
         // Не менять область защищённого набора до завершения подготовки рана.
         if (secretDraft) announceProtectedSession = announce;
@@ -1454,7 +1439,7 @@ export function useChatComposerState({
             content: currentInput,
             attachments: currentAttachments,
             uploadedAttachments,
-            options: buildSendOptions(currentInput),
+            options: sendOptions,
           }, targetSessionId);
           return;
         }
@@ -1515,7 +1500,7 @@ export function useChatComposerState({
         ...(protectedDataId ? { protectedDataId } : {}),
         content: messageContent,
         options: {
-          ...(queuedSubmission?.options ?? buildSendOptions(messageContent)),
+          ...sendOptions,
           attachments: uploadedAttachments,
         },
       });
@@ -1542,7 +1527,7 @@ export function useChatComposerState({
           setInput('');
           inputValueRef.current = '';
           resetCommandMenuState();
-          setFileErrors(new Map());
+          dismissAttachmentRejections();
           setIsTextareaExpanded(false);
           if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
@@ -1562,6 +1547,7 @@ export function useChatComposerState({
       attachedFiles,
       buildSendOptions,
       currentSessionId,
+      dismissAttachmentRejections,
       editingAnchorId,
       executeCommand,
       isLoading,
@@ -2028,7 +2014,8 @@ export function useChatComposerState({
     attachedFiles,
     protectedData,
     setAttachedFiles,
-    fileErrors,
+    attachmentRejections: activeAttachments?.rejections ?? [],
+    dismissAttachmentRejections,
     getRootProps,
     getInputProps,
     isDragActive,

@@ -163,3 +163,24 @@ test('an archived session stays out of the lists even when pinned', async () => 
     );
   });
 });
+
+test('пин индексированного дубля переносится на канонический ID при привязке, перепривязке и fork', async () => {
+  await withIsolatedDatabase(() => {
+    for (const action of ['assign', 'repoint', 'fork'] as const) {
+      const source = `native-${action}`;
+      const target = `app-${action}`;
+      seedSession(source, '2026-09-01T10:00:00.000Z');
+      sessionsDb.toggleSessionPinned(source);
+      if (action !== 'fork') sessionsDb.createAppSession(target, 'claude', WORKSPACE);
+      const jsonlPath = `/transcripts/${source}.jsonl`;
+      if (action === 'assign') sessionsDb.assignProviderSessionId(target, source);
+      else if (action === 'repoint') sessionsDb.repointSessionToProviderSession(target, { providerSessionId: source, jsonlPath });
+      else sessionsDb.createForkedSession({
+        sessionId: target, provider: 'claude', projectPath: WORKSPACE, customName: 'Fork',
+        providerSessionId: source, jsonlPath, forkedFromSessionId: 'parent', model: null, effort: null,
+      });
+      assert.equal(sessionsDb.getSessionById(source), null);
+      assert.equal(sessionsDb.getSessionById(target)?.isPinned, 1);
+    }
+  });
+});

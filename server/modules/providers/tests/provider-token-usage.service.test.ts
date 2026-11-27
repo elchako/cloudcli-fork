@@ -23,6 +23,7 @@ function createSessionRow(overrides: Record<string, unknown> = {}) {
     full_title: null,
     model: null,
     effort: null,
+    permission_mode: null,
     forked_from_session_id: null,
     isArchived: 0,
     isPinned: 0,
